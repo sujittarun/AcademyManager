@@ -65,7 +65,7 @@
       var PROJECT = "https://ugsklcipzyiogxynshnh.supabase.co";
       var BASE = PROJECT + "/rest/v1";
       var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
-      var STRICT_AUTH = false; // flips true in the lockdown commit
+      var STRICT_AUTH = true; // operator account required (dummy user provisioned 2026-07-04)
 
       function amSession() {
         try { return JSON.parse(localStorage.getItem("am-session")); } catch (e) { return null; }
@@ -94,7 +94,9 @@
 
       /* ---------- operator sign-in (Supabase Auth) ---------- */
       var gate = document.getElementById("gate");
-      if (amSession()) gate.classList.add("hide");
+      var s0 = amSession();
+      if (STRICT_AUTH && s0 && !s0.access_token) { localStorage.removeItem("am-session"); s0 = null; }
+      if (s0) gate.classList.add("hide");
       document.getElementById("gateForm").addEventListener("submit", function (e) {
         e.preventDefault();
         var fd = new FormData(this);
