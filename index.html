@@ -62,21 +62,67 @@
       "use strict";
 
       /* ---------- platform DB (anon key; RLS-gated) ---------- */
-      var BASE = "https://ugsklcipzyiogxynshnh.supabase.co/rest/v1";
+      var PROJECT = "https://ugsklcipzyiogxynshnh.supabase.co";
+      var BASE = PROJECT + "/rest/v1";
       var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
+      var STRICT_AUTH = false; // flips true in the lockdown commit
+
+      function amSession() {
+        try { return JSON.parse(localStorage.getItem("am-session")); } catch (e) { return null; }
+      }
+      function bearerTok() {
+        var s = amSession();
+        if (!s || !s.access_token) return Promise.resolve(KEY);
+        if (s.expires_at - Date.now() > 90 * 1000) return Promise.resolve(s.access_token);
+        return fetch(PROJECT + "/auth/v1/token?grant_type=refresh_token", {
+          method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: s.refresh_token }),
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.access_token) throw new Error("expired");
+          s.access_token = j.access_token; s.refresh_token = j.refresh_token;
+          s.expires_at = Date.now() + (j.expires_in || 3600) * 1000;
+          localStorage.setItem("am-session", JSON.stringify(s));
+          return s.access_token;
+        }).catch(function () { localStorage.removeItem("am-session"); return KEY; });
+      }
       function get(path) {
-        return fetch(BASE + path, { headers: { apikey: KEY, Authorization: "Bearer " + KEY } })
-          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        return bearerTok().then(function (tok) {
+          return fetch(BASE + path, { headers: { apikey: KEY, Authorization: "Bearer " + tok } });
+        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
           .catch(function () { return []; });
       }
 
-      /* ---------- session gate ---------- */
+      /* ---------- operator sign-in (Supabase Auth) ---------- */
       var gate = document.getElementById("gate");
-      if (localStorage.getItem("am-session")) gate.classList.add("hide");
+      if (amSession()) gate.classList.add("hide");
       document.getElementById("gateForm").addEventListener("submit", function (e) {
         e.preventDefault();
-        localStorage.setItem("am-session", JSON.stringify({ email: new FormData(this).get("email"), at: Date.now() }));
-        gate.classList.add("hide");
+        var fd = new FormData(this);
+        var open = function () { gate.classList.add("hide"); location.reload(); };
+        fetch(PROJECT + "/auth/v1/token?grant_type=password", {
+          method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          var meta = (j.user && j.user.app_metadata) || {};
+          if (j.access_token && meta.am_role === "operator") {
+            localStorage.setItem("am-session", JSON.stringify({
+              access_token: j.access_token, refresh_token: j.refresh_token,
+              expires_at: Date.now() + (j.expires_in || 3600) * 1000,
+              email: j.user.email, role: "operator",
+            }));
+            open();
+            return;
+          }
+          if (j.access_token) throw new Error("not an operator account");
+          throw new Error(j.error_description || "wrong credentials");
+        }).catch(function (err) {
+          if (!STRICT_AUTH) { // until the operator user exists
+            localStorage.setItem("am-session", JSON.stringify({ email: fd.get("email"), at: Date.now() }));
+            open();
+            return;
+          }
+          alert("Sign-in failed: " + err.message);
+        });
       });
       document.getElementById("signOut").addEventListener("click", function () {
         localStorage.removeItem("am-session");
