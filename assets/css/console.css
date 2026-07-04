@@ -55,7 +55,7 @@ body {
 
 /* ---------- rollup strip ---------- */
 .rollups {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   border: 1px solid var(--hair-strong); border-radius: 10px; background: var(--surface);
   margin: 22px 0 30px; overflow: hidden;
 }

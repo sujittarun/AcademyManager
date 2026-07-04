@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=3" />
+  <link rel="stylesheet" href="assets/css/console.css?v=4" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -37,6 +37,7 @@
       <div><span class="k">GMV · 30d</span><span class="v" id="rGmv">—</span><span class="s">flow through the platform</span></div>
       <div><span class="k">Academies</span><span class="v" id="rTen">—</span><span class="s" id="rTenS"></span></div>
       <div><span class="k">Enquiries · 30d</span><span class="v" id="rApps">—</span><span class="s">new coaching leads</span></div>
+      <div><span class="k">Messaging · 30d</span><span class="v" id="rMsg">—</span><span class="s" id="rMsgS">WhatsApp overhead</span></div>
     </div>
 
     <div class="sec-t">
@@ -186,22 +187,29 @@
           activeDays: r.active_days_30d || 0, lastAt: lastAt, health: health,
           mix: r.channel_mix || {}, weeks: r.weekly_gmv || [],
           errors30: r.errors_30d || 0, appVer: r.app_ver || null,
+          tier: r.tier || "—", players: r.active_players || 0, cap: r.player_cap || 0,
+          msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
         };
       }
 
       /* ---------- render ---------- */
       function paint(accounts) {
-        var mrr = 0, gmv = 0, apps = 0, active = 0;
+        var mrr = 0, gmv = 0, apps = 0, active = 0, msgs = 0, msgCost = 0, overCount = 0;
         accounts.forEach(function (a) {
           mrr += a.sub.mrr || 0; gmv += a.gmv; apps += a.apps30;
+          msgs += a.msgs; msgCost += a.msgCost;
           if (a.health[0] === "ok") active++;
+          if (a.cap && a.players > a.cap) overCount++;
         });
         document.getElementById("rMrr").textContent = inr(mrr);
-        document.getElementById("rMrrS").textContent = accounts.length + " subscription" + (accounts.length === 1 ? "" : "s");
+        document.getElementById("rMrrS").textContent = accounts.length + " subscription" + (accounts.length === 1 ? "" : "s") +
+          (overCount ? " · " + overCount + " over cap" : "");
         document.getElementById("rGmv").textContent = inr(gmv);
         document.getElementById("rTen").textContent = accounts.length;
         document.getElementById("rTenS").textContent = active + " active this week";
         document.getElementById("rApps").textContent = apps;
+        document.getElementById("rMsg").textContent = inr(msgCost);
+        document.getElementById("rMsgS").textContent = msgs + " messages sent";
 
         document.getElementById("accounts").innerHTML = accounts.map(row).join("");
       }
@@ -229,12 +237,16 @@
         var mixKeys = Object.keys(a.mix).sort(function (x, y) { return a.mix[y] - a.mix[x]; });
         var mixTotal = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
         var wkMax = Math.max.apply(null, a.weeks.concat([1]));
+        var over = a.cap && a.players > a.cap;
+        var nearCap = a.cap && !over && a.players >= a.cap * 0.85;
+        var capWarn = over ? ' · <span style="color:var(--risk);">over cap by ' + (a.players - a.cap) + "</span>"
+          : nearCap ? ' · <span style="color:var(--warn);">near cap</span>' : "";
 
         return '<div class="acct" id="acct-' + a.t.id + '">' +
           '<button class="acct-row num" type="button" onclick="document.getElementById(\'acct-' + a.t.id + '\').classList.toggle(\'open\')">' +
           '<span class="a-name"><span class="dot ' + a.health[0] + '"></span>' +
           '<span style="min-width:0;"><span class="n">' + esc(a.t.name) + '</span>' +
-          '<span class="p">' + esc(cfg.city || "") + " · " + a.health[1] + '</span></span><span class="chev">▸</span></span>' +
+          '<span class="p">' + esc(a.tier) + " · " + a.players + "/" + a.cap + " players" + capWarn + '</span></span><span class="chev">▸</span></span>' +
           '<span class="cell"><span class="lbl-m">MRR</span><b>' + inr(sub.mrr) + "</b></span>" +
           '<span class="cell"><span class="lbl-m">GMV</span><b>' + inr(a.gmv) + "</b>" + deltaHtml(a.gmv, a.gmvPrev) + "</span>" +
           '<span class="cell"><span class="lbl-m">Bookings</span>' + a.bookings30 + "</span>" +
@@ -260,9 +272,12 @@
           "</div>" +
 
           "<div>" +
-          '<div class="d-block"><h3>Account</h3><div class="facts">' +
-          '<div class="f"><span class="k">Plan</span><span class="v acc">' + esc(sub.plan) + "</span></div>" +
+          '<div class="d-block"><h3>Plan &amp; billing</h3><div class="facts">' +
+          '<div class="f"><span class="k">Tier</span><span class="v acc">' + esc(a.tier) + "</span></div>" +
           '<div class="f"><span class="k">Subscription</span><span class="v">' + inr(sub.mrr) + " / mo</span></div>" +
+          '<div class="f"><span class="k">Active players</span><span class="v"' + (over ? ' style="color:var(--risk);"' : nearCap ? ' style="color:var(--warn);"' : "") + ">" +
+            a.players + " / " + a.cap + (over ? " · charge overage" : "") + "</span></div>" +
+          '<div class="f"><span class="k">Messaging · 30d</span><span class="v">' + a.msgs + " msgs · " + inr(a.msgCost) + "</span></div>" +
           '<div class="f"><span class="k">Status</span><span class="v">' + esc(sub.status) + "</span></div>" +
           '<div class="f"><span class="k">Renews</span><span class="v">' + (sub.renews_on ? fmtD(sub.renews_on) : "—") + "</span></div>" +
           "</div></div>" +
