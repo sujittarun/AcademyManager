@@ -118,7 +118,7 @@
             get("/bookings?tenant_id=eq." + t.id + "&date=gte." + since60 + "&status=neq.cancelled&select=date,amount,status,source"),
             get("/payments?tenant_id=eq." + t.id + "&on_date=gte." + since60 + "&select=amount,on_date"),
             get("/applications?tenant_id=eq." + t.id + "&created_at=gte." + since30 + "&select=created_at"),
-            get("/events?tenant_id=eq." + t.id + "&at=gte." + since30 + "&select=at,session_id&limit=5000&order=at.desc"),
+            get("/events?tenant_id=eq." + t.id + "&at=gte." + since30 + "&select=name,at,session_id,props&limit=5000&order=at.desc"),
           ]).then(function (d) { return account(t, subs[t.id], d[0], d[1], d[2], d[3]); });
         })).then(paint);
       });
@@ -144,6 +144,8 @@
           activeDays[d] = 1;
           if (e.session_id) sessions[e.session_id] = 1;
         });
+        var errors = events.filter(function (e) { return e.name === "client_error"; });
+        var verEvent = events.find(function (e) { return e.name === "page_view" && e.props && e.props.ver; });
         var lastAt = events.length ? events[0].at : null;
         var hrs = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : Infinity;
         var health = !events.length ? ["gray", "Onboarding"]
@@ -169,6 +171,8 @@
           byDay: byDay, sessions: Object.keys(sessions).length,
           activeDays: Object.keys(activeDays).length,
           lastAt: lastAt, health: health, mix: mix, weeks: weeks,
+          errors30: errors.length, lastError: errors[0] || null,
+          appVer: verEvent ? verEvent.props.ver : null,
         };
       }
 
@@ -253,6 +257,10 @@
           '<div class="f"><span class="k">Active days</span><span class="v">' + a.activeDays + " / 30</span></div>" +
           '<div class="f"><span class="k">Sessions</span><span class="v">' + a.sessions + "</span></div>" +
           '<div class="f"><span class="k">Last activity</span><span class="v">' + ago(a.lastAt) + "</span></div>" +
+          '<div class="f"><span class="k">Errors · 30d</span><span class="v"' +
+          (a.errors30 ? ' style="color:var(--risk);" title="' + esc(a.lastError && a.lastError.props && a.lastError.props.msg || "") + '"' : "") + ">" +
+          a.errors30 + "</span></div>" +
+          '<div class="f"><span class="k">App build</span><span class="v">' + (a.appVer ? "v" + esc(a.appVer) : "—") + "</span></div>" +
           "</div>" +
           (cfg.url ? '<a class="tenant-link" href="' + esc(cfg.url) + '" target="_blank" rel="noopener">Open ' + esc(cfg.brand || a.t.name) + " console →</a>" : "") +
           "</div>" +
