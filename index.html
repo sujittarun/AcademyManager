@@ -3,90 +3,65 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#070b16" />
-  <title>Academy Manager — Control Room</title>
+  <meta name="theme-color" content="#f6f6f3" />
+  <title>Academy Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Inter:wght@400;500;650;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/am.css?v=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/console.css?v=2" />
 </head>
 <body>
-  <div class="am-bg" aria-hidden="true"></div>
-
-  <!-- sign-in gate -->
+  <!-- operator sign-in -->
   <div class="gate" id="gate">
-    <form class="glass gate-card" id="gateForm">
-      <div class="am-mark">AM</div>
-      <h1 style="font-size:22px;">Academy Manager</h1>
-      <p>Operator console — every academy, one screen.</p>
-      <label class="field"><span>Email</span><input type="email" name="email" placeholder="you@academymanager.in" required /></label>
-      <label class="field"><span>Password</span><input type="password" name="password" placeholder="••••••••" required /></label>
-      <button class="btn btn-primary" type="submit" style="width:100%;">Open console</button>
+    <form class="gate-card" id="gateForm">
+      <div class="wordmark">Academy Manager</div>
+      <p>Operator console. Account-level metrics only — member data stays inside each academy.</p>
+      <label><span>Email</span><input type="email" name="email" required placeholder="you@academymanager.in" /></label>
+      <label><span>Password</span><input type="password" name="password" required placeholder="••••••••" /></label>
+      <button type="submit">Sign in</button>
     </form>
   </div>
 
-  <div class="wrap">
-    <nav class="am-nav glass">
-      <div class="am-mark">AM</div>
-      <div class="t"><strong>Academy Manager</strong><span>Control room</span></div>
-      <div class="spacer"></div>
-      <button class="btn" id="signOut" type="button">Sign out</button>
-    </nav>
+  <div class="shell">
+    <header class="top">
+      <div class="wordmark">Academy Manager</div>
+      <span class="env">Production</span>
+      <span class="sp"></span>
+      <button class="linkbtn" id="signOut" type="button">Sign out</button>
+    </header>
 
-    <div class="head-row">
-      <div>
-        <div class="kicker">Portfolio</div>
-        <h1 id="tenantTitle">—</h1>
-        <div class="sub" id="rangeLine"></div>
-      </div>
-      <div class="chip-row" id="tenantChips"></div>
+    <!-- company rollups -->
+    <div class="rollups num">
+      <div><span class="k">MRR</span><span class="v" id="rMrr">—</span><span class="s" id="rMrrS"></span></div>
+      <div><span class="k">GMV · 30d</span><span class="v" id="rGmv">—</span><span class="s">flow through the platform</span></div>
+      <div><span class="k">Academies</span><span class="v" id="rTen">—</span><span class="s" id="rTenS"></span></div>
+      <div><span class="k">Enquiries · 30d</span><span class="v" id="rApps">—</span><span class="s">new coaching leads</span></div>
     </div>
 
-    <div class="grid kpis">
-      <div class="glass kpi"><span class="lbl">Bookings · 30d</span><span class="val" id="kBookings">—</span><span class="hint" id="kBookingsHint"></span></div>
-      <div class="glass kpi"><span class="lbl">Court revenue · 30d</span><span class="val gold" id="kRevenue">—</span><span class="hint" id="kRevenueHint"></span></div>
-      <div class="glass kpi"><span class="lbl">Applications · 30d</span><span class="val" id="kApps">—</span><span class="hint">coaching enquiries</span></div>
-      <div class="glass kpi"><span class="lbl">Page views · 30d</span><span class="val" id="kViews">—</span><span class="hint" id="kViewsHint"></span></div>
+    <div class="sec-t">
+      <h2>Portfolio</h2>
+      <span class="note">tap an account for its health detail</span>
     </div>
 
-    <div class="grid cols-2">
-      <div style="display:flex; flex-direction:column; gap:14px;">
-        <div class="glass card">
-          <div class="card-head"><h2>Bookings by channel</h2><span class="faint" style="font-size:11.5px;">last 30 days</span></div>
-          <div class="split" id="chSplit"></div>
-          <div class="legend" id="chLegend"></div>
-        </div>
-
-        <div class="glass card">
-          <div class="card-head"><h2>App usage</h2><span class="faint" style="font-size:11.5px;">events per day · last 14 days</span></div>
-          <div class="days" id="useDays"></div>
-          <div class="days-x" id="useX"></div>
-        </div>
-
-        <div class="glass card">
-          <div class="card-head"><h2>What people do</h2><span class="faint" style="font-size:11.5px;">events · 30d</span></div>
-          <div class="bar-list" id="topEvents"></div>
-        </div>
+    <div class="book">
+      <div class="book-head">
+        <span>Account</span><span>MRR</span><span>GMV · 30d</span><span>Bookings</span><span>Enquiries</span><span>Usage · 14d</span><span>Last active</span>
       </div>
-
-      <div style="display:flex; flex-direction:column; gap:14px;">
-        <div class="glass card">
-          <div class="card-head"><h2>Latest activity</h2></div>
-          <div class="rows" id="feed"></div>
-        </div>
-        <div class="glass card">
-          <div class="card-head"><h2>Top pages</h2><span class="faint" style="font-size:11.5px;">views · 30d</span></div>
-          <div class="bar-list" id="topPages"></div>
-        </div>
-      </div>
+      <div id="accounts"></div>
     </div>
+
+    <p class="foot-note">
+      This console tracks account health only: subscription, gross volume, adoption and growth signals.
+      Operational data — members, phone numbers, schedules, individual payments — lives in each academy's
+      own console and is deliberately not shown here.
+    </p>
   </div>
 
   <script>
     (function () {
       "use strict";
 
-      /* ---------- platform DB (anon key: RLS-gated, public by design) ---------- */
+      /* ---------- platform DB (anon key; RLS-gated) ---------- */
       var BASE = "https://ugsklcipzyiogxynshnh.supabase.co/rest/v1";
       var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
       function get(path) {
@@ -114,121 +89,175 @@
       function inr(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
       function fmtD(s) { return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
       var esc = function (s) { var d = document.createElement("i"); d.textContent = String(s == null ? "" : s); return d.innerHTML; };
-
-      var CH_COLORS = {
-        Website: "linear-gradient(90deg,#f4dc9a,#e8c268)",
-        Playo: "linear-gradient(90deg,#6ee7b7,#34d399)",
-        Hudle: "linear-gradient(90deg,#e7f97e,#cbe34f)",
-        District: "linear-gradient(90deg,#93c5fd,#60a5fa)",
-        "Walk-in": "rgba(255,255,255,.35)",
-      };
-
-      /* ---------- tenants ---------- */
-      var tenant = null;
-      get("/tenants?select=id,name&order=created_at").then(function (rows) {
-        if (!rows.length) return;
-        var host = document.getElementById("tenantChips");
-        host.innerHTML = rows.map(function (t, i) {
-          return '<button class="chip' + (i === 0 ? " active" : "") + '" data-t="' + t.id + '" data-n="' + esc(t.name) + '">' + esc(t.name) + "</button>";
-        }).join("");
-        host.addEventListener("click", function (e) {
-          var btn = e.target.closest(".chip");
-          if (!btn) return;
-          host.querySelectorAll(".chip").forEach(function (c) { c.classList.toggle("active", c === btn); });
-          load(btn.dataset.t, btn.dataset.n);
-        });
-        load(rows[0].id, rows[0].name);
-      });
-
-      /* ---------- per-tenant dashboard ---------- */
-      function load(id, name) {
-        tenant = id;
-        document.getElementById("tenantTitle").textContent = name;
-        document.getElementById("rangeLine").textContent =
-          "Last 30 days · " + fmtD(daysAgo(30)) + " – " + fmtD(iso(new Date()));
-
-        var since30 = daysAgo(30), since14 = daysAgo(13);
-        Promise.all([
-          get("/bookings?tenant_id=eq." + id + "&date=gte." + since30 + "&status=neq.cancelled&select=date,amount,status,source,sport"),
-          get("/applications?tenant_id=eq." + id + "&order=created_at.desc&select=name,program,slot,created_at"),
-          get("/payments?tenant_id=eq." + id + "&order=created_at.desc&limit=6&select=name,detail,amount,mode,on_date"),
-          get("/events?tenant_id=eq." + id + "&at=gte." + since30 + "&select=name,at,page,session_id&limit=5000"),
-          get("/reminders_log?tenant_id=eq." + id + "&order=sent_at.desc&limit=4&select=member_id,upi_used,sent_at"),
-        ]).then(function (r) { if (tenant === id) paint(r[0], r[1], r[2], r[3], r[4]); });
+      function ago(ts) {
+        if (!ts) return "never";
+        var m = (Date.now() - new Date(ts)) / 60000;
+        if (m < 60) return Math.max(1, Math.round(m)) + "m ago";
+        if (m < 48 * 60) return Math.round(m / 60) + "h ago";
+        return Math.round(m / 1440) + "d ago";
       }
 
-      function paint(bookings, apps, payments, events, reminders) {
-        /* KPIs */
-        var confirmed = bookings.filter(function (b) { return b.status === "confirmed"; });
-        var revenue = confirmed.reduce(function (s, b) { return s + b.amount; }, 0);
-        var views = events.filter(function (e) { return e.name === "page_view"; });
-        var sessions = {};
-        events.forEach(function (e) { if (e.session_id) sessions[e.session_id] = 1; });
-        var apps30 = apps.filter(function (a) { return a.created_at >= daysAgo(30); });
+      var MIX = {
+        Website: "#4f46e5", Playo: "#1a9e6c", Hudle: "#c98a1b",
+        District: "#3b82c9", "Walk-in": "#b9b7ac",
+      };
 
-        document.getElementById("kBookings").textContent = bookings.length || "0";
-        document.getElementById("kBookingsHint").textContent = confirmed.length + " confirmed";
-        document.getElementById("kRevenue").textContent = inr(revenue);
-        document.getElementById("kRevenueHint").textContent = "confirmed court hours";
-        document.getElementById("kApps").textContent = apps30.length || "0";
-        document.getElementById("kViews").textContent = views.length || "0";
-        document.getElementById("kViewsHint").textContent = Object.keys(sessions).length + " sessions";
+      /* ---------- load portfolio ---------- */
+      var since30 = daysAgo(30), since60 = daysAgo(60);
 
-        /* channel split */
-        var counts = {};
-        bookings.forEach(function (b) { var s = b.source || "Website"; counts[s] = (counts[s] || 0) + 1; });
-        var chans = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
-        var total = bookings.length || 1;
-        document.getElementById("chSplit").innerHTML = chans.map(function (c, i) {
-          return '<i style="width:' + (counts[c] / total) * 100 + "%;background:" + (CH_COLORS[c] || "rgba(255,255,255,.3)") + ";animation-delay:" + i * 90 + 'ms;"></i>';
-        }).join("") || '<i style="width:100%;background:rgba(255,255,255,.08);"></i>';
-        document.getElementById("chLegend").innerHTML = chans.map(function (c) {
-          return '<span><span class="sw" style="background:' + (CH_COLORS[c] || "rgba(255,255,255,.3)") + ';"></span>' + esc(c) + " <b>" + counts[c] + "</b></span>";
-        }).join("") || '<span class="faint">No bookings yet — they appear the moment this academy takes one.</span>';
+      Promise.all([
+        get("/tenants?select=id,name,config&order=created_at"),
+        get("/subscriptions?select=tenant_id,plan,mrr,status,renews_on,notes"),
+      ]).then(function (r) {
+        var tenants = r[0], subs = {};
+        r[1].forEach(function (s) { subs[s.tenant_id] = s; });
+        if (!tenants.length) return;
 
-        /* usage bars, last 14 days */
-        var byDay = {};
-        events.forEach(function (e) { var d = e.at.slice(0, 10); byDay[d] = (byDay[d] || 0) + 1; });
-        var days = [];
-        for (var i = 13; i >= 0; i--) days.push(daysAgo(i));
-        var max = Math.max.apply(null, days.map(function (d) { return byDay[d] || 0; }).concat([1]));
-        document.getElementById("useDays").innerHTML = days.map(function (d, i) {
-          var v = byDay[d] || 0;
-          return '<div class="d" title="' + fmtD(d) + ": " + v + ' events"><i style="height:' + Math.round((v / max) * 100) + "%;animation-delay:" + i * 40 + 'ms;"></i></div>';
-        }).join("");
-        document.getElementById("useX").innerHTML = "<span>" + fmtD(days[0]) + "</span><span>" + fmtD(days[6]) + "</span><span>today</span>";
+        Promise.all(tenants.map(function (t) {
+          return Promise.all([
+            get("/bookings?tenant_id=eq." + t.id + "&date=gte." + since60 + "&status=neq.cancelled&select=date,amount,status,source"),
+            get("/payments?tenant_id=eq." + t.id + "&on_date=gte." + since60 + "&select=amount,on_date"),
+            get("/applications?tenant_id=eq." + t.id + "&created_at=gte." + since30 + "&select=created_at"),
+            get("/events?tenant_id=eq." + t.id + "&at=gte." + since30 + "&select=at,session_id&limit=5000&order=at.desc"),
+          ]).then(function (d) { return account(t, subs[t.id], d[0], d[1], d[2], d[3]); });
+        })).then(paint);
+      });
 
-        /* top events + pages */
-        function barList(hostId, map, skip) {
-          var keys = Object.keys(map).filter(function (k) { return k !== skip; })
-            .sort(function (a, b) { return map[b] - map[a]; }).slice(0, 6);
-          var mx = keys.length ? map[keys[0]] : 1;
-          document.getElementById(hostId).innerHTML = keys.map(function (k, i) {
-            return '<div class="bar-item"><span class="l">' + esc(k) + '</span><span class="b"><i style="width:' + (map[k] / mx) * 100 + "%;animation-delay:" + i * 70 + 'ms;"></i></span><span class="v">' + map[k] + "</span></div>";
-          }).join("") || '<div class="empty">Nothing tracked yet.</div>';
+      /* ---------- per-account aggregates (never member-level) ---------- */
+      function account(t, sub, bookings, payments, apps, events) {
+        function within(list, dateKey, from) { return list.filter(function (x) { return x[dateKey] >= from; }); }
+        var b30 = within(bookings, "date", since30);
+        var bPrev = bookings.filter(function (b) { return b.date < since30; });
+        var p30 = within(payments, "on_date", since30);
+        var pPrev = payments.filter(function (p) { return p.on_date < since30; });
+        function vol(bs, ps) {
+          return bs.filter(function (b) { return b.status === "confirmed"; })
+            .reduce(function (s, b) { return s + b.amount; }, 0) +
+            ps.reduce(function (s, p) { return s + (p.amount || 0); }, 0);
         }
-        var evCounts = {};
-        events.forEach(function (e) { evCounts[e.name] = (evCounts[e.name] || 0) + 1; });
-        barList("topEvents", evCounts, "page_view");
-        var pgCounts = {};
-        views.forEach(function (e) { var p = e.page || "index.html"; pgCounts[p] = (pgCounts[p] || 0) + 1; });
-        barList("topPages", pgCounts, null);
+        var gmv = vol(b30, p30), gmvPrev = vol(bPrev, pPrev);
 
-        /* activity feed: applications + payments + reminders, newest first */
-        var feed = [];
-        apps.slice(0, 6).forEach(function (a) {
-          feed.push({ at: a.created_at, html: '<span class="tag v">Enquiry</span><span class="who">' + esc(a.name) + '</span><span class="what">' + esc(a.program || "any program") + (a.slot ? " · " + esc(a.slot) : "") + "</span>" });
+        var byDay = {}, sessions = {}, activeDays = {};
+        events.forEach(function (e) {
+          var d = e.at.slice(0, 10);
+          byDay[d] = (byDay[d] || 0) + 1;
+          activeDays[d] = 1;
+          if (e.session_id) sessions[e.session_id] = 1;
         });
-        payments.forEach(function (p) {
-          feed.push({ at: p.on_date, html: '<span class="tag g">Payment</span><span class="who">' + esc(p.name) + '</span><span class="what">' + esc(p.detail || p.mode || "") + '</span><span class="amt">' + inr(p.amount) + "</span>" });
+        var lastAt = events.length ? events[0].at : null;
+        var hrs = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : Infinity;
+        var health = !events.length ? ["gray", "Onboarding"]
+          : hrs <= 48 ? ["ok", "Active"]
+          : hrs <= 14 * 24 ? ["warn", "Quiet"]
+          : ["risk", "At risk"];
+
+        var mix = {};
+        b30.forEach(function (b) { var s = b.source || "Website"; mix[s] = (mix[s] || 0) + 1; });
+
+        // weekly GMV, 8 buckets of 7 days ending today
+        var weeks = [];
+        for (var w = 7; w >= 0; w--) {
+          var from = daysAgo(w * 7 + 6), to = daysAgo(w * 7);
+          var bs = bookings.filter(function (b) { return b.date >= from && b.date <= to; });
+          var ps = payments.filter(function (p) { return p.on_date >= from && p.on_date <= to; });
+          weeks.push(vol(bs, ps));
+        }
+
+        return {
+          t: t, sub: sub || { plan: "—", mrr: 0, status: "unbilled", renews_on: null },
+          gmv: gmv, gmvPrev: gmvPrev, bookings30: b30.length, apps30: apps.length,
+          byDay: byDay, sessions: Object.keys(sessions).length,
+          activeDays: Object.keys(activeDays).length,
+          lastAt: lastAt, health: health, mix: mix, weeks: weeks,
+        };
+      }
+
+      /* ---------- render ---------- */
+      function paint(accounts) {
+        var mrr = 0, gmv = 0, apps = 0, active = 0;
+        accounts.forEach(function (a) {
+          mrr += a.sub.mrr || 0; gmv += a.gmv; apps += a.apps30;
+          if (a.health[0] === "ok") active++;
         });
-        reminders.forEach(function (r) {
-          feed.push({ at: r.sent_at, html: '<span class="tag gr">Reminder</span><span class="who">Member #' + esc(r.member_id) + '</span><span class="what">WhatsApp · UPI ' + esc(r.upi_used || "") + "</span>" });
+        document.getElementById("rMrr").textContent = inr(mrr);
+        document.getElementById("rMrrS").textContent = accounts.length + " subscription" + (accounts.length === 1 ? "" : "s");
+        document.getElementById("rGmv").textContent = inr(gmv);
+        document.getElementById("rTen").textContent = accounts.length;
+        document.getElementById("rTenS").textContent = active + " active this week";
+        document.getElementById("rApps").textContent = apps;
+
+        document.getElementById("accounts").innerHTML = accounts.map(row).join("");
+      }
+
+      function sparkHtml(byDay) {
+        var out = [], max = 1, vals = [];
+        for (var i = 13; i >= 0; i--) { var v = byDay[daysAgo(i)] || 0; vals.push(v); if (v > max) max = v; }
+        vals.forEach(function (v) {
+          out.push('<i class="' + (v ? "" : "z") + '" style="height:' + Math.max(8, Math.round((v / max) * 100)) + '%;"></i>');
         });
-        feed.sort(function (a, b) { return String(b.at).localeCompare(String(a.at)); });
-        document.getElementById("feed").innerHTML = feed.slice(0, 9).map(function (f) {
-          return '<div class="row">' + f.html + '<span class="when">' + fmtD(f.at) + "</span></div>";
-        }).join("") || '<div class="empty">No activity yet for this academy.</div>';
+        return '<span class="spark">' + out.join("") + "</span>";
+      }
+
+      function deltaHtml(now, prev) {
+        if (!prev && !now) return "";
+        if (!prev) return '<span class="delta up">new</span>';
+        var pct = Math.round(((now - prev) / prev) * 100);
+        if (Math.abs(pct) < 2) return '<span class="delta flat">±0%</span>';
+        return '<span class="delta ' + (pct > 0 ? "up" : "down") + '">' + (pct > 0 ? "+" : "") + pct + "%</span>";
+      }
+
+      function row(a) {
+        var cfg = a.t.config || {};
+        var sub = a.sub;
+        var mixKeys = Object.keys(a.mix).sort(function (x, y) { return a.mix[y] - a.mix[x]; });
+        var mixTotal = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
+        var wkMax = Math.max.apply(null, a.weeks.concat([1]));
+
+        return '<div class="acct" id="acct-' + a.t.id + '">' +
+          '<button class="acct-row num" type="button" onclick="document.getElementById(\'acct-' + a.t.id + '\').classList.toggle(\'open\')">' +
+          '<span class="a-name"><span class="dot ' + a.health[0] + '"></span>' +
+          '<span style="min-width:0;"><span class="n">' + esc(a.t.name) + '</span>' +
+          '<span class="p">' + esc(cfg.city || "") + " · " + a.health[1] + '</span></span><span class="chev">▸</span></span>' +
+          '<span class="cell"><span class="lbl-m">MRR</span><b>' + inr(sub.mrr) + "</b></span>" +
+          '<span class="cell"><span class="lbl-m">GMV</span><b>' + inr(a.gmv) + "</b>" + deltaHtml(a.gmv, a.gmvPrev) + "</span>" +
+          '<span class="cell"><span class="lbl-m">Bookings</span>' + a.bookings30 + "</span>" +
+          '<span class="cell"><span class="lbl-m">Enquiries</span>' + a.apps30 + "</span>" +
+          '<span class="cell spark-cell">' + sparkHtml(a.byDay) + "</span>" +
+          '<span class="cell last-active">' + ago(a.lastAt) + "</span>" +
+          "</button>" +
+
+          '<div class="acct-detail num">' +
+          "<div>" +
+          '<div class="d-block"><h3>Gross volume · weekly, last 8 weeks</h3>' +
+          '<div class="wk">' + a.weeks.map(function (v) {
+            return '<span class="w" title="' + inr(v) + '"><i class="' + (v ? "" : "z") + '" style="height:' + Math.max(3, Math.round((v / wkMax) * 100)) + '%;"></i></span>';
+          }).join("") + "</div>" +
+          '<div class="wk-x"><span>' + fmtD(daysAgo(55)) + "</span><span>this week</span></div></div>" +
+          '<div class="d-block"><h3>Booking channels · 30d</h3>' +
+          '<div class="mix">' + (mixKeys.map(function (k) {
+            return '<i style="width:' + (a.mix[k] / mixTotal) * 100 + "%;background:" + (MIX[k] || "#b9b7ac") + ';"></i>';
+          }).join("") || '<i style="width:100%;background:var(--hair);"></i>') + "</div>" +
+          '<div class="mix-legend">' + (mixKeys.map(function (k) {
+            return '<span><span class="sw" style="background:' + (MIX[k] || "#b9b7ac") + ';"></span>' + esc(k) + " " + Math.round((a.mix[k] / mixTotal) * 100) + "%</span>";
+          }).join("") || "No bookings this month") + "</div></div>" +
+          "</div>" +
+
+          "<div>" +
+          '<div class="d-block"><h3>Account</h3><div class="facts">' +
+          '<div class="f"><span class="k">Plan</span><span class="v acc">' + esc(sub.plan) + "</span></div>" +
+          '<div class="f"><span class="k">Subscription</span><span class="v">' + inr(sub.mrr) + " / mo</span></div>" +
+          '<div class="f"><span class="k">Status</span><span class="v">' + esc(sub.status) + "</span></div>" +
+          '<div class="f"><span class="k">Renews</span><span class="v">' + (sub.renews_on ? fmtD(sub.renews_on) : "—") + "</span></div>" +
+          "</div></div>" +
+          '<div class="d-block"><h3>Adoption · 30d</h3><div class="facts">' +
+          '<div class="f"><span class="k">Active days</span><span class="v">' + a.activeDays + " / 30</span></div>" +
+          '<div class="f"><span class="k">Sessions</span><span class="v">' + a.sessions + "</span></div>" +
+          '<div class="f"><span class="k">Last activity</span><span class="v">' + ago(a.lastAt) + "</span></div>" +
+          "</div>" +
+          (cfg.url ? '<a class="tenant-link" href="' + esc(cfg.url) + '" target="_blank" rel="noopener">Open ' + esc(cfg.brand || a.t.name) + " console →</a>" : "") +
+          "</div>" +
+          "</div>" +
+          "</div></div>";
       }
     })();
   </script>
