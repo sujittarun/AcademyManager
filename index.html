@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=2" />
+  <link rel="stylesheet" href="assets/css/console.css?v=3" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -92,6 +92,15 @@
         }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
           .catch(function () { return []; });
       }
+      function rpc(name, args) {
+        return bearerTok().then(function (tok) {
+          return fetch(BASE + "/rpc/" + name, {
+            method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+            body: JSON.stringify(args || {}),
+          });
+        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .catch(function () { return []; });
+      }
 
       /* ---------- operator sign-in (Supabase Auth) ---------- */
       var gate = document.getElementById("gate");
@@ -151,77 +160,32 @@
         District: "#3b82c9", "Walk-in": "#b9b7ac",
       };
 
-      /* ---------- load portfolio ---------- */
-      var since30 = daysAgo(30), since60 = daysAgo(60);
-
-      Promise.all([
-        get("/tenants?select=id,name,config&order=created_at"),
-        get("/subscriptions?select=tenant_id,plan,mrr,status,renews_on,notes"),
-      ]).then(function (r) {
-        var tenants = r[0], subs = {};
-        r[1].forEach(function (s) { subs[s.tenant_id] = s; });
-        if (!tenants.length) return;
-
-        Promise.all(tenants.map(function (t) {
-          return Promise.all([
-            get("/bookings?tenant_id=eq." + t.id + "&date=gte." + since60 + "&status=neq.cancelled&select=date,amount,status,source"),
-            get("/payments?tenant_id=eq." + t.id + "&on_date=gte." + since60 + "&select=amount,on_date"),
-            get("/applications?tenant_id=eq." + t.id + "&created_at=gte." + since30 + "&select=created_at"),
-            get("/events?tenant_id=eq." + t.id + "&at=gte." + since30 + "&select=name,at,session_id,props&limit=5000&order=at.desc"),
-          ]).then(function (d) { return account(t, subs[t.id], d[0], d[1], d[2], d[3]); });
-        })).then(paint);
+      /* ---------- load portfolio ----------
+         ONE call. All rollups are computed in the database
+         (operator_portfolio RPC); member names, phones and payment
+         details never reach this browser — only aggregate numbers do. */
+      rpc("operator_portfolio").then(function (rows) {
+        if (!rows || !rows.length) return;
+        paint(rows.map(account));
       });
 
-      /* ---------- per-account aggregates (never member-level) ---------- */
-      function account(t, sub, bookings, payments, apps, events) {
-        function within(list, dateKey, from) { return list.filter(function (x) { return x[dateKey] >= from; }); }
-        var b30 = within(bookings, "date", since30);
-        var bPrev = bookings.filter(function (b) { return b.date < since30; });
-        var p30 = within(payments, "on_date", since30);
-        var pPrev = payments.filter(function (p) { return p.on_date < since30; });
-        function vol(bs, ps) {
-          return bs.filter(function (b) { return b.status === "confirmed"; })
-            .reduce(function (s, b) { return s + b.amount; }, 0) +
-            ps.reduce(function (s, p) { return s + (p.amount || 0); }, 0);
-        }
-        var gmv = vol(b30, p30), gmvPrev = vol(bPrev, pPrev);
-
-        var byDay = {}, sessions = {}, activeDays = {};
-        events.forEach(function (e) {
-          var d = e.at.slice(0, 10);
-          byDay[d] = (byDay[d] || 0) + 1;
-          activeDays[d] = 1;
-          if (e.session_id) sessions[e.session_id] = 1;
-        });
-        var errors = events.filter(function (e) { return e.name === "client_error"; });
-        var verEvent = events.find(function (e) { return e.name === "page_view" && e.props && e.props.ver; });
-        var lastAt = events.length ? events[0].at : null;
+      /* map a server rollup object to the shape paint()/row() expect */
+      function account(r) {
+        var lastAt = r.last_event_at || null;
         var hrs = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : Infinity;
-        var health = !events.length ? ["gray", "Onboarding"]
+        var health = !lastAt ? ["gray", "Onboarding"]
           : hrs <= 48 ? ["ok", "Active"]
           : hrs <= 14 * 24 ? ["warn", "Quiet"]
           : ["risk", "At risk"];
-
-        var mix = {};
-        b30.forEach(function (b) { var s = b.source || "Website"; mix[s] = (mix[s] || 0) + 1; });
-
-        // weekly GMV, 8 buckets of 7 days ending today
-        var weeks = [];
-        for (var w = 7; w >= 0; w--) {
-          var from = daysAgo(w * 7 + 6), to = daysAgo(w * 7);
-          var bs = bookings.filter(function (b) { return b.date >= from && b.date <= to; });
-          var ps = payments.filter(function (p) { return p.on_date >= from && p.on_date <= to; });
-          weeks.push(vol(bs, ps));
-        }
-
         return {
-          t: t, sub: sub || { plan: "—", mrr: 0, status: "unbilled", renews_on: null },
-          gmv: gmv, gmvPrev: gmvPrev, bookings30: b30.length, apps30: apps.length,
-          byDay: byDay, sessions: Object.keys(sessions).length,
-          activeDays: Object.keys(activeDays).length,
-          lastAt: lastAt, health: health, mix: mix, weeks: weeks,
-          errors30: errors.length, lastError: errors[0] || null,
-          appVer: verEvent ? verEvent.props.ver : null,
+          t: { id: r.tenant_id, name: r.name, config: r.config || {} },
+          sub: { plan: r.plan || "—", mrr: r.mrr || 0, status: r.sub_status || "unbilled", renews_on: r.renews_on },
+          gmv: r.gmv_30d || 0, gmvPrev: r.gmv_prev || 0,
+          bookings30: r.bookings_30d || 0, apps30: r.apps_30d || 0,
+          byDay: r.usage_daily || {}, sessions: r.sessions_30d || 0,
+          activeDays: r.active_days_30d || 0, lastAt: lastAt, health: health,
+          mix: r.channel_mix || {}, weeks: r.weekly_gmv || [],
+          errors30: r.errors_30d || 0, appVer: r.app_ver || null,
         };
       }
 
@@ -307,7 +271,7 @@
           '<div class="f"><span class="k">Sessions</span><span class="v">' + a.sessions + "</span></div>" +
           '<div class="f"><span class="k">Last activity</span><span class="v">' + ago(a.lastAt) + "</span></div>" +
           '<div class="f"><span class="k">Errors · 30d</span><span class="v"' +
-          (a.errors30 ? ' style="color:var(--risk);" title="' + esc(a.lastError && a.lastError.props && a.lastError.props.msg || "") + '"' : "") + ">" +
+          (a.errors30 ? ' style="color:var(--risk);"' : "") + ">" +
           a.errors30 + "</span></div>" +
           '<div class="f"><span class="k">App build</span><span class="v">' + (a.appVer ? "v" + esc(a.appVer) : "—") + "</span></div>" +
           "</div>" +
