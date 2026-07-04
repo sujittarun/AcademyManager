@@ -156,16 +156,19 @@
         return Math.round(m / 1440) + "d ago";
       }
 
-      var MIX = {
-        Website: "#4f46e5", Playo: "#1a9e6c", Hudle: "#c98a1b",
-        District: "#3b82c9", "Walk-in": "#b9b7ac",
-      };
+      // channel colours come from the platform MASTER LIST (get_channels),
+      // so a channel added in the DB is coloured consistently everywhere
+      var MIX = { Website: "#e8c268", Playo: "#34d399", Hudle: "#cbe34f", District: "#60a5fa", "Walk-in": "#9aa3b2" };
 
       /* ---------- load portfolio ----------
          ONE call. All rollups are computed in the database
          (operator_portfolio RPC); member names, phones and payment
          details never reach this browser — only aggregate numbers do. */
-      rpc("operator_portfolio").then(function (rows) {
+      rpc("get_channels").then(function (list) {
+        if (list && list.length) { MIX = {}; list.forEach(function (c) { MIX[c.id] = c.color; }); }
+      }).then(function () {
+        return rpc("operator_portfolio");
+      }).then(function (rows) {
         if (!rows || !rows.length) return;
         paint(rows.map(account));
       });
