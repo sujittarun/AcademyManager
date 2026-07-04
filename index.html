@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=4" />
+  <link rel="stylesheet" href="assets/css/console.css?v=5" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -173,6 +173,25 @@
         paint(rows.map(account));
       });
 
+      // lazy per-tenant error log — operator troubleshooting drill-in.
+      // ONE tagged events store, filtered by tenant; loaded on expand.
+      var errLoaded = {};
+      document.getElementById("accounts").addEventListener("click", function (e) {
+        var btn = e.target.closest(".acct-row"); if (!btn) return;
+        var acct = btn.closest(".acct"); var id = acct.id.replace("acct-", "");
+        if (!acct.classList.contains("open") || errLoaded[id]) return;
+        errLoaded[id] = 1;
+        get("/events?tenant_id=eq." + id + "&name=eq.client_error&order=at.desc&limit=6&select=props,page,at").then(function (rows) {
+          var el = document.getElementById("errlog-" + id); if (!el) return;
+          if (!rows || !rows.length) { el.innerHTML = '<span class="faint" style="font-size:12px;">No errors logged — clean.</span>'; return; }
+          el.innerHTML = rows.map(function (r) {
+            var p = r.props || {};
+            return '<div class="err-row"><span class="err-msg">' + esc(p.msg || "error") + '</span>' +
+              '<span class="err-meta">' + esc(p.src || r.page) + (p.ver ? " · v" + esc(p.ver) : "") + " · " + fmtD(r.at) + "</span></div>";
+          }).join("");
+        });
+      });
+
       /* map a server rollup object to the shape paint()/row() expect */
       function account(r) {
         var lastAt = r.last_event_at || null;
@@ -192,6 +211,9 @@
           errors30: r.errors_30d || 0, appVer: r.app_ver || null,
           tier: r.tier || "—", players: r.active_players || 0, cap: r.player_cap || 0,
           msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
+          totalBookings: r.total_bookings || 0, weekend: r.weekend_bookings || 0,
+          weekday: r.weekday_bookings || 0, bookerRev: r.booker_rev_90d || 0,
+          contacts: r.contacts_count || 0,
         };
       }
 
@@ -292,7 +314,15 @@
           (a.errors30 ? ' style="color:var(--risk);"' : "") + ">" +
           a.errors30 + "</span></div>" +
           '<div class="f"><span class="k">App build</span><span class="v">' + (a.appVer ? "v" + esc(a.appVer) : "—") + "</span></div>" +
-          "</div>" +
+          "</div></div>" +
+          '<div class="d-block"><h3>Court bookings</h3><div class="facts">' +
+          '<div class="f"><span class="k">Bookings · all time</span><span class="v">' + a.totalBookings + "</span></div>" +
+          '<div class="f"><span class="k">Weekday / weekend</span><span class="v">' + a.weekday + " / " + a.weekend + "</span></div>" +
+          '<div class="f"><span class="k">Court revenue · 90d</span><span class="v">' + inr(a.bookerRev) + "</span></div>" +
+          '<div class="f"><span class="k">Unique bookers</span><span class="v">' + a.contacts + "</span></div>" +
+          "</div></div>" +
+          '<div class="d-block"><h3>Recent errors <span style="text-transform:none;font-weight:400;">(troubleshoot)</span></h3>' +
+          '<div class="err-log" id="errlog-' + a.t.id + '"><span class="faint" style="font-size:12px;">Expand to load…</span></div></div>' +
           (cfg.url ? '<a class="tenant-link" href="' + esc(cfg.url) + '" target="_blank" rel="noopener">Open ' + esc(cfg.brand || a.t.name) + " console →</a>" : "") +
           "</div>" +
           "</div>" +
