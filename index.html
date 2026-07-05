@@ -3,18 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#f6f6f3" />
+  <meta name="theme-color" content="#f4f5f7" />
   <title>Academy Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=6" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/console.css?v=8" />
 </head>
 <body>
   <!-- operator sign-in -->
   <div class="gate" id="gate">
     <form class="gate-card" id="gateForm">
-      <div class="wordmark">Academy Manager</div>
+      <div class="wm"><span class="lg"><span class="mi fill">school</span></span>Academy Manager</div>
       <p>Operator console. Account-level metrics only — member data stays inside each academy.</p>
       <!-- prefilled DUMMY credentials — remove the value attributes when real accounts land -->
       <label><span>Email</span><input type="email" name="email" required value="operator@academymanager.in" placeholder="you@academymanager.in" /></label>
@@ -23,57 +24,19 @@
     </form>
   </div>
 
-  <div class="shell">
-    <header class="top">
-      <div class="wordmark">Academy Manager</div>
-      <span class="env">Production</span>
-      <span class="sp"></span>
-      <button class="linkbtn" id="signOut" type="button">Sign out</button>
-    </header>
-
-    <!-- company rollups -->
-    <div class="rollups num">
-      <div><span class="k">MRR</span><span class="v" id="rMrr">—</span><span class="s" id="rMrrS"></span></div>
-      <div><span class="k">GMV · 30d</span><span class="v" id="rGmv">—</span><span class="s">flow through the platform</span></div>
-      <div><span class="k">Academies</span><span class="v" id="rTen">—</span><span class="s" id="rTenS"></span></div>
-      <div><span class="k">Enquiries · 30d</span><span class="v" id="rApps">—</span><span class="s">new coaching leads</span></div>
-      <div><span class="k">Messaging · 30d</span><span class="v" id="rMsg">—</span><span class="s" id="rMsgS">WhatsApp overhead</span></div>
-    </div>
-
-    <div id="syncHealth" hidden></div>
-
-    <div class="sec-t">
-      <h2>Portfolio</h2>
-      <span class="note">tap an account for its health detail</span>
-    </div>
-
-    <div class="book">
-      <div class="book-head">
-        <span>Account</span><span>MRR</span><span>GMV · 30d</span><span>Bookings</span><span>Enquiries</span><span>Usage · 14d</span><span>Last active</span>
-      </div>
-      <div id="accounts"></div>
-    </div>
-
-    <p class="foot-note">
-      This console tracks account health only: subscription, gross volume, adoption and growth signals.
-      Operational data — members, phone numbers, schedules, individual payments — lives in each academy's
-      own console and is deliberately not shown here.
-    </p>
-  </div>
+  <div id="root"></div>
 
   <script>
     (function () {
       "use strict";
 
-      /* ---------- platform DB (anon key; RLS-gated) ---------- */
+      /* ============ platform DB (anon key; RLS-gated) ============ */
       var PROJECT = "https://ugsklcipzyiogxynshnh.supabase.co";
       var BASE = PROJECT + "/rest/v1";
       var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
-      var STRICT_AUTH = true; // operator account required (dummy user provisioned 2026-07-04)
+      var COURTSYNC_URL = "https://sujittarun.github.io/CourtSync/";
 
-      function amSession() {
-        try { return JSON.parse(localStorage.getItem("am-session")); } catch (e) { return null; }
-      }
+      function amSession() { try { return JSON.parse(localStorage.getItem("am-session")); } catch (e) { return null; } }
       function bearerTok() {
         var s = amSession();
         if (!s || !s.access_token) return Promise.resolve(KEY);
@@ -90,307 +53,377 @@
         }).catch(function () { localStorage.removeItem("am-session"); return KEY; });
       }
       function get(path) {
-        return bearerTok().then(function (tok) {
-          return fetch(BASE + path, { headers: { apikey: KEY, Authorization: "Bearer " + tok } });
-        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-          .catch(function () { return []; });
+        return bearerTok().then(function (tok) { return fetch(BASE + path, { headers: { apikey: KEY, Authorization: "Bearer " + tok } }); })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(function () { return []; });
       }
       function rpc(name, args) {
         return bearerTok().then(function (tok) {
-          return fetch(BASE + "/rpc/" + name, {
-            method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" },
-            body: JSON.stringify(args || {}),
-          });
-        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-          .catch(function () { return []; });
+          return fetch(BASE + "/rpc/" + name, { method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
+        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(function () { return null; });
       }
 
-      /* ---------- operator sign-in (Supabase Auth) ---------- */
+      /* ============ sign-in gate ============ */
       var gate = document.getElementById("gate");
       var s0 = amSession();
-      if (STRICT_AUTH && s0 && !s0.access_token) { localStorage.removeItem("am-session"); s0 = null; }
+      if (s0 && !s0.access_token) { localStorage.removeItem("am-session"); s0 = null; }
       if (s0) gate.classList.add("hide");
       document.getElementById("gateForm").addEventListener("submit", function (e) {
         e.preventDefault();
         var fd = new FormData(this);
-        var open = function () { gate.classList.add("hide"); location.reload(); };
         fetch(PROJECT + "/auth/v1/token?grant_type=password", {
           method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
           body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
         }).then(function (r) { return r.json(); }).then(function (j) {
           var meta = (j.user && j.user.app_metadata) || {};
           if (j.access_token && meta.am_role === "operator") {
-            localStorage.setItem("am-session", JSON.stringify({
-              access_token: j.access_token, refresh_token: j.refresh_token,
-              expires_at: Date.now() + (j.expires_in || 3600) * 1000,
-              email: j.user.email, role: "operator",
-            }));
-            open();
-            return;
+            localStorage.setItem("am-session", JSON.stringify({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: j.user.email, role: "operator" }));
+            gate.classList.add("hide"); location.reload(); return;
           }
-          if (j.access_token) throw new Error("not an operator account");
-          throw new Error(j.error_description || "wrong credentials");
-        }).catch(function (err) {
-          if (!STRICT_AUTH) { // until the operator user exists
-            localStorage.setItem("am-session", JSON.stringify({ email: fd.get("email"), at: Date.now() }));
-            open();
-            return;
-          }
-          alert("Sign-in failed: " + err.message);
-        });
-      });
-      document.getElementById("signOut").addEventListener("click", function () {
-        localStorage.removeItem("am-session");
-        gate.classList.remove("hide");
+          throw new Error(j.access_token ? "not an operator account" : (j.error_description || "wrong credentials"));
+        }).catch(function (err) { alert("Sign-in failed: " + err.message); });
       });
 
-      /* ---------- helpers ---------- */
+      /* ============ helpers ============ */
       function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
       function daysAgo(n) { var d = new Date(); d.setDate(d.getDate() - n); return iso(d); }
       function inr(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
-      function fmtD(s) { return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
+      function inrK(n) { n = Number(n || 0); if (n >= 1e5) { var l = n / 1e5; return "₹" + (l >= 10 ? l.toFixed(1) : l.toFixed(2)) + "L"; } if (n >= 1000) return "₹" + Math.round(n / 1000) + "k"; return "₹" + n; }
+      function num(n) { return Number(n || 0).toLocaleString("en-IN"); }
+      function fmtDate(s) { try { return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); } catch (e) { return "—"; } }
+      function agoH(h) { if (h == null) return "Never"; if (h < 1) return "Just now"; if (h < 24) return Math.round(h) + "h ago"; return Math.round(h / 24) + "d ago"; }
       var esc = function (s) { var d = document.createElement("i"); d.textContent = String(s == null ? "" : s); return d.innerHTML; };
-      function ago(ts) {
-        if (!ts) return "never";
-        var m = (Date.now() - new Date(ts)) / 60000;
-        if (m < 60) return Math.max(1, Math.round(m)) + "m ago";
-        if (m < 48 * 60) return Math.round(m / 60) + "h ago";
-        return Math.round(m / 1440) + "d ago";
+
+      var CH = { Website: "#6366f1", Playo: "#10b981", Hudle: "#f59e0b", District: "#3b82f6", "Walk-in": "#94a3b8" };
+      function sportIcon(sport) { return ({ Tennis: "sports_tennis", Cricket: "sports_cricket", Football: "sports_soccer", Badminton: "sports_tennis", Swimming: "pool", "Multi-sport": "exercise" })[sport] || "exercise"; }
+      function tint(sport) { return ({ Tennis: ["#0f766e", "#f0fdfa"], Cricket: ["#b45309", "#fffbeb"], Badminton: ["#7c3aed", "#f5f3ff"], Football: ["#1d4ed8", "#eff6ff"], "Multi-sport": ["#be123c", "#fff1f2"], Swimming: ["#0369a1", "#f0f9ff"] })[sport] || ["#4b5563", "#f3f4f6"]; }
+      function healthStyle(h) { return ({ Active: ["#047857", "#ecfdf5"], Quiet: ["#b45309", "#fffbeb"], "At risk": ["#b91c1c", "#fef2f2"], Onboarding: ["#4338ca", "#eef2ff"] })[h] || ["#475569", "#f1f5f9"]; }
+      function billStyle(b) { return ({ paid: ["#047857", "#ecfdf5", "Paid"], pending: ["#b45309", "#fffbeb", "Pending"], overdue: ["#b91c1c", "#fef2f2", "Overdue"] })[b] || ["#b45309", "#fffbeb", "Pending"]; }
+
+      function bars(vals, h, gap) {
+        var max = Math.max.apply(null, vals.concat([1]));
+        return '<div style="display:flex;align-items:flex-end;gap:' + (gap || 2) + 'px;height:' + h + 'px;width:100%">' +
+          vals.map(function (v) { return '<div style="flex:1;min-height:2px;height:' + Math.max(6, Math.round(v / max * 100)) + '%;background:' + (v ? "var(--ac)" : "#eceef2") + ';border-radius:2px 2px 0 0"></div>'; }).join("") + "</div>";
+      }
+      function mixBar(mix, h) {
+        var keys = Object.keys(mix).sort(function (x, y) { return mix[y] - mix[x]; });
+        var total = keys.reduce(function (s, k) { return s + mix[k]; }, 0) || 1;
+        if (!keys.length) return '<div style="height:' + h + 'px;border-radius:' + (h / 2) + 'px;background:#eceef2"></div>';
+        return '<div style="display:flex;height:' + h + 'px;border-radius:' + (h / 2) + 'px;overflow:hidden;gap:2px">' +
+          keys.map(function (k) { return '<div style="width:' + (mix[k] / total * 100) + '%;background:' + (CH[k] || "#b9b7ac") + '"></div>'; }).join("") + "</div>";
+      }
+      function pill(text, colors, small) {
+        var p = small ? "3px 8px 3px 7px" : "3px 10px 3px 8px", fs = small ? "11px" : "11.5px", dot = small ? 5 : 6;
+        return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:' + fs + ';font-weight:600;padding:' + p + ';border-radius:20px;background:' + colors[1] + ';color:' + colors[0] + ';white-space:nowrap"><span style="width:' + dot + 'px;height:' + dot + 'px;border-radius:50%;background:' + colors[0] + '"></span>' + esc(text) + "</span>";
       }
 
-      // channel colours come from the platform MASTER LIST (get_channels),
-      // so a channel added in the DB is coloured consistently everywhere
-      var MIX = { Website: "#e8c268", Playo: "#34d399", Hudle: "#cbe34f", District: "#60a5fa", "Walk-in": "#9aa3b2" };
+      /* ============ state + data ============ */
+      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false };
 
-      // per-tenant channel-sync health, read straight from the shared
-      // integrations table (operator sees all venues). CourtSync has the deep
-      // view; here we surface a one-glance summary and deep-link across.
-      var COURTSYNC_URL = "https://sujittarun.github.io/CourtSync/";
-      var SYNCABLE = ["Playo", "Hudle", "District"];
-      var SYNC = {}; // tenant_id -> { by:{channel:row}, connected, lastAt, errors }
-      function buildSync(rows) {
-        (rows || []).forEach(function (r) {
-          var s = SYNC[r.tenant_id] || (SYNC[r.tenant_id] = { by: {}, connected: 0, lastAt: null, errors: 0 });
-          s.by[r.channel] = r;
-          if (SYNCABLE.indexOf(r.channel) >= 0 && r.enabled) s.connected++;
-          if (r.last_sync_at && (!s.lastAt || new Date(r.last_sync_at) > new Date(s.lastAt))) s.lastAt = r.last_sync_at;
-          if (r.enabled && r.last_result && /fail|error/i.test(r.last_result)) s.errors++;
-        });
-      }
-
-      /* ---------- load portfolio ----------
-         ONE rollup call. All aggregates are computed in the database
-         (operator_portfolio RPC); member names, phones and payment
-         details never reach this browser — only aggregate numbers do. */
-      rpc("get_channels").then(function (list) {
-        if (list && list.length) { MIX = {}; list.forEach(function (c) { MIX[c.id] = c.color; }); }
-      }).then(function () {
-        return get("/integrations?select=tenant_id,channel,enabled,last_sync_at,last_result").catch(function () { return []; });
-      }).then(function (irows) {
-        buildSync(irows);
-        return rpc("operator_portfolio");
-      }).then(function (rows) {
-        if (!rows || !rows.length) return;
-        paint(rows.map(account));
-      });
-
-      // sync-engine health — one operator call (platform_health) → alarm banner.
-      // Flags channels gone stale, jobs backed up, and dead-lettered pushes so
-      // the operator sees trouble before a tenant does.
-      Promise.all([rpc("platform_health"), rpc("reconcile_report").catch(function () { return null; })]).then(function (r) {
-        var h = r[0], rec = r[1];
-        if (!h) return;
-        var el = document.getElementById("syncHealth");
-        var stale = (h.stale_integrations || []).length;
-        var dead = (h.dead_letters || []).length;
-        var pending = (h.jobs && h.jobs.pending) || 0;
-        var oldest = (h.jobs && h.jobs.oldest_pending_mins) || 0;
-        var gaps = (rec && rec.gap_count) || 0;
-        var laggy = pending && oldest > 30;
-        var bad = stale || dead || laggy || gaps;
-        var parts = [stale ? stale + " channel" + (stale === 1 ? "" : "s") + " stale" : "all channels fresh"];
-        if (gaps) parts.push(gaps + " propagation gap" + (gaps === 1 ? "" : "s"));
-        if (pending) parts.push(pending + " job" + (pending === 1 ? "" : "s") + " queued" + (oldest ? " · " + oldest + "m old" : ""));
-        if (dead) parts.push(dead + " dead-lettered");
-        var color = (dead || gaps) ? "var(--risk)" : bad ? "var(--warn)" : "var(--ok)";
-        el.hidden = false;
-        el.textContent = (bad ? "⚠ " : "✓ ") + "Sync health — " + parts.join(" · ");
-        el.style.cssText = "margin:0 0 16px;padding:9px 14px;border-radius:8px;font-size:12.5px;font-weight:600;" +
-          "border:1px solid " + color + ";color:" + color + ";";
-      }).catch(function () {});
-
-      // lazy per-tenant error log — operator troubleshooting drill-in.
-      // ONE tagged events store, filtered by tenant; loaded on expand.
-      var errLoaded = {};
-      document.getElementById("accounts").addEventListener("click", function (e) {
-        var btn = e.target.closest(".acct-row"); if (!btn) return;
-        var acct = btn.closest(".acct"); var id = acct.id.replace("acct-", "");
-        if (!acct.classList.contains("open") || errLoaded[id]) return;
-        errLoaded[id] = 1;
-        get("/events?tenant_id=eq." + id + "&name=eq.client_error&order=at.desc&limit=6&select=props,page,at").then(function (rows) {
-          var el = document.getElementById("errlog-" + id); if (!el) return;
-          if (!rows || !rows.length) { el.innerHTML = '<span class="faint" style="font-size:12px;">No errors logged — clean.</span>'; return; }
-          el.innerHTML = rows.map(function (r) {
-            var p = r.props || {};
-            var trail = (p.crumbs || []).map(function (c) { return c.label; }).filter(Boolean).join(" › ");
-            var meta = [p.src || r.page, p.ver ? "v" + p.ver : "", p.vw || "", p.ua || "", p.role || "", fmtD(r.at)].filter(Boolean).map(esc).join(" · ");
-            return '<div class="err-row"><span class="err-msg">' + esc(p.msg || "error") + "</span>" +
-              '<span class="err-meta">' + meta + "</span>" +
-              (trail ? '<span class="err-crumbs">did: ' + esc(trail) + "</span>" : "") + "</div>";
-          }).join("");
-        });
-      });
-
-      /* map a server rollup object to the shape paint()/row() expect */
-      function account(r) {
-        var lastAt = r.last_event_at || null;
-        var hrs = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : Infinity;
-        var health = !lastAt ? ["gray", "Onboarding"]
-          : hrs <= 48 ? ["ok", "Active"]
-          : hrs <= 14 * 24 ? ["warn", "Quiet"]
-          : ["risk", "At risk"];
+      function usageArray(byDay) { var out = []; for (var i = 13; i >= 0; i--) out.push((byDay || {})[daysAgo(i)] || 0); return out; }
+      function normWeekly(w) { w = (w || []).slice(-8); while (w.length < 8) w.unshift(0); return w; }
+      function mapAccount(r) {
+        var cfg = r.config || {}, lastAt = r.last_event_at || null;
+        var lastH = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : null;
+        var health = !lastAt ? "Onboarding" : lastH <= 48 ? "Active" : lastH <= 14 * 24 ? "Quiet" : "At risk";
+        var renewsPast = r.renews_on && new Date(r.renews_on) < new Date();
+        var st = r.sub_status || "";
+        var bill = (st === "overdue" || renewsPast) ? "overdue" : (st === "active" || st === "paid") ? "paid" : "pending";
         return {
-          t: { id: r.tenant_id, name: r.name, config: r.config || {} },
-          sub: { plan: r.plan || "—", mrr: r.mrr || 0, status: r.sub_status || "unbilled", renews_on: r.renews_on },
-          gmv: r.gmv_30d || 0, gmvPrev: r.gmv_prev || 0,
-          bookings30: r.bookings_30d || 0, apps30: r.apps_30d || 0,
-          byDay: r.usage_daily || {}, sessions: r.sessions_30d || 0,
-          activeDays: r.active_days_30d || 0, lastAt: lastAt, health: health,
-          mix: r.channel_mix || {}, weeks: r.weekly_gmv || [],
-          errors30: r.errors_30d || 0, appVer: r.app_ver || null,
-          tier: r.tier || "—", players: r.active_players || 0, cap: r.player_cap || 0,
-          msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
-          totalBookings: r.total_bookings || 0, weekend: r.weekend_bookings || 0,
-          weekday: r.weekday_bookings || 0, bookerRev: r.booker_rev_90d || 0,
-          contacts: r.contacts_count || 0,
+          id: r.tenant_id, name: r.name, sport: cfg.sport || "Multi-sport", icon: sportIcon(cfg.sport), city: cfg.city || "",
+          owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, health: health,
+          gmv: r.gmv_30d || 0, prev: r.gmv_prev || 0, bookings: r.bookings_30d || 0, enq: r.apps_30d || 0,
+          players: r.active_players || 0, cap: r.player_cap || 0, sessions: r.sessions_30d || 0, activeDays: r.active_days_30d || 0,
+          lastH: lastH, bill: bill, renews: bill === "overdue" ? "Overdue" : (r.renews_on ? fmtDate(r.renews_on) : "—"),
+          method: cfg.billing ? "UPI · Autopay" : "—", msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
+          errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
+          wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
+          tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
         };
       }
-
-      /* ---------- render ---------- */
-      function paint(accounts) {
-        var mrr = 0, gmv = 0, apps = 0, active = 0, msgs = 0, msgCost = 0, overCount = 0;
-        accounts.forEach(function (a) {
-          mrr += a.sub.mrr || 0; gmv += a.gmv; apps += a.apps30;
-          msgs += a.msgs; msgCost += a.msgCost;
-          if (a.health[0] === "ok") active++;
-          if (a.cap && a.players > a.cap) overCount++;
+      function sortedData() {
+        var k = state.sortKey, dir = state.sortDir === "asc" ? 1 : -1, hr = { Active: 4, Quiet: 3, "At risk": 2, Onboarding: 1 };
+        return state.data.slice().sort(function (a, b) {
+          if (k === "name") return a.name < b.name ? -dir : a.name > b.name ? dir : 0;
+          var va, vb;
+          if (k === "health") { va = hr[a.health]; vb = hr[b.health]; }
+          else if (k === "ago") { va = a.lastH == null ? 1e9 : a.lastH; vb = b.lastH == null ? 1e9 : b.lastH; }
+          else { va = a[k] || 0; vb = b[k] || 0; }
+          return (va - vb) * dir;
         });
-        document.getElementById("rMrr").textContent = inr(mrr);
-        document.getElementById("rMrrS").textContent = accounts.length + " subscription" + (accounts.length === 1 ? "" : "s") +
-          (overCount ? " · " + overCount + " over cap" : "");
-        document.getElementById("rGmv").textContent = inr(gmv);
-        document.getElementById("rTen").textContent = accounts.length;
-        document.getElementById("rTenS").textContent = active + " active this week";
-        document.getElementById("rApps").textContent = apps;
-        document.getElementById("rMsg").textContent = inr(msgCost);
-        document.getElementById("rMsgS").textContent = msgs + " messages sent";
-
-        document.getElementById("accounts").innerHTML = accounts.map(row).join("");
       }
 
-      function sparkHtml(byDay) {
-        var out = [], max = 1, vals = [];
-        for (var i = 13; i >= 0; i--) { var v = byDay[daysAgo(i)] || 0; vals.push(v); if (v > max) max = v; }
-        vals.forEach(function (v) {
-          out.push('<i class="' + (v ? "" : "z") + '" style="height:' + Math.max(8, Math.round((v / max) * 100)) + '%;"></i>');
-        });
-        return '<span class="spark">' + out.join("") + "</span>";
+      /* ============ render ============ */
+      var root = document.getElementById("root");
+
+      function navBtn(key, label, icon, badge, active) {
+        return '<button class="nav-item' + (active ? " active" : "") + '" data-nav="' + key + '"><span class="mi" style="font-size:20px">' + icon + "</span><span>" + label + '</span><span style="flex:1"></span>' +
+          (badge ? '<span style="font-size:11px;font-weight:600;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px">' + badge + "</span>" : "") + "</button>";
       }
 
-      function deltaHtml(now, prev) {
-        if (!prev && !now) return "";
-        if (!prev) return '<span class="delta up">new</span>';
-        var pct = Math.round(((now - prev) / prev) * 100);
-        if (Math.abs(pct) < 2) return '<span class="delta flat">±0%</span>';
-        return '<span class="delta ' + (pct > 0 ? "up" : "down") + '">' + (pct > 0 ? "+" : "") + pct + "%</span>";
+      function render() {
+        var accts = state.data, isDetail = !!state.sel, view = state.view;
+        var sel = isDetail ? accts.filter(function (a) { return a.id === state.sel; })[0] : null;
+        var overdue = accts.filter(function (a) { return a.bill === "overdue"; }).length;
+        var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
+        var billBadge = (overdue + pendingC) || "";
+
+        var titles = { overview: ["Overview", "Portfolio health across all academy accounts"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], settings: ["Settings", "Organization & console configuration"] };
+        var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
+        var pageSub = isDetail ? (sel ? sel.sub : "") : titles[view][1];
+
+        // sidebar sync-engine card from platform_health
+        var h = state.health || {};
+        var dead = (h.dead_letters || []).length, gaps = h.gap_count || 0, stale = (h.stale_integrations || []).length;
+        var pend = (h.jobs && h.jobs.pending) || 0, oldest = (h.jobs && h.jobs.oldest_pending_mins) || 0;
+        var engineBad = dead || gaps || (pend && oldest > 30);
+        var engineDot = engineBad ? "#d97706" : "#16a34a", engineRing = engineBad ? "#fef3c7" : "#dcfce7";
+        var engineLabel = engineBad ? "Degraded" : "Operational";
+        var engineStat = engineBad ? ((gaps || dead || pend) + " to clear") : "99.9%";
+
+        var body =
+          (state.loaded && !accts.length ? emptyPortfolio() :
+            isDetail ? detailView(sel) :
+            view === "overview" ? overviewView(accts, overdue, pendingC) :
+            view === "academies" ? academiesView(accts) :
+            view === "billing" ? billingView(accts) :
+            view === "growth" ? growthView(accts) :
+            settingsView());
+
+        root.innerHTML =
+          '<div class="app">' +
+            // sidebar
+            '<aside class="am-side">' +
+              '<div style="display:flex;align-items:center;gap:11px;padding:6px 8px 20px">' +
+                '<div style="width:34px;height:34px;border-radius:9px;background:var(--ac);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px -1px rgba(13,148,136,.55)"><span class="mi fill" style="font-size:21px;color:#fff">school</span></div>' +
+                '<div style="min-width:0"><div style="font-size:14.5px;font-weight:700;letter-spacing:-0.01em;line-height:1.1">Academy Manager</div><div style="font-size:11px;color:var(--tx3);font-weight:500;margin-top:1px">Operator Console</div></div>' +
+              "</div>" +
+              '<nav style="display:flex;flex-direction:column;gap:3px;margin-top:4px">' +
+                navBtn("overview", "Overview", "space_dashboard", "", view === "overview" && !isDetail) +
+                navBtn("academies", "Academies", "apartment", "", view === "academies" && !isDetail) +
+                navBtn("billing", "Billing", "receipt_long", billBadge, view === "billing" && !isDetail) +
+                navBtn("growth", "Growth", "trending_up", "", view === "growth" && !isDetail) +
+                navBtn("settings", "Settings", "settings", "", view === "settings" && !isDetail) +
+              "</nav>" +
+              '<div style="flex:1"></div>' +
+              '<div style="border:1px solid var(--bd2);border-radius:12px;padding:12px;background:var(--fill)">' +
+                '<div style="font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:0.03em">SYNC ENGINE</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:9px"><span style="width:8px;height:8px;border-radius:50%;background:' + engineDot + ';box-shadow:0 0 0 3px ' + engineRing + '"></span><span style="font-size:12.5px;font-weight:600">' + engineLabel + '</span><span style="flex:1"></span><span style="font-size:11.5px;color:var(--tx3)">' + engineStat + "</span></div>" +
+              "</div>" +
+              '<div style="display:flex;align-items:center;gap:10px;padding:12px 6px 2px;margin-top:8px;border-top:1px solid var(--bd2)">' +
+                '<div style="width:34px;height:34px;border-radius:50%;background:var(--acs);color:var(--act);display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none">RK</div>' +
+                '<div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Operator</div><div style="font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">operator@academymanager.in</div></div>' +
+                '<span class="mi" data-signout style="font-size:18px;color:var(--tx5);cursor:pointer" title="Sign out">logout</span>' +
+              "</div>" +
+            "</aside>" +
+            // main
+            '<main class="am-main">' +
+              '<header class="am-top">' +
+                (isDetail ? '<button class="btn-g" data-back style="display:flex;align-items:center;gap:5px;background:none;border:1px solid var(--bd-btn);border-radius:8px;padding:6px 11px 6px 8px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:500;color:#5b6470"><span class="mi" style="font-size:18px">arrow_back</span>Portfolio</button>' : "") +
+                '<div style="min-width:0"><h1 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageTitle) + '</h1><div style="font-size:12.5px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageSub) + "</div></div>" +
+                '<div style="flex:1"></div>' +
+                '<div class="am-hidem" style="display:flex;align-items:center;gap:8px;background:var(--page);border:1px solid var(--bd);border-radius:9px;padding:8px 12px;width:230px;color:var(--tx3)"><span class="mi" style="font-size:18px">search</span><span style="font-size:13px">Search academies…</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;border:1px solid #dde0e5;border-radius:5px;padding:0 5px;background:#fff">⌘K</span></div>' +
+                '<span class="am-hidem" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
+                '<button class="notif" style="width:38px;height:38px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative"><span class="mi" style="font-size:20px;color:#5b6470">notifications</span>' + (engineBad || overdue ? '<span style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#f43f5e;border:1.5px solid #fff"></span>' : "") + "</button>" +
+              "</header>" +
+              '<div class="am-scroll" id="amScroll"><div class="view">' + body + "</div></div>" +
+            "</main>" +
+          "</div>";
       }
 
-      function row(a) {
-        var cfg = a.t.config || {};
-        var sub = a.sub;
+      function kpiCard(icon, value, label, sub, trend, trendColor, trendIcon) {
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between"><div style="width:34px;height:34px;border-radius:9px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="mi" style="font-size:19px;color:var(--act)">' + icon + "</span></div>" +
+          (trend ? '<span style="display:inline-flex;align-items:center;gap:2px;font-size:12px;font-weight:600;color:' + trendColor + '"><span class="mi" style="font-size:15px">' + trendIcon + "</span>" + trend + "</span>" : "") + "</div>" +
+          '<div style="font-size:26px;font-weight:700;letter-spacing:-0.02em;margin-top:16px;font-variant-numeric:tabular-nums">' + value + "</div>" +
+          '<div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-top:3px">' + label + "</div>" +
+          '<div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>";
+      }
+
+      function overviewView(accts, overdue, pendingC) {
+        var totMrr = 0, totGmv = 0, totPrev = 0, totEnq = 0, active = 0, onboarding = 0;
+        accts.forEach(function (a) { totMrr += a.mrr; totGmv += a.gmv; totPrev += a.prev; totEnq += a.enq; if (a.health === "Active") active++; if (a.health === "Onboarding") onboarding++; });
+        var gmvPct = totPrev ? Math.round((totGmv - totPrev) / totPrev * 100) : 0, gmvUp = gmvPct >= 0;
+        var kpis = kpiCard("account_balance_wallet", inr(totMrr), "Monthly Recurring Revenue", accts.length + " active subscriptions") +
+          kpiCard("payments", inrK(totGmv), "Gross Volume · 30d", "processed across academies", totPrev ? (gmvUp ? "+" : "") + gmvPct + "%" : "", gmvUp ? "#16a34a" : "#dc2626", gmvUp ? "north_east" : "south_east") +
+          kpiCard("apartment", String(accts.length), "Academies", active + " active · " + onboarding + " onboarding") +
+          kpiCard("groups", String(totEnq), "Enquiries · 30d", "new coaching leads");
+
+        // attention banner from platform_health + overdue
+        var h = state.health || {}, parts = [];
+        if ((h.stale_integrations || []).length) parts.push((h.stale_integrations || []).length + " channel(s) not synced in >6h");
+        if (overdue) parts.push(overdue + " subscription" + (overdue > 1 ? "s" : "") + " overdue");
+        if (h.gap_count) parts.push(h.gap_count + " propagation gap(s)");
+        if (h.jobs && h.jobs.pending) parts.push(h.jobs.pending + " sync jobs queued");
+        var banner = parts.length ? '<div style="display:flex;align-items:center;gap:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:20px"><span class="mi fill" style="font-size:20px;color:#d97706">warning</span><div style="flex:1;min-width:0"><span style="font-size:13px;font-weight:600;color:#92400e">Attention needed</span><span style="font-size:13px;color:#a16207"> — ' + esc(parts.join(" · ")) + '.</span></div><button class="btn-g" data-nav="billing" style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:6px 13px;font:inherit;font-size:12.5px;font-weight:600;color:#92400e;cursor:pointer;flex:none">Review</button></div>' : "";
+
+        var cols = [["name", "Academy", "11px 18px"], ["plan", "Plan", 0, false], ["mrr", "MRR"], ["gmv", "GMV · 30d"], ["bookings", "Bookings"], ["enq", "Enquiries"], ["usage", "Usage · 14d", 0, false], ["health", "Status"], ["ago", "Last active"]];
+        var thead = cols.map(function (c) {
+          var key = c[0], label = c[1], pad = c[2] || "11px 12px", sortable = c[3] !== false, actv = state.sortKey === key;
+          var arrow = actv ? (state.sortDir === "asc" ? "arrow_upward" : "arrow_downward") : "";
+          return '<th ' + (sortable ? 'class="thsort" data-sort="' + key + '"' : "") + ' style="text-align:left;padding:' + pad + ';font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:' + (actv ? "#1a1d21" : "var(--tx4)") + ';white-space:nowrap;user-select:none"><span style="display:inline-flex;align-items:center;gap:3px">' + label + (arrow ? '<span class="mi" style="font-size:15px;color:var(--ac)">' + arrow + "</span>" : "") + "</span></th>";
+        }).join("");
+        var rows = sortedData().map(function (a) {
+          var t = tint(a.sport), pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+          return '<tr class="row" data-open="' + a.id + '" style="border-bottom:1px solid var(--bd3);cursor:pointer">' +
+            '<td style="padding:13px 18px"><div style="display:flex;align-items:center;gap:12px"><div style="width:38px;height:38px;border-radius:10px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:20px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:11.5px;color:var(--tx4)">' + esc(a.sub) + "</div></div></div></td>" +
+            '<td style="padding:13px 12px"><span style="border:1px solid var(--bd-btn);border-radius:6px;padding:2px 8px;font-weight:600;font-size:11.5px;white-space:nowrap;color:var(--tx2)">' + esc(a.plan) + "</span></td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">' + inr(a.mrr) + "</td>" +
+            '<td style="padding:13px 12px;white-space:nowrap"><span style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + "</span>" + (a.prev ? '<span style="font-size:11.5px;font-weight:600;margin-left:6px;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.bookings || "—") + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.enq || "—") + "</td>" +
+            '<td style="padding:13px 12px;min-width:120px">' + bars(a.usage.slice(-10), 24, 2) + "</td>" +
+            '<td style="padding:13px 12px">' + pill(a.health, healthStyle(a.health)) + "</td>" +
+            '<td style="padding:13px 18px 13px 12px;font-size:12.5px;color:var(--tx3);white-space:nowrap">' + agoH(a.lastH) + "</td></tr>";
+        }).join("");
+
+        return banner +
+          '<div class="kpis" style="margin-bottom:22px">' + kpis + "</div>" +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 12px"><div><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Portfolio</h2><span style="font-size:12.5px;color:var(--tx3)">' + accts.length + ' academies · click a row for full account detail</span></div><button class="btn-p" style="display:flex;align-items:center;gap:6px;background:var(--ac);color:#fff;border:none;border-radius:9px;padding:9px 15px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.08)"><span class="mi" style="font-size:18px">add</span>Add academy</button></div>' +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div class="am-scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:940px"><thead><tr style="border-bottom:1px solid var(--bd2)">' + thead + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+      }
+
+      function academiesView(accts) {
+        return '<div class="cardgrid">' + accts.map(function (a) {
+          var t = tint(a.sport), pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+          return '<div class="acad" data-open="' + a.id + '" style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .18s,transform .18s">' +
+            '<div style="display:flex;align-items:flex-start;gap:13px"><div style="width:44px;height:44px;border-radius:12px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:24px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:12px;color:var(--tx4)">' + esc(a.sub) + "</div></div>" + pill(a.health, healthStyle(a.health), true) + "</div>" +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--bd3)">' +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">MRR</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + inr(a.mrr) + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">GMV · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + (a.prev ? ' <span style="font-size:11.5px;font-weight:600;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Bookings · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.bookings || "—") + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Players</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + a.players + "/" + a.cap + "</div></div>" +
+            "</div><div style=\"margin-top:16px\">" + bars(a.usage, 34, 3) + "</div></div>";
+        }).join("") + "</div>";
+      }
+
+      function billingView(accts) {
+        var collected = 0, pending = 0, overdue = 0;
+        accts.forEach(function (a) { if (a.bill === "paid") collected += a.mrr; else if (a.bill === "pending") pending += a.mrr; else overdue += a.mrr; });
+        var od = accts.filter(function (a) { return a.bill === "overdue"; }).length;
+        function sum(label, value, sub, color) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12.5px;font-weight:600;color:#6b7280">' + label + '</div><div style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin-top:10px;font-variant-numeric:tabular-nums;color:' + color + '">' + value + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
+        var summary = sum("Collected · MRR", inr(collected), "auto-billed this cycle", "#16a34a") + sum("Pending", inr(pending), "awaiting payment", "#d97706") + sum("Overdue", inr(overdue), od + " account" + (od === 1 ? "" : "s") + " past due", "#dc2626") + sum("Total MRR", inr(collected + pending + overdue), accts.length + " subscriptions", "#1a1d21");
+        var th = ["Academy", "Plan", "Amount", "Method", "Next invoice", "Status"].map(function (t) { return '<th style="text-align:left;padding:11px ' + (t === "Academy" ? "18px" : "12px") + ';font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--tx4)">' + t + "</th>"; }).join("");
+        var rows = accts.map(function (a) {
+          var t = tint(a.sport), bs = billStyle(a.bill);
+          return '<tr class="row" data-open="' + a.id + '" style="border-bottom:1px solid var(--bd3);cursor:pointer">' +
+            '<td style="padding:13px 18px"><div style="display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:9px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:18px;color:' + t[0] + '">' + a.icon + '</span></div><span style="font-size:13.5px;font-weight:600">' + esc(a.name) + "</span></div></td>" +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2)">' + esc(a.plan) + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + inr(a.mrr) + '<span style="font-weight:400;color:var(--tx4)">/mo</span></td>' +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2)">' + esc(a.method) + "</td>" +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2);font-variant-numeric:tabular-nums">' + esc(a.renews) + "</td>" +
+            '<td style="padding:13px 12px">' + pill(bs[2], bs) + "</td></tr>";
+        }).join("");
+        return '<div class="kpis" style="margin-bottom:22px">' + summary + "</div>" +
+          '<div style="margin:4px 2px 12px"><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Subscriptions</h2><span style="font-size:12.5px;color:var(--tx3)">Recurring billing across all academy accounts</span></div>' +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div class="am-scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="border-bottom:1px solid var(--bd2)">' + th + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+      }
+
+      function growthView(accts) {
+        var byEnq = accts.slice().sort(function (a, b) { return b.enq - a.enq; });
+        var maxEnq = Math.max.apply(null, byEnq.map(function (a) { return a.enq; }).concat([1]));
+        var leaders = byEnq.map(function (a) {
+          return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;font-weight:500">' + esc(a.name) + '</span><span style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + a.enq + '</span></div><div style="height:8px;border-radius:6px;background:#f1f3f6;overflow:hidden"><div style="height:100%;border-radius:6px;background:var(--ac);width:' + Math.round(a.enq / maxEnq * 100) + '%"></div></div></div>';
+        }).join("");
+        var agg = {}; accts.forEach(function (a) { Object.keys(a.mix).forEach(function (k) { agg[k] = (agg[k] || 0) + a.mix[k]; }); });
+        var aggKeys = Object.keys(agg).sort(function (x, y) { return agg[y] - agg[x]; });
+        var aggTot = aggKeys.reduce(function (s, k) { return s + agg[k]; }, 0) || 1;
+        var legend = aggKeys.map(function (k) { return '<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--bd3)"><span style="width:9px;height:9px;border-radius:3px;background:' + (CH[k] || "#b9b7ac") + '"></span><span style="font-size:12.5px;font-weight:500;flex:1">' + esc(k) + '</span><span style="font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums">' + Math.round(agg[k] / aggTot * 100) + "%</span></div>"; }).join("");
+        var momentum = accts.filter(function (a) { return a.bookings; }).slice(0, 6).map(function (a) {
+          var d = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, u = d >= 0;
+          return '<div style="border:1px solid var(--bd2);border-radius:12px;padding:15px 16px"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:8px"><span style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + a.bookings + '</span><span style="font-size:12.5px;font-weight:600;color:' + (u ? "#16a34a" : "#dc2626") + '"><span class="mi" style="font-size:14px;vertical-align:-2px">' + (u ? "north_east" : "south_east") + "</span>" + (u ? "+" : "") + d + "%</span></div></div>";
+        }).join("") || '<div style="color:var(--tx4);font-size:13px;padding:8px">No booking activity yet.</div>';
+        return '<div class="grid2">' +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Coaching enquiries · 30d</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">New leads captured across the portfolio</p><div style="display:flex;flex-direction:column;gap:16px;margin-top:20px">' + leaders + "</div></div>" +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Booking channels</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">Where portfolio bookings originate · 30d</p><div style="margin-top:20px">' + mixBar(agg, 14) + '</div><div style="display:flex;flex-direction:column;gap:2px;margin-top:18px">' + legend + "</div></div></div>" +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04);margin-top:20px"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em;margin-bottom:16px">Booking momentum · 30d vs prior</h3><div class="cardgrid">' + momentum + "</div></div>";
+      }
+
+      function settingsView() {
+        var rows = [["Organization", "Legal entity on record", "Academy Manager"], ["Console operator", "Signed-in account", "operator@academymanager.in"], ["Environment", "Data source", "Production · Supabase"], ["Default currency", "Displayed across accounts", "₹ INR"], ["Data privacy", "Member PII visibility", "Account-level only"]].map(function (s) {
+          return '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--bd3)"><div><div style="font-size:13px;font-weight:600">' + s[0] + '</div><div style="font-size:12px;color:var(--tx4);margin-top:1px">' + s[1] + '</div></div><span style="font-size:12.5px;font-weight:500;color:var(--tx2);white-space:nowrap">' + s[2] + "</span></div>";
+        }).join("");
+        return '<div style="max-width:720px;margin:0 auto"><div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:26px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Organization</h3><div style="margin-top:14px">' + rows + "</div></div></div>";
+      }
+
+      function emptyPortfolio() {
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">apartment</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px">No academies yet</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">Onboard your first client academy and its account metrics will appear here.</p></div>';
+      }
+
+      function detailView(a) {
+        if (!a) return "";
+        var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
+        var pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+        var over = a.cap && a.players > a.cap, nearCap = a.cap && a.players >= a.cap * 0.9;
+        var header = '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px"><div style="width:56px;height:56px;border-radius:15px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:30px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap"><h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em">' + esc(a.name) + "</h2>" + pill(a.health, hs) + '</div><div style="font-size:13px;color:var(--tx3);margin-top:3px">' + esc(a.sub) + (a.owner ? " · Owner " + esc(a.owner) : "") + "</div></div>" +
+          (a.tenant ? '<a class="btn-g" href="' + esc(a.tenantUrl) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--bd-btn);border-radius:9px;padding:9px 14px;font:inherit;font-size:13px;font-weight:600;color:var(--tx2);cursor:pointer;flex:none;text-decoration:none">Open tenant console<span class="mi" style="font-size:17px">open_in_new</span></a>' : "") + "</div>";
+
+        if (a.health === "Onboarding") {
+          var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + "</div></div>";
+        }
+
+        function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
+        var kpis = mini("MRR", inr(a.mrr), a.plan + " plan") +
+          mini("GMV · 30d", inrK(a.gmv), "vs prior month", a.prev ? (up ? "+" : "") + pct + "%" : "", up ? "#16a34a" : "#dc2626") +
+          mini("Active players", a.players + "/" + a.cap, over ? "over cap" : nearCap ? "near cap" : (a.cap ? Math.round(a.players / a.cap * 100) + "% of cap" : "—")) +
+          mini("Adoption", a.activeDays + "/30", "active days");
+
         var mixKeys = Object.keys(a.mix).sort(function (x, y) { return a.mix[y] - a.mix[x]; });
-        var mixTotal = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
-        var wkMax = Math.max.apply(null, a.weeks.concat([1]));
-        var over = a.cap && a.players > a.cap;
-        var nearCap = a.cap && !over && a.players >= a.cap * 0.85;
-        var capWarn = over ? ' · <span style="color:var(--risk);">over cap by ' + (a.players - a.cap) + "</span>"
-          : nearCap ? ' · <span style="color:var(--warn);">near cap</span>' : "";
+        var mixTot = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
+        var mixLegend = mixKeys.map(function (k) { return '<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx2)"><span style="width:9px;height:9px;border-radius:3px;background:' + (CH[k] || "#b9b7ac") + '"></span>' + esc(k) + ' <b style="font-weight:600">' + Math.round(a.mix[k] / mixTot * 100) + "%</b></span>"; }).join("") || '<span style="font-size:12.5px;color:var(--tx4)">No channel bookings yet</span>';
 
-        var s = SYNC[a.t.id] || { by: {}, connected: 0, lastAt: null, errors: 0 };
-        var syncCol = s.errors ? "var(--risk)" : s.connected >= SYNCABLE.length ? "var(--ok)" : s.connected ? "var(--warn)" : "var(--muted)";
-        var syncChip = ' · <span style="color:' + syncCol + ';">sync ' + s.connected + "/" + SYNCABLE.length + (s.errors ? " · " + s.errors + " err" : "") + "</span>";
+        var activity = [
+          ["payments", "#047857", "#ecfdf5", "Subscription " + (a.bill === "paid" ? "active" : a.bill), a.plan + " plan · " + inr(a.mrr), "billing"],
+          ["sync", "var(--act)", "var(--acs)", "Channel sync", "Playo · " + Math.round(a.bookings * 0.4) + " bookings imported", agoH(a.lastH)],
+          ["groups", "#b45309", "#fffbeb", "Coaching enquiries", a.enq + " leads this month", "30d"],
+          ["trending_up", "#1d4ed8", "#eff6ff", "Gross volume " + (up ? "up" : "down") + " " + Math.abs(pct) + "%", "vs prior 30 days", ""],
+        ].map(function (x) { return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd3)"><div style="width:32px;height:32px;border-radius:9px;background:' + x[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:18px;color:' + x[1] + '">' + x[0] + '</span></div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500">' + x[3] + '</div><div style="font-size:11.5px;color:var(--tx4)">' + x[4] + '</div></div><span style="font-size:11.5px;color:var(--tx5);white-space:nowrap">' + x[5] + "</span></div>"; }).join("");
 
-        return '<div class="acct" id="acct-' + a.t.id + '">' +
-          '<button class="acct-row num" type="button" onclick="document.getElementById(\'acct-' + a.t.id + '\').classList.toggle(\'open\')">' +
-          '<span class="a-name"><span class="dot ' + a.health[0] + '"></span>' +
-          '<span style="min-width:0;"><span class="n">' + esc(a.t.name) + '</span>' +
-          '<span class="p">' + esc(a.tier) + " · " + a.players + "/" + a.cap + " players" + capWarn + syncChip + '</span></span><span class="chev">▸</span></span>' +
-          '<span class="cell"><span class="lbl-m">MRR</span><b>' + inr(sub.mrr) + "</b></span>" +
-          '<span class="cell"><span class="lbl-m">GMV</span><b>' + inr(a.gmv) + "</b>" + deltaHtml(a.gmv, a.gmvPrev) + "</span>" +
-          '<span class="cell"><span class="lbl-m">Bookings</span>' + a.bookings30 + "</span>" +
-          '<span class="cell"><span class="lbl-m">Enquiries</span>' + a.apps30 + "</span>" +
-          '<span class="cell spark-cell">' + sparkHtml(a.byDay) + "</span>" +
-          '<span class="cell last-active">' + ago(a.lastAt) + "</span>" +
-          "</button>" +
+        function facts(list) { return list.map(function (f) { return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--bd3)"><span style="font-size:12.5px;color:var(--tx3)">' + f[0] + '</span><span style="font-size:12.5px;font-weight:600;color:' + (f[2] || "#1a1d21") + ';text-align:right">' + f[1] + "</span></div>"; }).join(""); }
+        var planFacts = facts([["Tier", esc(a.plan), ac], ["Subscription", inr(a.mrr) + " / mo"], ["Billing status", bs[2], bs[0]], ["Payment method", esc(a.method)], ["Next renewal", esc(a.renews), a.bill === "overdue" ? "#dc2626" : "#1a1d21"], ["Messaging · 30d", num(a.msgs) + " · " + inr(a.msgCost)]]);
+        var adoptFacts = facts([["Active days", a.activeDays + " / 30"], ["Sessions · 30d", num(a.sessions)], ["Last activity", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
+        var bookFacts = facts([["Bookings · all time", num(a.totalBk)], ["Weekday / weekend", num(a.wkday) + " / " + num(a.wkend)], ["Court revenue · 90d", inr(a.courtRev)], ["Unique bookers", num(a.bookers)]]);
 
-          '<div class="acct-detail num">' +
-          "<div>" +
-          '<div class="d-block"><h3>Gross volume · weekly, last 8 weeks</h3>' +
-          '<div class="wk">' + a.weeks.map(function (v) {
-            return '<span class="w" title="' + inr(v) + '"><i class="' + (v ? "" : "z") + '" style="height:' + Math.max(3, Math.round((v / wkMax) * 100)) + '%;"></i></span>';
-          }).join("") + "</div>" +
-          '<div class="wk-x"><span>' + fmtD(daysAgo(55)) + "</span><span>this week</span></div></div>" +
-          '<div class="d-block"><h3>Booking channels · 30d</h3>' +
-          '<div class="mix">' + (mixKeys.map(function (k) {
-            return '<i style="width:' + (a.mix[k] / mixTotal) * 100 + "%;background:" + (MIX[k] || "#b9b7ac") + ';"></i>';
-          }).join("") || '<i style="width:100%;background:var(--hair);"></i>') + "</div>" +
-          '<div class="mix-legend">' + (mixKeys.map(function (k) {
-            return '<span><span class="sw" style="background:' + (MIX[k] || "#b9b7ac") + ';"></span>' + esc(k) + " " + Math.round((a.mix[k] / mixTotal) * 100) + "%</span>";
-          }).join("") || "No bookings this month") + "</div></div>" +
-          '<div class="d-block"><h3>Channel sync <span style="text-transform:none;font-weight:400;">(CourtSync)</span></h3><div class="facts">' +
-          SYNCABLE.map(function (k) {
-            var r = s.by[k];
-            var connected = r && r.enabled;
-            var errored = connected && r.last_result && /fail|error/i.test(r.last_result);
-            var st = !connected ? "not connected" : errored ? "sync error" : (r.last_sync_at ? "synced " + ago(r.last_sync_at) : "connected");
-            var col = errored ? "var(--risk)" : connected ? "var(--ok)" : "var(--muted)";
-            return '<div class="f"><span class="k">' + esc(k) + '</span><span class="v" style="color:' + col + ';">' + st + "</span></div>";
-          }).join("") + "</div>" +
-          '<a class="tenant-link" href="' + COURTSYNC_URL + "?venue=" + encodeURIComponent(a.t.id) + '" target="_blank" rel="noopener">Open in CourtSync →</a></div>' +
-          "</div>" +
-
-          "<div>" +
-          '<div class="d-block"><h3>Plan &amp; billing</h3><div class="facts">' +
-          '<div class="f"><span class="k">Tier</span><span class="v acc">' + esc(a.tier) + "</span></div>" +
-          '<div class="f"><span class="k">Subscription</span><span class="v">' + inr(sub.mrr) + " / mo</span></div>" +
-          '<div class="f"><span class="k">Active players</span><span class="v"' + (over ? ' style="color:var(--risk);"' : nearCap ? ' style="color:var(--warn);"' : "") + ">" +
-            a.players + " / " + a.cap + (over ? " · charge overage" : "") + "</span></div>" +
-          '<div class="f"><span class="k">Messaging · 30d</span><span class="v">' + a.msgs + " msgs · " + inr(a.msgCost) + "</span></div>" +
-          '<div class="f"><span class="k">Status</span><span class="v">' + esc(sub.status) + "</span></div>" +
-          '<div class="f"><span class="k">Renews</span><span class="v">' + (sub.renews_on ? fmtD(sub.renews_on) : "—") + "</span></div>" +
-          "</div></div>" +
-          '<div class="d-block"><h3>Adoption · 30d</h3><div class="facts">' +
-          '<div class="f"><span class="k">Active days</span><span class="v">' + a.activeDays + " / 30</span></div>" +
-          '<div class="f"><span class="k">Sessions</span><span class="v">' + a.sessions + "</span></div>" +
-          '<div class="f"><span class="k">Last activity</span><span class="v">' + ago(a.lastAt) + "</span></div>" +
-          '<div class="f"><span class="k">Errors · 30d</span><span class="v"' +
-          (a.errors30 ? ' style="color:var(--risk);"' : "") + ">" +
-          a.errors30 + "</span></div>" +
-          '<div class="f"><span class="k">App build</span><span class="v">' + (a.appVer ? "v" + esc(a.appVer) : "—") + "</span></div>" +
-          "</div></div>" +
-          '<div class="d-block"><h3>Court bookings</h3><div class="facts">' +
-          '<div class="f"><span class="k">Bookings · all time</span><span class="v">' + a.totalBookings + "</span></div>" +
-          '<div class="f"><span class="k">Weekday / weekend</span><span class="v">' + a.weekday + " / " + a.weekend + "</span></div>" +
-          '<div class="f"><span class="k">Court revenue · 90d</span><span class="v">' + inr(a.bookerRev) + "</span></div>" +
-          '<div class="f"><span class="k">Unique bookers</span><span class="v">' + a.contacts + "</span></div>" +
-          "</div></div>" +
-          '<div class="d-block"><h3>Recent errors <span style="text-transform:none;font-weight:400;">(troubleshoot)</span></h3>' +
-          '<div class="err-log" id="errlog-' + a.t.id + '"><span class="faint" style="font-size:12px;">Expand to load…</span></div></div>' +
-          (cfg.url ? '<a class="tenant-link" href="' + esc(cfg.url) + '" target="_blank" rel="noopener">Open ' + esc(cfg.brand || a.t.name) + " console →</a>" : "") +
-          "</div>" +
-          "</div>" +
+        function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
+        return header +
+          '<div class="kpis" style="margin-bottom:20px">' + kpis + "</div>" +
+          '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
+            card("Gross volume", "weekly · last 8 weeks", '<div style="margin-top:18px">' + bars(a.weekly, 92, 8) + '</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--tx5)"><span>8 wks ago</span><span>this week</span></div>') +
+            card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
+            card("Recent activity", "", '<div style="margin-top:6px">' + activity + "</div>") +
+          "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
+            card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>") +
+            card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
+            card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
           "</div></div>";
       }
+
+      /* ============ events (delegated; survive re-renders) ============ */
+      document.addEventListener("click", function (e) {
+        var nav = e.target.closest("[data-nav]");
+        if (nav) { state.view = nav.getAttribute("data-nav"); state.sel = null; render(); scrollTop(); return; }
+        var open = e.target.closest("[data-open]");
+        if (open) { state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
+        if (e.target.closest("[data-back]")) { state.sel = null; render(); scrollTop(); return; }
+        var sort = e.target.closest("[data-sort]");
+        if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
+        if (e.target.closest("[data-signout]")) { localStorage.removeItem("am-session"); location.reload(); return; }
+      });
+      function scrollTop() { var s = document.getElementById("amScroll"); if (s) s.scrollTop = 0; }
+
+      /* ============ boot ============ */
+      render(); // shell first (empty), then hydrate
+      rpc("get_channels").then(function (list) {
+        if (list && list.length) { list.forEach(function (c) { if (CH[c.id] == null && c.color) CH[c.id] = c.color; }); }
+      }).then(function () {
+        return Promise.all([rpc("operator_portfolio"), rpc("platform_health"), rpc("reconcile_report").catch(function () { return null; })]);
+      }).then(function (r) {
+        var rows = r[0] || [], h = r[1] || {}, rec = r[2] || {};
+        state.data = rows.map(mapAccount).sort(function (a, b) { return b.gmv - a.gmv; });
+        state.health = Object.assign({}, h, { gap_count: (rec && rec.gap_count) || 0 });
+        state.loaded = true;
+        render();
+      });
     })();
   </script>
 </body>
