@@ -160,13 +160,32 @@
       // so a channel added in the DB is coloured consistently everywhere
       var MIX = { Website: "#e8c268", Playo: "#34d399", Hudle: "#cbe34f", District: "#60a5fa", "Walk-in": "#9aa3b2" };
 
+      // per-tenant channel-sync health, read straight from the shared
+      // integrations table (operator sees all venues). CourtSync has the deep
+      // view; here we surface a one-glance summary and deep-link across.
+      var COURTSYNC_URL = "https://sujittarun.github.io/CourtSync/";
+      var SYNCABLE = ["Playo", "Hudle", "District"];
+      var SYNC = {}; // tenant_id -> { by:{channel:row}, connected, lastAt, errors }
+      function buildSync(rows) {
+        (rows || []).forEach(function (r) {
+          var s = SYNC[r.tenant_id] || (SYNC[r.tenant_id] = { by: {}, connected: 0, lastAt: null, errors: 0 });
+          s.by[r.channel] = r;
+          if (SYNCABLE.indexOf(r.channel) >= 0 && r.enabled) s.connected++;
+          if (r.last_sync_at && (!s.lastAt || new Date(r.last_sync_at) > new Date(s.lastAt))) s.lastAt = r.last_sync_at;
+          if (r.enabled && r.last_result && /fail|error/i.test(r.last_result)) s.errors++;
+        });
+      }
+
       /* ---------- load portfolio ----------
-         ONE call. All rollups are computed in the database
+         ONE rollup call. All aggregates are computed in the database
          (operator_portfolio RPC); member names, phones and payment
          details never reach this browser — only aggregate numbers do. */
       rpc("get_channels").then(function (list) {
         if (list && list.length) { MIX = {}; list.forEach(function (c) { MIX[c.id] = c.color; }); }
       }).then(function () {
+        return get("/integrations?select=tenant_id,channel,enabled,last_sync_at,last_result").catch(function () { return []; });
+      }).then(function (irows) {
+        buildSync(irows);
         return rpc("operator_portfolio");
       }).then(function (rows) {
         if (!rows || !rows.length) return;
@@ -270,11 +289,15 @@
         var capWarn = over ? ' · <span style="color:var(--risk);">over cap by ' + (a.players - a.cap) + "</span>"
           : nearCap ? ' · <span style="color:var(--warn);">near cap</span>' : "";
 
+        var s = SYNC[a.t.id] || { by: {}, connected: 0, lastAt: null, errors: 0 };
+        var syncCol = s.errors ? "var(--risk)" : s.connected >= SYNCABLE.length ? "var(--ok)" : s.connected ? "var(--warn)" : "var(--muted)";
+        var syncChip = ' · <span style="color:' + syncCol + ';">sync ' + s.connected + "/" + SYNCABLE.length + (s.errors ? " · " + s.errors + " err" : "") + "</span>";
+
         return '<div class="acct" id="acct-' + a.t.id + '">' +
           '<button class="acct-row num" type="button" onclick="document.getElementById(\'acct-' + a.t.id + '\').classList.toggle(\'open\')">' +
           '<span class="a-name"><span class="dot ' + a.health[0] + '"></span>' +
           '<span style="min-width:0;"><span class="n">' + esc(a.t.name) + '</span>' +
-          '<span class="p">' + esc(a.tier) + " · " + a.players + "/" + a.cap + " players" + capWarn + '</span></span><span class="chev">▸</span></span>' +
+          '<span class="p">' + esc(a.tier) + " · " + a.players + "/" + a.cap + " players" + capWarn + syncChip + '</span></span><span class="chev">▸</span></span>' +
           '<span class="cell"><span class="lbl-m">MRR</span><b>' + inr(sub.mrr) + "</b></span>" +
           '<span class="cell"><span class="lbl-m">GMV</span><b>' + inr(a.gmv) + "</b>" + deltaHtml(a.gmv, a.gmvPrev) + "</span>" +
           '<span class="cell"><span class="lbl-m">Bookings</span>' + a.bookings30 + "</span>" +
@@ -297,6 +320,16 @@
           '<div class="mix-legend">' + (mixKeys.map(function (k) {
             return '<span><span class="sw" style="background:' + (MIX[k] || "#b9b7ac") + ';"></span>' + esc(k) + " " + Math.round((a.mix[k] / mixTotal) * 100) + "%</span>";
           }).join("") || "No bookings this month") + "</div></div>" +
+          '<div class="d-block"><h3>Channel sync <span style="text-transform:none;font-weight:400;">(CourtSync)</span></h3><div class="facts">' +
+          SYNCABLE.map(function (k) {
+            var r = s.by[k];
+            var connected = r && r.enabled;
+            var errored = connected && r.last_result && /fail|error/i.test(r.last_result);
+            var st = !connected ? "not connected" : errored ? "sync error" : (r.last_sync_at ? "synced " + ago(r.last_sync_at) : "connected");
+            var col = errored ? "var(--risk)" : connected ? "var(--ok)" : "var(--muted)";
+            return '<div class="f"><span class="k">' + esc(k) + '</span><span class="v" style="color:' + col + ';">' + st + "</span></div>";
+          }).join("") + "</div>" +
+          '<a class="tenant-link" href="' + COURTSYNC_URL + "?venue=" + encodeURIComponent(a.t.id) + '" target="_blank" rel="noopener">Open in CourtSync →</a></div>' +
           "</div>" +
 
           "<div>" +
