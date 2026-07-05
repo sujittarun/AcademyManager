@@ -40,6 +40,8 @@
       <div><span class="k">Messaging · 30d</span><span class="v" id="rMsg">—</span><span class="s" id="rMsgS">WhatsApp overhead</span></div>
     </div>
 
+    <div id="syncHealth" hidden></div>
+
     <div class="sec-t">
       <h2>Portfolio</h2>
       <span class="note">tap an account for its health detail</span>
@@ -191,6 +193,28 @@
         if (!rows || !rows.length) return;
         paint(rows.map(account));
       });
+
+      // sync-engine health — one operator call (platform_health) → alarm banner.
+      // Flags channels gone stale, jobs backed up, and dead-lettered pushes so
+      // the operator sees trouble before a tenant does.
+      rpc("platform_health").then(function (h) {
+        if (!h) return;
+        var el = document.getElementById("syncHealth");
+        var stale = (h.stale_integrations || []).length;
+        var dead = (h.dead_letters || []).length;
+        var pending = (h.jobs && h.jobs.pending) || 0;
+        var oldest = (h.jobs && h.jobs.oldest_pending_mins) || 0;
+        var laggy = pending && oldest > 30;
+        var bad = stale || dead || laggy;
+        var parts = [stale ? stale + " channel" + (stale === 1 ? "" : "s") + " stale" : "all channels fresh"];
+        if (pending) parts.push(pending + " job" + (pending === 1 ? "" : "s") + " queued" + (oldest ? " · " + oldest + "m old" : ""));
+        if (dead) parts.push(dead + " dead-lettered");
+        var color = dead ? "var(--risk)" : bad ? "var(--warn)" : "var(--ok)";
+        el.hidden = false;
+        el.textContent = (bad ? "⚠ " : "✓ ") + "Sync health — " + parts.join(" · ");
+        el.style.cssText = "margin:0 0 16px;padding:9px 14px;border-radius:8px;font-size:12.5px;font-weight:600;" +
+          "border:1px solid " + color + ";color:" + color + ";";
+      }).catch(function () {});
 
       // lazy per-tenant error log — operator troubleshooting drill-in.
       // ONE tagged events store, filtered by tenant; loaded on expand.
