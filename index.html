@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=9" />
+  <link rel="stylesheet" href="assets/css/console.css?v=10" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -223,8 +223,8 @@
                 (isDetail ? '<button class="btn-g" data-back style="display:flex;align-items:center;gap:5px;background:none;border:1px solid var(--bd-btn);border-radius:8px;padding:6px 11px 6px 8px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:500;color:#5b6470"><span class="mi" style="font-size:18px">arrow_back</span>Portfolio</button>' : "") +
                 '<div style="min-width:0"><h1 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageTitle) + '</h1><div style="font-size:12.5px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageSub) + "</div></div>" +
                 '<div style="flex:1"></div>' +
-                '<div class="am-hidem" style="display:flex;align-items:center;gap:8px;background:var(--page);border:1px solid var(--bd);border-radius:9px;padding:8px 12px;width:230px;color:var(--tx3)"><span class="mi" style="font-size:18px">search</span><span style="font-size:13px">Search academies…</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;border:1px solid #dde0e5;border-radius:5px;padding:0 5px;background:#fff">⌘K</span></div>' +
-                '<span class="am-hidem" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
+                '<div class="am-search" style="display:flex;align-items:center;gap:8px;background:var(--page);border:1px solid var(--bd);border-radius:9px;padding:8px 12px;width:230px;color:var(--tx3)"><span class="mi" style="font-size:18px">search</span><span style="font-size:13px">Search academies…</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;border:1px solid #dde0e5;border-radius:5px;padding:0 5px;background:#fff">⌘K</span></div>' +
+                '<span class="am-prod" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
                 '<button class="notif" style="width:38px;height:38px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative"><span class="mi" style="font-size:20px;color:#5b6470">notifications</span>' + (engineBad || overdue ? '<span style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#f43f5e;border:1.5px solid #fff"></span>' : "") + "</button>" +
               "</header>" +
               '<div class="am-scroll" id="amScroll"><div class="view">' + body + "</div></div>" +
