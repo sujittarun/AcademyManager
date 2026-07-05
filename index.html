@@ -197,19 +197,22 @@
       // sync-engine health — one operator call (platform_health) → alarm banner.
       // Flags channels gone stale, jobs backed up, and dead-lettered pushes so
       // the operator sees trouble before a tenant does.
-      rpc("platform_health").then(function (h) {
+      Promise.all([rpc("platform_health"), rpc("reconcile_report").catch(function () { return null; })]).then(function (r) {
+        var h = r[0], rec = r[1];
         if (!h) return;
         var el = document.getElementById("syncHealth");
         var stale = (h.stale_integrations || []).length;
         var dead = (h.dead_letters || []).length;
         var pending = (h.jobs && h.jobs.pending) || 0;
         var oldest = (h.jobs && h.jobs.oldest_pending_mins) || 0;
+        var gaps = (rec && rec.gap_count) || 0;
         var laggy = pending && oldest > 30;
-        var bad = stale || dead || laggy;
+        var bad = stale || dead || laggy || gaps;
         var parts = [stale ? stale + " channel" + (stale === 1 ? "" : "s") + " stale" : "all channels fresh"];
+        if (gaps) parts.push(gaps + " propagation gap" + (gaps === 1 ? "" : "s"));
         if (pending) parts.push(pending + " job" + (pending === 1 ? "" : "s") + " queued" + (oldest ? " · " + oldest + "m old" : ""));
         if (dead) parts.push(dead + " dead-lettered");
-        var color = dead ? "var(--risk)" : bad ? "var(--warn)" : "var(--ok)";
+        var color = (dead || gaps) ? "var(--risk)" : bad ? "var(--warn)" : "var(--ok)";
         el.hidden = false;
         el.textContent = (bad ? "⚠ " : "✓ ") + "Sync health — " + parts.join(" · ");
         el.style.cssText = "margin:0 0 16px;padding:9px 14px;border-radius:8px;font-size:12.5px;font-weight:600;" +
