@@ -144,7 +144,8 @@ body {
 .err-log { display: flex; flex-direction: column; gap: 6px; }
 .err-row { border-left: 2px solid var(--risk); padding: 4px 0 4px 9px; }
 .err-row .err-msg { display: block; font-size: 12px; color: var(--ink); font-family: var(--font-mono, monospace); word-break: break-word; }
-.err-row .err-meta { font-size: 10.5px; color: var(--muted); }
+.err-row .err-meta { display: block; font-size: 10.5px; color: var(--muted); }
+.err-row .err-crumbs { display: block; font-size: 10.5px; color: var(--ink-2); margin-top: 2px; }
 
 .tenant-link { display: inline-block; margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; }
 .tenant-link:hover { text-decoration: underline; }

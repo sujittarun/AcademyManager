@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;450;550;600;650&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=5" />
+  <link rel="stylesheet" href="assets/css/console.css?v=6" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -186,8 +186,11 @@
           if (!rows || !rows.length) { el.innerHTML = '<span class="faint" style="font-size:12px;">No errors logged — clean.</span>'; return; }
           el.innerHTML = rows.map(function (r) {
             var p = r.props || {};
-            return '<div class="err-row"><span class="err-msg">' + esc(p.msg || "error") + '</span>' +
-              '<span class="err-meta">' + esc(p.src || r.page) + (p.ver ? " · v" + esc(p.ver) : "") + " · " + fmtD(r.at) + "</span></div>";
+            var trail = (p.crumbs || []).map(function (c) { return c.label; }).filter(Boolean).join(" › ");
+            var meta = [p.src || r.page, p.ver ? "v" + p.ver : "", p.vw || "", p.ua || "", p.role || "", fmtD(r.at)].filter(Boolean).map(esc).join(" · ");
+            return '<div class="err-row"><span class="err-msg">' + esc(p.msg || "error") + "</span>" +
+              '<span class="err-meta">' + meta + "</span>" +
+              (trail ? '<span class="err-crumbs">did: ' + esc(trail) + "</span>" : "") + "</div>";
           }).join("");
         });
       });
