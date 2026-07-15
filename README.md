@@ -15,9 +15,9 @@ professionally run SaaS tracks its book of business.
 **What it deliberately does NOT show:** members, phone numbers, schedules,
 individual payments. Operational data stays in each academy's own console.
 
-- **Design**: paper-and-ink ops dashboard (`assets/css/console.css`) —
-  flat, hairline rules, tabular numbers, single indigo accent. Intentionally
-  unrelated to the liquid-glass tenant apps.
+- **Design**: warm editorial CRM dashboard (`assets/css/console.css`) —
+  an ivory canvas, forest accent, compact metric rail, animated portfolio
+  chart, lifecycle diagnostics, and responsive operator workflows.
 - **Data**: the multi-tenant Supabase project (org *Academy Manager*);
   schema in the Leo repo under `supabase/schema.sql`.
 - **Stack**: vanilla HTML/CSS/JS, no build step. Deploy = push to `main`.

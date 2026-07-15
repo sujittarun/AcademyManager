@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#f4f5f7" />
+  <meta name="theme-color" content="#f4f3ed" />
   <title>Academy Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=12" />
+  <link rel="stylesheet" href="assets/css/console.css?v=13" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -191,7 +191,7 @@
         var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
         var billBadge = (overdue + pendingC) || "";
 
-        var titles = { overview: ["Overview", "Portfolio health across all academy accounts"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], settings: ["Settings", "Organization & console configuration"] };
+        var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], settings: ["Settings", "Organization & console configuration"] };
         var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
         var pageSub = isDetail ? (sel ? sel.sub : "") : titles[view][1];
 
@@ -218,12 +218,12 @@
             '<div class="am-backdrop" data-menu></div>' +
             // sidebar
             '<aside class="am-side">' +
-              '<div style="display:flex;align-items:center;gap:11px;padding:6px 8px 20px">' +
-                '<div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(150deg,var(--ac2),var(--act));display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 5px -1px rgba(13,148,136,.5),inset 0 1px 0 rgba(255,255,255,.25)"><span class="mi fill" style="font-size:21px;color:#fff">school</span></div>' +
-                '<div style="min-width:0"><div style="font-size:14.5px;font-weight:700;letter-spacing:-0.01em;line-height:1.1">Academy Manager</div><div style="font-size:11px;color:var(--tx3);font-weight:500;margin-top:1px">Operator Console</div></div>' +
+              '<div class="am-brand">' +
+                '<div class="am-mark"><span class="mi fill">school</span></div>' +
+                '<div style="min-width:0"><div class="am-wordmark">Academy Manager</div><div class="am-edition">OPERATOR SUITE</div></div>' +
               "</div>" +
               '<nav style="display:flex;flex-direction:column;gap:3px;margin-top:4px">' +
-                navBtn("overview", "Overview", "space_dashboard", "", view === "overview" && !isDetail) +
+                navBtn("overview", "Insight", "space_dashboard", "", view === "overview" && !isDetail) +
                 navBtn("academies", "Academies", "apartment", "", view === "academies" && !isDetail) +
                 navBtn("billing", "Billing", "receipt_long", billBadge, view === "billing" && !isDetail) +
                 navBtn("growth", "Growth", "trending_up", "", view === "growth" && !isDetail) +
@@ -267,22 +267,70 @@
           '<div class="kpi-sub">' + sub + "</div></div>";
       }
 
-      function overviewView(accts, overdue, pendingC) {
-        var totMrr = 0, totGmv = 0, totPrev = 0, totEnq = 0, active = 0, onboarding = 0;
-        accts.forEach(function (a) { totMrr += a.mrr; totGmv += a.gmv; totPrev += a.prev; totEnq += a.enq; if (a.health === "Active") active++; if (a.health === "Onboarding") onboarding++; });
-        var gmvPct = totPrev ? Math.round((totGmv - totPrev) / totPrev * 100) : 0, gmvUp = gmvPct >= 0;
-        var kpis = kpiCard("account_balance_wallet", inr(totMrr), "Monthly Recurring Revenue", accts.length + " active subscriptions") +
-          kpiCard("payments", inrK(totGmv), "Gross Volume · 30d", "processed across academies", totPrev ? (gmvUp ? "+" : "") + gmvPct + "%" : "", gmvUp ? "#16a34a" : "#dc2626", gmvUp ? "north_east" : "south_east") +
-          kpiCard("apartment", String(accts.length), "Academies", active + " active · " + onboarding + " onboarding") +
-          kpiCard("groups", String(totEnq), "Enquiries · 30d", "new coaching leads");
+      function performanceChart(vals) {
+        vals = (vals || []).map(Number);
+        while (vals.length < 8) vals.unshift(0);
+        var W = 920, H = 220, L = 48, R = 18, T = 20, B = 34;
+        var max = Math.max.apply(null, vals.concat([1]));
+        var top = max * 1.18;
+        function x(i) { return L + i * ((W - L - R) / (vals.length - 1)); }
+        function y(v) { return T + (1 - v / top) * (H - T - B); }
+        var pts = vals.map(function (v, i) { return x(i).toFixed(1) + " " + y(v).toFixed(1); });
+        var line = "M" + pts.join(" L");
+        var area = line + " L" + x(vals.length - 1).toFixed(1) + " " + (H - B) + " L" + L + " " + (H - B) + " Z";
+        var grid = [0, .33, .66, 1].map(function (p) {
+          var gy = T + p * (H - T - B), value = top * (1 - p);
+          return '<line x1="' + L + '" y1="' + gy + '" x2="' + (W - R) + '" y2="' + gy + '" class="perf-grid"/>' +
+            '<text x="0" y="' + (gy + 4) + '" class="perf-axis">' + (value ? inrK(Math.round(value)) : "₹0") + "</text>";
+        }).join("");
+        var labels = ["8 wks", "7 wks", "6 wks", "5 wks", "4 wks", "3 wks", "2 wks", "This wk"];
+        var xlabels = labels.map(function (label, i) { return '<text x="' + x(i) + '" y="211" text-anchor="middle" class="perf-axis">' + label + "</text>"; }).join("");
+        var li = vals.length - 1, lx = x(li), ly = y(vals[li]);
+        return '<svg class="performance-svg" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Gross volume performance over eight weeks">' +
+          '<defs><linearGradient id="performanceArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5f7f70" stop-opacity=".22"/><stop offset="1" stop-color="#5f7f70" stop-opacity="0"/></linearGradient></defs>' +
+          grid + xlabels + '<path d="' + area + '" class="perf-area"/><path d="' + line + '" class="perf-line"/>' +
+          '<line x1="' + lx + '" y1="' + T + '" x2="' + lx + '" y2="' + (H - B) + '" class="perf-guide"/>' +
+          '<circle cx="' + lx + '" cy="' + ly + '" r="5" class="perf-dot"/>' +
+          '<g class="perf-tip" transform="translate(' + Math.max(L, lx - 78) + " " + Math.max(4, ly - 46) + ')"><rect width="76" height="34" rx="8"/><text x="38" y="14" text-anchor="middle">This week</text><text x="38" y="27" text-anchor="middle">' + inrK(vals[li]) + "</text></g></svg>";
+      }
 
-        // attention banner from platform_health + overdue
+      function insightMetric(icon, label, value, delta, tone) {
+        return '<div class="insight-metric"><div class="metric-label"><span class="mi">' + icon + "</span>" + label + '</div><div class="metric-value">' + value + '</div><div class="metric-delta ' + (tone || "") + '">' + delta + "</div></div>";
+      }
+
+      function overviewView(accts, overdue, pendingC) {
+        var totMrr = 0, totGmv = 0, totPrev = 0, totEnq = 0, active = 0, onboarding = 0, sessions = 0, bookings = 0;
+        var weekly = [0, 0, 0, 0, 0, 0, 0, 0], counts = { Active: 0, Quiet: 0, "At risk": 0, Onboarding: 0 };
+        accts.forEach(function (a) {
+          totMrr += a.mrr; totGmv += a.gmv; totPrev += a.prev; totEnq += a.enq; sessions += a.sessions; bookings += a.bookings;
+          if (a.health === "Active") active++; if (a.health === "Onboarding") onboarding++;
+          counts[a.health] = (counts[a.health] || 0) + 1;
+          a.weekly.forEach(function (v, i) { weekly[i] += Number(v || 0); });
+        });
+        var gmvPct = totPrev ? Math.round((totGmv - totPrev) / totPrev * 100) : 0, gmvUp = gmvPct >= 0;
+        var activePct = accts.length ? Math.round(active / accts.length * 100) : 0;
+        var avgBooking = bookings ? Math.round(totGmv / bookings) : 0;
+
         var h = state.health || {}, parts = [];
-        if ((h.stale_integrations || []).length) parts.push((h.stale_integrations || []).length + " channel(s) not synced in >6h");
-        if (overdue) parts.push(overdue + " subscription" + (overdue > 1 ? "s" : "") + " overdue");
-        if (h.gap_count) parts.push(h.gap_count + " propagation gap(s)");
+        if ((h.stale_integrations || []).length) parts.push((h.stale_integrations || []).length + " integrations stale");
+        if (overdue) parts.push(overdue + " overdue subscription" + (overdue > 1 ? "s" : ""));
+        if (h.gap_count) parts.push(h.gap_count + " data gaps");
         if (h.jobs && h.jobs.pending) parts.push(h.jobs.pending + " sync jobs queued");
-        var banner = parts.length ? '<div style="display:flex;align-items:center;gap:13px;background:linear-gradient(180deg,#fffdf5,#fffbeb);border:1px solid #fbe6a8;border-radius:14px;padding:13px 15px;margin-bottom:20px;box-shadow:0 1px 2px rgba(180,120,20,.06)"><span style="width:32px;height:32px;flex:none;border-radius:9px;background:#fef3c7;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 1px #fde68a"><span class="mi fill" style="font-size:19px;color:#d97706">warning</span></span><div style="flex:1;min-width:0"><span style="font-size:13px;font-weight:650;color:#854d0e">Attention needed</span><span style="font-size:13px;color:#a16207"> — ' + esc(parts.join(" · ")) + '.</span></div><button class="btn-g" data-nav="billing" style="background:#fff;border:1px solid #fcd34d;border-radius:9px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:650;color:#92400e;cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(180,120,20,.1)">Review</button></div>' : "";
+        var banner = parts.length ? '<div class="attention-strip"><span class="attention-icon"><span class="mi fill">priority_high</span></span><div><b>Needs attention</b><span>' + esc(parts.join(" · ")) + '</span></div><button data-nav="billing">Review issues<span class="mi">arrow_forward</span></button></div>' : '<div class="attention-strip is-clear"><span class="attention-icon"><span class="mi fill">check</span></span><div><b>Everything looks healthy</b><span>All academy feeds and subscriptions are up to date.</span></div></div>';
+
+        var metricRail = insightMetric("payments", "Gross volume", inrK(totGmv), (totPrev ? (gmvUp ? "+" : "") + gmvPct + "% vs prior period" : "First reporting period"), gmvUp ? "positive" : "negative") +
+          insightMetric("account_balance_wallet", "Recurring revenue", inr(totMrr), accts.length + " subscriptions", "") +
+          insightMetric("monitoring", "Active portfolio", activePct + "%", active + " of " + accts.length + " academies", activePct >= 70 ? "positive" : "caution") +
+          insightMetric("event_available", "Avg. booking value", avgBooking ? inr(avgBooking) : "—", bookings ? num(bookings) + " bookings" : "No bookings yet", "");
+
+        var healthTotal = accts.length || 1;
+        var workflow = [
+          ["Active", counts.Active, "#557566"], ["Onboarding", counts.Onboarding, "#8f86c9"], ["Quiet", counts.Quiet, "#d8a54d"], ["At risk", counts["At risk"], "#c86f63"]
+        ].map(function (x) { return '<div class="workflow-row"><div class="workflow-label"><span class="workflow-dot" style="background:' + x[2] + '"></span><span>' + x[0] + '</span><b>' + x[1] + '</b></div><div class="workflow-track"><span style="--workflow:' + Math.round(x[1] / healthTotal * 100) + '%;background:' + x[2] + '"></span></div></div>'; }).join("");
+
+        var stale = (h.stale_integrations || []).length, gaps = h.gap_count || 0, pendingJobs = (h.jobs && h.jobs.pending) || 0;
+        var healthScore = Math.max(0, 100 - stale * 6 - gaps * 8 - pendingJobs * 2);
+        var systemBars = [100, 100, 98, Math.max(40, healthScore - 4), healthScore, healthScore].map(function (v, i) { return '<span style="--system:' + v + '%;--delay:' + (i * 55) + 'ms"></span>'; }).join("");
 
         var cols = [["name", "Academy", "11px 18px"], ["plan", "Plan", 0, false], ["mrr", "MRR"], ["gmv", "GMV · 30d"], ["bookings", "Bookings"], ["enq", "Enquiries"], ["usage", "Usage · 14d", 0, false], ["health", "Status"], ["ago", "Last active"]];
         var thead = cols.map(function (c) {
@@ -304,10 +352,13 @@
             '<td style="padding:13px 18px 13px 12px;font-size:12.5px;color:var(--tx3);white-space:nowrap">' + agoH(a.lastH) + "</td></tr>";
         }).join("");
 
-        return banner +
-          '<div class="kpis" style="margin-bottom:22px">' + kpis + "</div>" +
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 12px"><div><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Portfolio</h2><span style="font-size:12.5px;color:var(--tx3)">' + accts.length + ' academies · click a row for full account detail</span></div><button class="btn-p" style="display:flex;align-items:center;gap:6px;background:var(--ac);color:#fff;border:none;border-radius:9px;padding:9px 15px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.08)"><span class="mi" style="font-size:18px">add</span>Add academy</button></div>' +
-          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div class="am-scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:940px"><thead><tr style="border-bottom:1px solid var(--bd2)">' + thead + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+        return '<div class="insight-toolbar"><div class="filter-group"><button><span class="mi">calendar_today</span><span><small>Date range</small>Last 8 weeks</span><span class="mi chevron">expand_more</span></button><button><span class="mi">compare_arrows</span><span><small>Compare to</small>Previous period</span><span class="mi chevron">expand_more</span></button></div><div class="toolbar-actions"><button>All academies<span class="mi chevron">expand_more</span></button><button class="export-btn"><span class="mi">ios_share</span>Export</button></div></div>' +
+          banner +
+          '<section class="insight-card performance-card"><div class="panel-head"><div><span class="eyebrow">PORTFOLIO PERFORMANCE</span><h2>Gross volume trend</h2><p>Processed revenue across every academy account</p></div><button class="panel-menu"><span class="mi">tune</span>View: weekly<span class="mi chevron">expand_more</span></button></div><div class="performance-chart">' + performanceChart(weekly) + '</div><div class="metric-rail">' + metricRail + "</div></section>" +
+          '<div class="insight-grid"><section class="insight-card workflow-card"><div class="panel-head"><div><span class="eyebrow">ACCOUNT MIX</span><h2>Portfolio workflow</h2><p>Lifecycle stage across client academies</p></div><span class="panel-badge">' + accts.length + ' total</span></div><div class="workflow-list">' + workflow + '</div><div class="panel-foot"><span><span class="pulse-dot"></span>' + active + ' ' + (active === 1 ? "academy" : "academies") + ' active now</span><button data-nav="academies">View portfolio<span class="mi">arrow_forward</span></button></div></section>' +
+          '<section class="insight-card system-card"><div class="panel-head"><div><span class="eyebrow">PLATFORM SIGNAL</span><h2>System health</h2><p>Data delivery and channel reliability</p></div><span class="health-score ' + (healthScore >= 90 ? "good" : "warn") + '">' + healthScore + '%</span></div><div class="system-viz"><div class="system-bars">' + systemBars + '</div><div class="system-baseline"><span>6 checks ago</span><span>Latest</span></div></div><div class="system-stats"><span><b>' + stale + '</b> stale feeds</span><span><b>' + gaps + '</b> data gaps</span><span><b>' + pendingJobs + '</b> jobs queued</span></div></section></div>' +
+          '<div class="section-title"><div><span class="eyebrow">ACCOUNTS</span><h2>Academy portfolio</h2><p>' + accts.length + ' academies · select a row for account detail</p></div><button class="btn-p"><span class="mi">add</span>Add academy</button></div>' +
+          '<div class="portfolio-table"><div class="table-scroll"><table><thead><tr>' + thead + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
       }
 
       function academiesView(accts) {
