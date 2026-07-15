@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=11" />
+  <link rel="stylesheet" href="assets/css/console.css?v=12" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -104,6 +104,30 @@
         return '<div style="display:flex;align-items:flex-end;gap:' + (gap || 2) + 'px;height:' + h + 'px;width:100%">' +
           vals.map(function (v) { return '<div style="flex:1;min-height:2px;height:' + Math.max(6, Math.round(v / max * 100)) + '%;background:' + (v ? "var(--ac)" : "#eceef2") + ';border-radius:2px 2px 0 0"></div>'; }).join("") + "</div>";
       }
+      // premium area+line sparkline (responsive width, crisp non-scaling stroke)
+      var _sgn = 0;
+      function spark(vals, h, color, draw) {
+        color = color || "var(--ac)";
+        vals = (vals || []).map(Number);
+        if (!vals.length) vals = [0, 0];
+        if (vals.length === 1) vals = [vals[0], vals[0]];
+        var allZero = vals.every(function (v) { return !v; });
+        var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+        var n = vals.length, W = 100, P = 3, ih = h - P * 2;
+        function y(v) { var t = max === min ? 0.5 : (v - min) / (max - min); return (P + (1 - t) * ih).toFixed(2); }
+        var pts = vals.map(function (v, i) { return (i / (n - 1) * W).toFixed(2) + " " + y(v); });
+        if (allZero) { // flat baseline so an idle academy still reads as a line, not empty
+          return '<svg class="spark" viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" style="height:' + h + 'px">' +
+            '<path d="M0 ' + (h - P) + " L" + W + " " + (h - P) + '" style="stroke:#e2e5ea;stroke-width:1.4" vector-effect="non-scaling-stroke" fill="none"/></svg>';
+        }
+        var line = "M" + pts.join(" L");
+        var area = "M0 " + h + " L" + pts.join(" L") + " L" + W + " " + h + " Z";
+        var gid = "sg" + (++_sgn);
+        return '<svg class="spark" viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" style="height:' + h + 'px;--len:210">' +
+          '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity=".24"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
+          '<path d="' + area + '" fill="url(#' + gid + ')"/>' +
+          '<path class="ln' + (draw ? " draw" : "") + '" d="' + line + '" style="stroke:' + color + '" vector-effect="non-scaling-stroke"/></svg>';
+      }
       function mixBar(mix, h) {
         var keys = Object.keys(mix).sort(function (x, y) { return mix[y] - mix[x]; });
         var total = keys.reduce(function (s, k) { return s + mix[k]; }, 0) || 1;
@@ -195,7 +219,7 @@
             // sidebar
             '<aside class="am-side">' +
               '<div style="display:flex;align-items:center;gap:11px;padding:6px 8px 20px">' +
-                '<div style="width:34px;height:34px;border-radius:9px;background:var(--ac);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px -1px rgba(13,148,136,.55)"><span class="mi fill" style="font-size:21px;color:#fff">school</span></div>' +
+                '<div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(150deg,var(--ac2),var(--act));display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 5px -1px rgba(13,148,136,.5),inset 0 1px 0 rgba(255,255,255,.25)"><span class="mi fill" style="font-size:21px;color:#fff">school</span></div>' +
                 '<div style="min-width:0"><div style="font-size:14.5px;font-weight:700;letter-spacing:-0.01em;line-height:1.1">Academy Manager</div><div style="font-size:11px;color:var(--tx3);font-weight:500;margin-top:1px">Operator Console</div></div>' +
               "</div>" +
               '<nav style="display:flex;flex-direction:column;gap:3px;margin-top:4px">' +
@@ -233,12 +257,14 @@
       }
 
       function kpiCard(icon, value, label, sub, trend, trendColor, trendIcon) {
-        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between"><div style="width:34px;height:34px;border-radius:9px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="mi" style="font-size:19px;color:var(--act)">' + icon + "</span></div>" +
-          (trend ? '<span style="display:inline-flex;align-items:center;gap:2px;font-size:12px;font-weight:600;color:' + trendColor + '"><span class="mi" style="font-size:15px">' + trendIcon + "</span>" + trend + "</span>" : "") + "</div>" +
-          '<div style="font-size:26px;font-weight:700;letter-spacing:-0.02em;margin-top:16px;font-variant-numeric:tabular-nums">' + value + "</div>" +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-top:3px">' + label + "</div>" +
-          '<div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>";
+        return '<div class="kpi">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between">' +
+            '<div class="kpi-ic"><span class="mi">' + icon + "</span></div>" +
+            (trend ? '<span class="trend" style="color:' + trendColor + '"><span class="mi">' + trendIcon + "</span>" + trend + "</span>" : "") +
+          "</div>" +
+          '<div class="kpi-num">' + value + "</div>" +
+          '<div class="kpi-label">' + label + "</div>" +
+          '<div class="kpi-sub">' + sub + "</div></div>";
       }
 
       function overviewView(accts, overdue, pendingC) {
@@ -256,7 +282,7 @@
         if (overdue) parts.push(overdue + " subscription" + (overdue > 1 ? "s" : "") + " overdue");
         if (h.gap_count) parts.push(h.gap_count + " propagation gap(s)");
         if (h.jobs && h.jobs.pending) parts.push(h.jobs.pending + " sync jobs queued");
-        var banner = parts.length ? '<div style="display:flex;align-items:center;gap:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:20px"><span class="mi fill" style="font-size:20px;color:#d97706">warning</span><div style="flex:1;min-width:0"><span style="font-size:13px;font-weight:600;color:#92400e">Attention needed</span><span style="font-size:13px;color:#a16207"> — ' + esc(parts.join(" · ")) + '.</span></div><button class="btn-g" data-nav="billing" style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:6px 13px;font:inherit;font-size:12.5px;font-weight:600;color:#92400e;cursor:pointer;flex:none">Review</button></div>' : "";
+        var banner = parts.length ? '<div style="display:flex;align-items:center;gap:13px;background:linear-gradient(180deg,#fffdf5,#fffbeb);border:1px solid #fbe6a8;border-radius:14px;padding:13px 15px;margin-bottom:20px;box-shadow:0 1px 2px rgba(180,120,20,.06)"><span style="width:32px;height:32px;flex:none;border-radius:9px;background:#fef3c7;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 1px #fde68a"><span class="mi fill" style="font-size:19px;color:#d97706">warning</span></span><div style="flex:1;min-width:0"><span style="font-size:13px;font-weight:650;color:#854d0e">Attention needed</span><span style="font-size:13px;color:#a16207"> — ' + esc(parts.join(" · ")) + '.</span></div><button class="btn-g" data-nav="billing" style="background:#fff;border:1px solid #fcd34d;border-radius:9px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:650;color:#92400e;cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(180,120,20,.1)">Review</button></div>' : "";
 
         var cols = [["name", "Academy", "11px 18px"], ["plan", "Plan", 0, false], ["mrr", "MRR"], ["gmv", "GMV · 30d"], ["bookings", "Bookings"], ["enq", "Enquiries"], ["usage", "Usage · 14d", 0, false], ["health", "Status"], ["ago", "Last active"]];
         var thead = cols.map(function (c) {
@@ -273,7 +299,7 @@
             '<td style="padding:13px 12px;white-space:nowrap"><span style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + "</span>" + (a.prev ? '<span style="font-size:11.5px;font-weight:600;margin-left:6px;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</td>" +
             '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.bookings || "—") + "</td>" +
             '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.enq || "—") + "</td>" +
-            '<td style="padding:13px 12px;min-width:120px">' + bars(a.usage.slice(-10), 24, 2) + "</td>" +
+            '<td style="padding:13px 12px;min-width:120px"><div style="width:112px;height:28px">' + spark(a.usage.slice(-14), 28, "var(--ac)") + "</div></td>" +
             '<td style="padding:13px 12px">' + pill(a.health, healthStyle(a.health)) + "</td>" +
             '<td style="padding:13px 18px 13px 12px;font-size:12.5px;color:var(--tx3);white-space:nowrap">' + agoH(a.lastH) + "</td></tr>";
         }).join("");

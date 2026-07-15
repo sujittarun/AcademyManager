@@ -6,12 +6,19 @@
    ============================================================ */
 :root {
   --ac: #0d9488; --acs: #f0fdfa; --act: #0f766e;   /* teal accent */
-  --page: #f4f5f7; --card: #ffffff; --fill: #fafbfc;
-  --bd: #eaecef; --bd2: #eef0f3; --bd3: #f2f3f5; --bd-btn: #e6e8ec;
-  --tx: #1a1d21; --tx2: #4b5563; --tx3: #8b93a1; --tx4: #9aa1ad; --tx5: #b0b6c0;
+  --ac2: #14b8a6;                                   /* lighter teal for gradients */
+  --page: #f1f3f6; --card: #ffffff; --fill: #fafbfc;
+  --side: #fbfcfd;                                   /* cooler second-neutral for the sidebar */
+  --bd: #e7eaee; --bd2: #eef0f3; --bd3: #f2f3f5; --bd-btn: #e6e8ec;
+  --tx: #14171a; --tx2: #4b5563; --tx3: #8b93a1; --tx4: #9aa1ad; --tx5: #b0b6c0;
   --ok: #16a34a; --ok-d: #047857; --ok-bg: #ecfdf5;
   --warn: #d97706; --warn-d: #b45309; --warn-bg: #fffbeb;
   --risk: #dc2626; --risk-d: #b91c1c; --risk-bg: #fef2f2;
+  /* layered premium elevation — soft close ambient + a wider lift */
+  --sh1: 0 1px 2px rgba(16,24,40,.04), 0 1px 1px rgba(16,24,40,.03);
+  --sh2: 0 1px 2px rgba(16,24,40,.05), 0 6px 16px -6px rgba(16,24,40,.10);
+  --sh3: 0 2px 4px rgba(16,24,40,.05), 0 14px 32px -10px rgba(16,24,40,.16);
+  --ease: cubic-bezier(.22,.61,.36,1);              /* ease-out-quart */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
@@ -32,17 +39,21 @@ body {
 /* ---------- app shell ---------- */
 .app { display: flex; min-height: 100vh; height: 100vh; overflow: hidden; }
 .am-side {
-  width: 250px; flex: none; background: var(--card); border-right: 1px solid var(--bd);
+  width: 250px; flex: none; background: var(--side); border-right: 1px solid var(--bd);
   display: flex; flex-direction: column; padding: 20px 14px;
 }
 .nav-item {
+  position: relative;
   display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px;
   border-radius: 9px; border: none; cursor: pointer; font-family: inherit; font-size: 13.5px;
   font-weight: 500; text-align: left; background: transparent; color: #5b6470;
   transition: background .15s, color .15s;
 }
-.nav-item:hover { background: var(--acs); color: var(--ac); }
-.nav-item.active { background: var(--acs); color: var(--ac); font-weight: 600; }
+.nav-item .mi { color: var(--tx4); transition: color .15s var(--ease); }
+.nav-item:hover { background: #eef1f4; color: var(--tx); }
+.nav-item:hover .mi { color: var(--tx2); }
+.nav-item.active { background: var(--acs); color: var(--act); font-weight: 600; box-shadow: inset 0 0 0 1px #cdeee9; }
+.nav-item.active .mi { color: var(--ac); }
 
 main.am-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -111,3 +122,64 @@ main.am-main { flex: 1; min-width: 0; display: flex; flex-direction: column; ove
 .gate-card input:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--acs); }
 .gate-card button { width: 100%; margin-top: 6px; font: inherit; font-size: 14px; font-weight: 600; color: #fff; background: var(--ac); border: none; border-radius: 9px; padding: 11px; cursor: pointer; }
 .gate-card button:hover { filter: brightness(1.06); }
+
+/* ============================================================
+   Premium refinement layer — depth, KPI cards, data-viz, motion
+   ============================================================ */
+
+/* KPI cards: soft layered elevation + a quiet lift on hover */
+.kpi {
+  background: var(--card); border: 1px solid var(--bd); border-radius: 16px;
+  padding: 17px 18px 16px; box-shadow: var(--sh1);
+  transition: box-shadow .2s var(--ease), transform .2s var(--ease), border-color .2s var(--ease);
+}
+.kpi:hover { box-shadow: var(--sh2); transform: translateY(-2px); border-color: #dfe3e8; }
+.kpi .kpi-num { font-size: 27px; font-weight: 700; letter-spacing: -0.025em; margin-top: 15px; font-variant-numeric: tabular-nums; line-height: 1.05; color: var(--tx); }
+.kpi .kpi-label { font-size: 12.5px; font-weight: 600; color: var(--tx2); margin-top: 5px; }
+.kpi .kpi-sub { font-size: 12px; color: var(--tx4); margin-top: 2px; }
+/* gradient icon tile — cohesive across cards */
+.kpi-ic { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex: none;
+  background: linear-gradient(150deg, #f4fdfb, #dcf5f1); box-shadow: inset 0 0 0 1px #d5f0ec, 0 1px 1px rgba(13,148,136,.06); }
+.kpi-ic .mi { font-size: 19px; color: var(--act); }
+/* trend chip */
+.trend { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.trend .mi { font-size: 15px; }
+
+/* premium cards used elsewhere (billing/detail sums, panels) */
+.pcard { background: var(--card); border: 1px solid var(--bd); border-radius: 16px; box-shadow: var(--sh1); }
+
+/* SVG sparkline (area + line) */
+.spark { display: block; width: 100%; height: 100%; overflow: visible; }
+.spark .ln { fill: none; stroke: var(--ac); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.spark .ar { opacity: .9; }
+.spark .dot { fill: var(--ac); }
+
+/* buttons — primary gets a subtle teal gradient + lift (premium accent) */
+.btn-p { background: linear-gradient(160deg, var(--ac2), var(--ac) 62%) !important;
+  box-shadow: 0 1px 2px rgba(13,148,136,.28), 0 6px 16px -6px rgba(13,148,136,.5) !important;
+  transition: filter .15s var(--ease), box-shadow .2s var(--ease), transform .12s var(--ease); }
+.btn-p:hover { filter: brightness(1.05); box-shadow: 0 2px 4px rgba(13,148,136,.3), 0 10px 22px -6px rgba(13,148,136,.55) !important; transform: translateY(-1px); }
+.btn-p:active { transform: translateY(0); }
+/* sign-in button matches */
+.gate-card button { background: linear-gradient(160deg, var(--ac2), var(--ac) 62%); box-shadow: 0 1px 2px rgba(13,148,136,.28), 0 8px 18px -6px rgba(13,148,136,.5); }
+
+/* focus-visible ring, consistent across interactive elements */
+.nav-item:focus-visible, .btn-p:focus-visible, .btn-g:focus-visible, .row:focus-visible, .notif:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px var(--acs), 0 0 0 1px var(--ac);
+}
+
+/* motion: brief staggered entrance for the KPI row (purposeful, fast) */
+@keyframes kpiIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.kpis .kpi { animation: kpiIn .45s var(--ease) both; }
+.kpis .kpi:nth-child(1) { animation-delay: .02s; }
+.kpis .kpi:nth-child(2) { animation-delay: .08s; }
+.kpis .kpi:nth-child(3) { animation-delay: .14s; }
+.kpis .kpi:nth-child(4) { animation-delay: .20s; }
+/* sparkline stroke draws in once */
+@keyframes sparkDraw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+.spark .ln.draw { stroke-dasharray: var(--len); animation: sparkDraw 1s var(--ease) .1s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .view, .kpis .kpi, .spark .ln.draw { animation: none !important; }
+  .kpi, .btn-p, .acad, .nav-item, .nav-item .mi { transition: none !important; }
+}
