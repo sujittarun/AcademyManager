@@ -141,7 +141,19 @@
       }
 
       /* ============ state + data ============ */
-      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false };
+      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {} };
+
+      // per-tenant raw activity — last 7 days of app events, fetched on demand
+      function loadEvents(id) {
+        if (state.ev[id] || state.evLoading[id]) return;
+        state.evLoading[id] = true;
+        get("/events?tenant_id=eq." + encodeURIComponent(id) + "&at=gte." + daysAgo(6) +
+          "&order=at.desc&limit=800&select=name,props,page,session_id,at")
+          .then(function (rows) {
+            state.ev[id] = rows || []; state.evLoading[id] = false;
+            if (state.sel === id) render();
+          });
+      }
 
       function usageArray(byDay) { var out = []; for (var i = 13; i >= 0; i--) out.push((byDay || {})[daysAgo(i)] || 0); return out; }
       function normWeekly(w) { w = (w || []).slice(-8); while (w.length < 8) w.unshift(0); return w; }
@@ -428,6 +440,80 @@
         return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">apartment</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px">No academies yet</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">Onboard your first client academy and its account metrics will appear here.</p></div>';
       }
 
+      /* real per-tenant activity feed — reads the events table (operator RLS) */
+      var EVMETA = {
+        page_view: ["visibility", "#4b5563", "#f3f4f6", "Page views"],
+        booking_submitted: ["event_available", "#1d4ed8", "#eff6ff", "Booking submitted"],
+        staff_booking_added: ["edit_calendar", "var(--act)", "var(--acs)", "Booking added by staff"],
+        payment_recorded: ["payments", "#047857", "#ecfdf5", "Payment recorded"],
+        expense_recorded: ["receipt_long", "#b45309", "#fffbeb", "Expense recorded"],
+        admission_submitted: ["person_add", "#7c3aed", "#f5f3ff", "Admission enquiry"],
+        reminder_sent: ["notifications_active", "#b45309", "#fffbeb", "Fee reminder sent"],
+        client_error: ["error", "#b91c1c", "#fef2f2", "App error"],
+      };
+      function evMeta(n) { return EVMETA[n] || ["bolt", "#4b5563", "#f3f4f6", String(n || "").replace(/_/g, " ")]; }
+      function evDetail(e) {
+        var p = e.props || {};
+        switch (e.name) {
+          case "payment_recorded": return inr(p.amount) + (p.mode ? " · " + p.mode : "");
+          case "expense_recorded": return (p.category ? p.category + " · " : "") + inr(p.amount);
+          case "booking_submitted": return [p.venue, p.hours ? p.hours + "h" : "", p.amount ? inr(p.amount) : ""].filter(Boolean).join(" · ");
+          case "staff_booking_added": return [p.source, p.venue].filter(Boolean).join(" · ");
+          case "admission_submitted": return [p.program, p.venue].filter(Boolean).join(" · ");
+          case "reminder_sent": return p.daysTo != null ? "fee due in " + p.daysTo + "d" : "";
+          case "client_error": return String(p.msg || "").slice(0, 64);
+          default: return e.page || "";
+        }
+      }
+      function evTime(s) { try { return new Date(s).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } }
+
+      function activityCard(a) {
+        loadEvents(a.id);
+        var rows = state.ev[a.id], inner, meta = "";
+        if (!rows) {
+          inner = '<div style="padding:20px 0;color:var(--tx4);font-size:13px">Loading activity…</div>';
+        } else {
+          var byDay = {}, sess = {};
+          rows.forEach(function (e) {
+            var d = iso(new Date(e.at)); (byDay[d] = byDay[d] || []).push(e);
+            if (e.session_id) sess[iso(new Date(e.at)) + "|" + e.session_id] = 1;
+          });
+          var activeDays = Object.keys(byDay).length;
+          meta = rows.length ? num(rows.length) + " events · active " + activeDays + " of 7 days" : "";
+          if (!rows.length) {
+            inner = '<div style="display:flex;align-items:center;gap:11px;padding:20px 0"><span class="mi" style="font-size:22px;color:var(--tx5)">bedtime</span><div><div style="font-size:13px;font-weight:600;color:var(--tx2)">No activity in the last 7 days</div><div style="font-size:12px;color:var(--tx4);margin-top:1px">Nobody from this academy has opened the app.</div></div></div>';
+          } else {
+            var days = [];
+            for (var i = 0; i < 7; i++) {
+              var dstr = daysAgo(i), evs = byDay[dstr] || [];
+              var label = i === 0 ? "Today" : i === 1 ? "Yesterday" : new Date(dstr + "T12:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+              var daySess = Object.keys(sess).filter(function (k) { return k.indexOf(dstr + "|") === 0; }).length;
+              var head = '<div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px"><span style="font-size:12px;font-weight:700;letter-spacing:0.02em;color:' + (evs.length ? "var(--tx2)" : "var(--tx5)") + '">' + label + '</span><span style="flex:1;border-top:1px solid var(--bd3)"></span>' +
+                (evs.length ? '<span style="font-size:11.5px;color:var(--tx4);font-variant-numeric:tabular-nums">' + evs.length + " event" + (evs.length > 1 ? "s" : "") + (daySess ? " · " + daySess + " session" + (daySess > 1 ? "s" : "") : "") + "</span>" : '<span style="font-size:11.5px;color:var(--tx5)">No activity</span>') + "</div>";
+              var pv = evs.filter(function (e) { return e.name === "page_view"; });
+              var acts = evs.filter(function (e) { return e.name !== "page_view"; });
+              var items = acts.slice(0, 6).map(function (e) {
+                var m = evMeta(e.name), d = evDetail(e);
+                return '<div style="display:flex;align-items:center;gap:11px;padding:7px 0">' +
+                  '<div style="width:28px;height:28px;border-radius:8px;background:' + m[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:' + m[1] + '">' + m[0] + '</span></div>' +
+                  '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + "</div>" +
+                  '<span style="font-size:11px;color:var(--tx5);white-space:nowrap;font-variant-numeric:tabular-nums">' + evTime(e.at) + "</span></div>";
+              }).join("");
+              if (acts.length > 6) items += '<div style="font-size:11.5px;color:var(--tx4);padding:4px 0 2px 39px">+' + (acts.length - 6) + " more actions</div>";
+              if (pv.length) {
+                var pages = {};
+                pv.forEach(function (e) { var pg = (e.page || "").replace(".html", ""); if (pg) pages[pg] = (pages[pg] || 0) + 1; });
+                var pgKeys = Object.keys(pages).sort(function (x, y) { return pages[y] - pages[x]; }).slice(0, 4);
+                items += '<div style="display:flex;align-items:center;gap:11px;padding:7px 0"><div style="width:28px;height:28px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:#4b5563">visibility</span></div><div style="flex:1;min-width:0;font-size:12px;color:var(--tx3)">' + pv.length + " page view" + (pv.length > 1 ? "s" : "") + (pgKeys.length ? " · " + esc(pgKeys.join(", ")) : "") + "</div></div>";
+              }
+              days.push(head + items);
+            }
+            inner = days.join("");
+          }
+        }
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Activity · last 7 days</h3>' + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + '</div><div style="margin-top:4px">' + inner + "</div></div>";
+      }
+
       function detailView(a) {
         if (!a) return "";
         var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
@@ -438,7 +524,7 @@
 
         if (a.health === "Onboarding") {
           var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
-          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + "</div></div>";
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>";
         }
 
         function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
@@ -451,13 +537,6 @@
         var mixTot = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
         var mixLegend = mixKeys.map(function (k) { return '<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx2)"><span style="width:9px;height:9px;border-radius:3px;background:' + (CH[k] || "#b9b7ac") + '"></span>' + esc(k) + ' <b style="font-weight:600">' + Math.round(a.mix[k] / mixTot * 100) + "%</b></span>"; }).join("") || '<span style="font-size:12.5px;color:var(--tx4)">No channel bookings yet</span>';
 
-        var activity = [
-          ["payments", "#047857", "#ecfdf5", "Subscription " + (a.bill === "paid" ? "active" : a.bill), a.plan + " plan · " + inr(a.mrr), "billing"],
-          ["sync", "var(--act)", "var(--acs)", "Channel sync", "Playo · " + Math.round(a.bookings * 0.4) + " bookings imported", agoH(a.lastH)],
-          ["groups", "#b45309", "#fffbeb", "Coaching enquiries", a.enq + " leads this month", "30d"],
-          ["trending_up", "#1d4ed8", "#eff6ff", "Gross volume " + (up ? "up" : "down") + " " + Math.abs(pct) + "%", "vs prior 30 days", ""],
-        ].map(function (x) { return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd3)"><div style="width:32px;height:32px;border-radius:9px;background:' + x[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:18px;color:' + x[1] + '">' + x[0] + '</span></div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500">' + x[3] + '</div><div style="font-size:11.5px;color:var(--tx4)">' + x[4] + '</div></div><span style="font-size:11.5px;color:var(--tx5);white-space:nowrap">' + x[5] + "</span></div>"; }).join("");
-
         function facts(list) { return list.map(function (f) { return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--bd3)"><span style="font-size:12.5px;color:var(--tx3)">' + f[0] + '</span><span style="font-size:12.5px;font-weight:600;color:' + (f[2] || "#1a1d21") + ';text-align:right">' + f[1] + "</span></div>"; }).join(""); }
         var planFacts = facts([["Tier", esc(a.plan), ac], ["Subscription", inr(a.mrr) + " / mo"], ["Billing status", bs[2], bs[0]], ["Payment method", esc(a.method)], ["Next renewal", esc(a.renews), a.bill === "overdue" ? "#dc2626" : "#1a1d21"], ["Messaging · 30d", num(a.msgs) + " · " + inr(a.msgCost)]]);
         var adoptFacts = facts([["Active days", a.activeDays + " / 30"], ["Sessions · 30d", num(a.sessions)], ["Last activity", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
@@ -469,7 +548,7 @@
           '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
             card("Gross volume", "weekly · last 8 weeks", '<div style="margin-top:18px">' + bars(a.weekly, 92, 8) + '</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--tx5)"><span>8 wks ago</span><span>this week</span></div>') +
             card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
-            card("Recent activity", "", '<div style="margin-top:6px">' + activity + "</div>") +
+            activityCard(a) +
           "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>") +
             card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
