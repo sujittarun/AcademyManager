@@ -1,5 +1,5 @@
 -- ============================================================
--- 0028 · Leaving and coming back — one write path each
+-- 0029 · Leaving and coming back — one write path each
 -- scope: shared
 --
 -- A student who stops coming, and the same student who walks back in

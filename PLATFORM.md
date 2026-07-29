@@ -19,6 +19,34 @@ them. Anything specific to one tenant lives in that tenant's own
 That is the only reason a parent's WhatsApp message and the manager's
 screen can never quote different amounts. It is not a style preference.
 
+### What belongs to the platform, and what belongs to a tenant
+
+The money rule is one case of a general one. Something belongs to the
+platform if any of these is true:
+
+1. **It must be identical for every tenant.** One implementation cannot
+   disagree with itself; six will.
+2. **It must hold when nobody is watching.** Anything that only runs
+   while an app is open is guaranteed only during office hours.
+3. **It needs a secret a client cannot hold.** Tenant apps are public
+   static sites carrying a public key; anything in one is published.
+
+Money computation satisfies all three — hence the house rule. Partner
+sync satisfies all three too: the Playo and Hudle keys live in
+`vault.secrets`, a booking made at 2am must not double-sell a court, and
+Playo's API is Playo's API for everyone. Telemetry satisfies the first
+two.
+
+A batch's colour satisfies none of them, and belongs in the app.
+
+The split for sync, concretely: the tenant app **causes** the work — a
+booking or a court block enqueues a `sync_jobs` row, and staff set their
+own credential through `set_integration_secret`. The platform
+**performs** it — `process_sync_jobs` drains the queue every minute
+under pg_cron, holding the secrets. Inbound never touches an app at all:
+`sync_ingest` is called by the partner, authenticated by
+`tenants.api_key`.
+
 ---
 
 ## One database, six-plus tenants
