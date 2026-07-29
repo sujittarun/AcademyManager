@@ -1,14 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C /Users/jiths/Documents/AcademyManager status --short)",
-      "Bash(git -C /Users/jiths/Documents/AcademyManager diff --stat)",
-      "Bash(git -C /Users/jiths/Documents/AcademyManager diff assets/css/console.css)",
+      "Bash(git -C /Users/jiths/Documents/Academy Manager Business/AcademyManager status --short)",
+      "Bash(git -C /Users/jiths/Documents/Academy Manager Business/AcademyManager diff --stat)",
+      "Bash(git -C /Users/jiths/Documents/Academy Manager Business/AcademyManager diff assets/css/console.css)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(git ls-remote *)",
-      "Bash(ls /Users/jiths/Documents/ | head -30; ls /Users/jiths/Documents/CourtSync 2>/dev/null)"
+      "Bash(ls '/Users/jiths/Documents/Academy Manager Business' | head -30)"
     ]
   }
 }
