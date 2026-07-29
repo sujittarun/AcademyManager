@@ -218,6 +218,21 @@ of them.
 
 ---
 
+## Starting a tenant chat
+
+Two prompts, kept in `AcademyManager/prompts/`:
+
+| | |
+|---|---|
+| `EXISTING-TENANT.md` | Leo, Raj, Machaxi, MatchPoint, MPP |
+| `NEW-TENANT.md` | onboarding a new client |
+
+Paste the whole thing into a chat opened inside that tenant's folder.
+They carry the house rule, the migration ledger, the four security facts
+that are easy to get wrong, and the telemetry a tenant needs to stay
+visible in the console. Update them when a lesson is learned rather than
+re-teaching it in every chat.
+
 ## Working in a session
 
 **Open the terminal inside the folder you intend to change.** That folder
