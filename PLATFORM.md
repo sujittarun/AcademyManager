@@ -112,6 +112,29 @@ Read before writing.
 
 ---
 
+## What is watched, and what is not
+
+| | |
+|---|---|
+| `rls_audit()` | anon policies with no tenant filter — a shape check |
+| `rpc_audit()` | definer functions anon can execute — a shape check |
+| `policy_fn_audit()` | functions a policy names that anon cannot execute |
+| `anon_probe()` | **actually calls the dangerous endpoints as anon**, hourly |
+| `events_flowing()` | the sink has gone quiet despite recent traffic |
+
+The first three read the catalogue. `anon_probe()` reads behaviour, and
+it exists because the shape checks passed cleanly through the worst leak
+this platform has had. It also checks the paths that must KEEP working,
+because a probe that only hunts leaks reports a healthy system on the
+morning you have locked every real user out.
+
+**Not watched, and you should know it:** the project is on the free
+plan, so there is no PITR and no restorable daily backup.
+`backup.take_snapshot()` copies the tenant tables into the same database
+every night and keeps 14 days. That covers a migration doing more than
+intended — which has happened — and covers nothing at all if the project
+itself is lost. The fix is Pro plus the PITR add-on.
+
 ## Security
 
 - The **anon** key is public by design and committed in every tenant
