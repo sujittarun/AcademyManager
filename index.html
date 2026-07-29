@@ -342,36 +342,7 @@
         if ((h.rls_unscoped || []).length) parts.push("RLS: " + h.rls_unscoped.length + " unscoped policy");
         if ((h.rpc_anon_callable || []).length) parts.push("RPC: " + h.rpc_anon_callable.length + " anon-callable");
 
-        /* The errors themselves, each with a way to close it.
-           A warning that cannot be cleared is a warning nobody reads —
-           after the second week of seeing a bug you already fixed, you
-           stop looking at the strip entirely, and then you miss the
-           real one. Resolving records the newest occurrence seen, so a
-           RECURRENCE comes straight back rather than staying silenced. */
-        var errPanel = "";
-        if (ce.length) {
-          errPanel = '<section class="insight-card"><div class="panel-head"><div><span class="eyebrow">TENANT APPS</span>' +
-            '<h2>Errors reported in the last 24 hours</h2><p>Grouped by message and app version. Resolving hides it until it happens again.</p></div>' +
-            '<span class="panel-badge">' + ce.length + ' open</span></div>' +
-            '<div class="err-list">' + ce.map(function (x) {
-              return '<div class="err-row">' +
-                '<div class="err-main">' +
-                  '<div class="err-msg">' + esc(x.msg || "(no message)") + '</div>' +
-                  '<div class="err-meta">' + esc(x.tenant_id) + ' · v' + esc(x.ver || "?") +
-                    ' · ' + (x.occurrences || 1) + '\u00d7 across ' + (x.sessions || 1) + ' session' + ((x.sessions || 1) === 1 ? "" : "s") +
-                    (x.page ? ' · ' + esc(x.page) : "") +
-                    ' · ' + agoH(x.last_seen ? (Date.now() - new Date(x.last_seen).getTime()) / 36e5 : null) +
-                  '</div>' +
-                '</div>' +
-                '<button class="btn-g err-resolve" data-resolve="1"' +
-                  ' data-tenant="' + esc(x.tenant_id) + '"' +
-                  ' data-msg="' + esc(x.msg || "") + '"' +
-                  ' data-ver="' + esc(x.ver || "?") + '">' +
-                  '<span class="mi">check</span>Resolve</button>' +
-              '</div>';
-            }).join("") + '</div></section>';
-        }
-        var banner = parts.length ? '<div class="attention-strip"><span class="attention-icon"><span class="mi fill">priority_high</span></span><div><b>Needs attention</b><span>' + esc(parts.join(" · ")) + '</span></div><button data-nav="billing">Review issues<span class="mi">arrow_forward</span></button></div>' : '<div class="attention-strip is-clear"><span class="attention-icon"><span class="mi fill">check</span></span><div><b>Everything looks healthy</b><span>All academy feeds and subscriptions are up to date.</span></div></div>';
+        var banner = parts.length ? '<div class="attention-strip"><span class="attention-icon"><span class="mi fill">priority_high</span></span><div><b>Needs attention</b><span>' + esc(parts.join(" · ")) + '</span></div><button data-issues="1">Review issues<span class="mi">arrow_forward</span></button></div>' : '<div class="attention-strip is-clear"><span class="attention-icon"><span class="mi fill">check</span></span><div><b>Everything looks healthy</b><span>All academy feeds and subscriptions are up to date.</span></div></div>';
 
         var metricRail = insightMetric("payments", "Gross volume", inrK(totGmv), (totPrev ? (gmvUp ? "+" : "") + gmvPct + "% vs prior period" : "First reporting period"), gmvUp ? "positive" : "negative") +
           insightMetric("account_balance_wallet", "Recurring revenue", inr(totMrr), accts.length + " subscriptions", "") +
@@ -409,7 +380,6 @@
 
         return '<div class="insight-toolbar"><div class="filter-group"><button><span class="mi">calendar_today</span><span><small>Date range</small>Last 8 weeks</span><span class="mi chevron">expand_more</span></button><button><span class="mi">compare_arrows</span><span><small>Compare to</small>Previous period</span><span class="mi chevron">expand_more</span></button></div><div class="toolbar-actions"><button>All academies<span class="mi chevron">expand_more</span></button><button class="export-btn"><span class="mi">ios_share</span>Export</button></div></div>' +
           banner +
-          errPanel +
           '<section class="insight-card performance-card"><div class="panel-head"><div><span class="eyebrow">PORTFOLIO PERFORMANCE</span><h2>Gross volume trend</h2><p>Processed revenue across every academy account</p></div><button class="panel-menu"><span class="mi">tune</span>View: weekly<span class="mi chevron">expand_more</span></button></div><div class="performance-chart">' + performanceChart(weekly) + '</div><div class="metric-rail">' + metricRail + "</div></section>" +
           '<div class="insight-grid"><section class="insight-card workflow-card"><div class="panel-head"><div><span class="eyebrow">ACCOUNT MIX</span><h2>Portfolio workflow</h2><p>Lifecycle stage across client academies</p></div><span class="panel-badge">' + accts.length + ' total</span></div><div class="workflow-list">' + workflow + '</div><div class="panel-foot"><span><span class="pulse-dot"></span>' + active + ' ' + (active === 1 ? "academy" : "academies") + ' active now</span><button data-nav="academies">View portfolio<span class="mi">arrow_forward</span></button></div></section>' +
           '<section class="insight-card system-card"><div class="panel-head"><div><span class="eyebrow">PLATFORM SIGNAL</span><h2>System health</h2><p>Data delivery and channel reliability</p></div><span class="health-score ' + (healthScore >= 90 ? "good" : "warn") + '">' + healthScore + '%</span></div><div class="system-viz"><div class="system-bars">' + systemBars + '</div><div class="system-baseline"><span>6 checks ago</span><span>Latest</span></div></div><div class="system-stats"><span><b>' + stale + '</b> stale feeds</span><span><b>' + gaps + '</b> data gaps</span><span><b>' + pendingJobs + '</b> jobs queued</span></div></section></div>' +
@@ -511,6 +481,36 @@
       }
       function evTime(s) { try { return new Date(s).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } }
 
+      /* Errors for ONE academy, beside its activity feed — which is where
+         you already come to ask "what is this tenant doing?". Resolving
+         here is what clears the count on Insight: the two read the same
+         server-side list, so there is no second source of truth. */
+      function tenantErrorsCard(a) {
+        var all = (state.health && state.health.client_errors_24h) || [];
+        var mine = all.filter(function (e) { return e.tenant_id === a.id; });
+        if (!mine.length) return "";
+        return '<section class="insight-card" style="margin-top:20px"><div class="panel-head"><div><span class="eyebrow">APP ERRORS</span>' +
+          '<h2>Reported in the last 24 hours</h2><p>Grouped by message and app version. Resolving clears it from Insight until it happens again.</p></div>' +
+          '<span class="panel-badge">' + mine.length + ' open</span></div>' +
+          '<div class="err-list">' + mine.map(function (x) {
+            return '<div class="err-row">' +
+              '<div class="err-main">' +
+                '<div class="err-msg">' + esc(x.msg || "(no message)") + '</div>' +
+                '<div class="err-meta">v' + esc(x.ver || "?") +
+                  ' \u00b7 ' + (x.occurrences || 1) + '\u00d7 across ' + (x.sessions || 1) + ' session' + ((x.sessions || 1) === 1 ? "" : "s") +
+                  (x.page ? ' \u00b7 ' + esc(x.page) : "") +
+                  ' \u00b7 ' + agoH(x.last_seen ? (Date.now() - new Date(x.last_seen).getTime()) / 36e5 : null) +
+                '</div>' +
+              '</div>' +
+              '<button class="btn-g err-resolve" data-resolve="1"' +
+                ' data-tenant="' + esc(x.tenant_id) + '"' +
+                ' data-msg="' + esc(x.msg || "") + '"' +
+                ' data-ver="' + esc(x.ver || "?") + '">' +
+                '<span class="mi">check</span>Resolve</button>' +
+            '</div>';
+          }).join("") + '</div></section>';
+      }
+
       function activityCard(a) {
         loadEvents(a.id);
         var rows = state.ev[a.id], inner, meta = "";
@@ -568,7 +568,7 @@
 
         if (a.health === "Onboarding") {
           var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
-          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>";
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + tenantErrorsCard(a);
         }
 
         function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
@@ -597,7 +597,7 @@
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>") +
             card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
             card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
-          "</div></div>";
+          "</div></div>" + tenantErrorsCard(a);
       }
 
       /* ============ events (delegated; survive re-renders) ============ */
@@ -611,6 +611,17 @@
         var sort = e.target.closest("[data-sort]");
         if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
         if (e.target.closest("[data-signout]")) { localStorage.removeItem("am-session"); location.reload(); return; }
+        if (e.target.closest("[data-issues]")) {
+          /* Take the operator to where the errors can actually be acted
+             on. One academy affected is the common case, so go straight
+             into it rather than making them find it in the list. */
+          var errs = (state.health && state.health.client_errors_24h) || [];
+          var tenants = [];
+          errs.forEach(function (x) { if (tenants.indexOf(x.tenant_id) < 0) tenants.push(x.tenant_id); });
+          state.view = "academies";
+          state.sel = tenants.length === 1 ? tenants[0] : null;
+          render(); scrollTop(); return;
+        }
         var res = e.target.closest("[data-resolve]");
         if (res) {
           res.disabled = true;
