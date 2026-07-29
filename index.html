@@ -513,7 +513,7 @@
                 ' data-tenant="' + esc(x.tenant_id) + '"' +
                 ' data-msg="' + esc(x.msg || "") + '"' +
                 ' data-ver="' + esc(x.ver || "?") + '">' +
-                '<span class="mi">check</span>Resolve</button>' +
+                '<span class="mi">check_circle</span>Resolve</button>' +
             '</div>';
           }).join("") + '</div></section>';
       }
@@ -600,20 +600,20 @@
            `update ... where` by hand on a live database. */
         function billingControl(a) {
           var statuses = ["trial", "active", "overdue", "pilot", "cancelled"];
-          return '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">' +
-            '<div style="font-size:12px;color:var(--tx4);font-weight:500;margin-bottom:8px">Change billing</div>' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-              '<select id="subStatus" style="flex:1;min-width:120px;height:36px;padding:0 10px;border:1px solid var(--bd-btn);border-radius:9px;background:#fff;font:inherit;font-size:13px">' +
+          return '<div class="billing-edit">' +
+            '<div class="billing-edit__label">Change billing</div>' +
+            '<div class="billing-edit__row">' +
+              '<select id="subStatus">' +
                 statuses.map(function (st) {
                   return '<option value="' + st + '"' + (st === (a.subStatus || "") ? " selected" : "") + ">" + st + "</option>";
                 }).join("") +
               "</select>" +
-              '<input id="subMrr" type="number" min="0" step="1" value="' + Number(a.mrr || 0) + '" ' +
-                'style="width:110px;height:36px;padding:0 10px;border:1px solid var(--bd-btn);border-radius:9px;background:#fff;font:inherit;font-size:13px" />' +
-              '<button class="btn-p" data-setsub="' + esc(a.id) + '" style="height:36px">Save</button>' +
+              '<span class="billing-edit__money"><input id="subMrr" type="number" min="0" step="1" ' +
+                'aria-label="Monthly amount" value="' + Number(a.mrr || 0) + '" /></span>' +
             "</div>" +
-            '<div style="font-size:11.5px;color:var(--tx5);margin-top:8px">' +
-              "active or paid shows as Paid. A renewal date in the past shows Overdue whatever the status, so marking someone paid rolls it forward a month." +
+            '<button class="billing-edit__save" data-setsub="' + esc(a.id) + '">Save</button>' +
+            '<div class="billing-edit__hint">' +
+              "<b>active</b> shows as Paid. A renewal already past reads Overdue whatever the status, so marking someone paid moves it on a month." +
             "</div></div>";
         }
 

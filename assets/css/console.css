@@ -383,36 +383,155 @@ body { letter-spacing: -.006em; }
 
 
 /* --- tenant app errors, each resolvable --- */
-.err-list { display: flex; flex-direction: column; }
+ /* .insight-card has no padding of its own — .panel-head carries
+    18px 19px 8px — so the list has to supply its own, or the rows sit
+    outside the card and look like they have escaped it. */
+.err-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 19px 14px;
+}
 
 .err-row {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 13px 0;
+  align-items: center;
+  gap: 16px;
+  /* Pulled out and padded back by the same amount, so the hover fill
+     reaches past the text while the text stays on the card's margin. */
+  padding: 14px 11px;
+  margin: 0 -11px;
+  border-radius: 10px;
   border-top: 1px solid var(--bd);
+  transition: background .16s var(--ease);
 }
 
 .err-row:first-child { border-top: 0; }
+.err-row:hover { background: #f7f8f4; }
 
 .err-main { min-width: 0; flex: 1; }
 
-/* Monospace because these are program text, and the difference between
-   two near-identical messages is usually one token. */
+/* Monospace, because the difference between two near-identical messages
+   is usually one token — but at the body size the rest of the console
+   uses, not shouting over it. */
 .err-msg {
-  font-size: 13.5px;
-  font-weight: 550;
-  color: var(--tx2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  line-height: 1.45;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .err-meta {
-  margin-top: 3px;
-  font-size: 12px;
+  margin-top: 4px;
+  font-size: 11.5px;
   color: var(--tx4);
+  letter-spacing: .01em;
 }
 
-.err-resolve { flex: none; white-space: nowrap; }
-.err-resolve:disabled { opacity: .6; cursor: default; }
+.err-resolve {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--bd-btn);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--tx2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
+}
+
+.err-resolve .mi { font-size: 16px; }
+.err-resolve:hover:not(:disabled) { background: var(--acs); border-color: var(--ac); color: var(--act); }
+.err-resolve:disabled { opacity: .55; cursor: default; }
+
+/* --- change a tenant's billing, inside the Plan & billing card ---
+   Stacked, not crammed into one row: the right-hand column is narrow
+   and the first attempt clipped the Save button off the card edge. */
+.billing-edit { margin-top: 16px; padding-top: 15px; border-top: 1px solid var(--bd); }
+
+.billing-edit__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--tx4);
+  margin-bottom: 10px;
+}
+
+.billing-edit__row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.billing-edit select,
+.billing-edit input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--tx);
+  background: var(--card);
+  border: 1px solid var(--bd-btn);
+  border-radius: 9px;
+  appearance: none;
+}
+
+.billing-edit select {
+  /* the OS chevron is the single most dated thing on the page */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23939a93' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+.billing-edit select:focus,
+.billing-edit input:focus {
+  outline: none;
+  border-color: var(--ac);
+  box-shadow: 0 0 0 3px var(--acs);
+}
+
+.billing-edit__money { position: relative; flex: 0 0 118px; }
+.billing-edit__money input { padding-left: 24px; }
+.billing-edit__money::before {
+  content: "\20B9";
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13.5px;
+  color: var(--tx4);
+  pointer-events: none;
+}
+
+.billing-edit__save {
+  width: 100%;
+  height: 38px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ac);
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: filter .16s var(--ease);
+}
+
+.billing-edit__save:hover:not(:disabled) { filter: brightness(1.07); }
+.billing-edit__save:disabled { opacity: .6; cursor: default; }
+
+.billing-edit__hint {
+  margin-top: 9px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--tx5);
+}
