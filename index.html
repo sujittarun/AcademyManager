@@ -328,6 +328,18 @@
         if (overdue) parts.push(overdue + " overdue subscription" + (overdue > 1 ? "s" : ""));
         if (h.gap_count) parts.push(h.gap_count + " data gaps");
         if (h.jobs && h.jobs.pending) parts.push(h.jobs.pending + " sync jobs queued");
+        // client-side errors thrown inside a tenant's app in the last 24h.
+        // Grouped in SQL by platform_errors(); this shows the count and who,
+        // never a log wall — the detail stays in the database.
+        var ce = h.client_errors_24h || [];
+        if (ce.length) {
+          var byTenant = {};
+          ce.forEach(function (e) { byTenant[e.tenant_id] = true; });
+          parts.push(ce.length + " app error" + (ce.length > 1 ? "s" : "") +
+                     " (" + Object.keys(byTenant).join(", ") + ")");
+        }
+        // an anon RLS policy with no tenant filter is a cross-tenant leak
+        if ((h.rls_unscoped || []).length) parts.push("RLS: " + h.rls_unscoped.length + " unscoped policy");
         var banner = parts.length ? '<div class="attention-strip"><span class="attention-icon"><span class="mi fill">priority_high</span></span><div><b>Needs attention</b><span>' + esc(parts.join(" · ")) + '</span></div><button data-nav="billing">Review issues<span class="mi">arrow_forward</span></button></div>' : '<div class="attention-strip is-clear"><span class="attention-icon"><span class="mi fill">check</span></span><div><b>Everything looks healthy</b><span>All academy feeds and subscriptions are up to date.</span></div></div>';
 
         var metricRail = insightMetric("payments", "Gross volume", inrK(totGmv), (totPrev ? (gmvUp ? "+" : "") + gmvPct + "% vs prior period" : "First reporting period"), gmvUp ? "positive" : "negative") +
