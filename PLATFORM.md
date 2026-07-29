@@ -101,6 +101,7 @@ bottom.
 | `compute_payouts()` | centre revenue share |
 | `tenant_health()`, `platform_health()`, `cron_health_check()` | operator observability |
 | `rls_audit()` | anon policies with no `tenant_id` in their predicate; logged hourly |
+| `rpc_audit()` | tenant-scoped functions `anon` can execute; logged hourly |
 | `platform_errors()` | client-side errors per tenant, grouped by message + version |
 | `events_flowing()` | canary: false when the events sink has gone quiet despite recent traffic |
 | `tenant_exists()`, `tenant_publishes_timetable()` | the `tenants` lookups a policy may safely do |
@@ -123,6 +124,27 @@ Read before writing.
   uses one, it must sit on top of a real Supabase session, not instead of
   one.
 
+### SECURITY DEFINER goes around RLS — grants are the only gate
+
+A `SECURITY DEFINER` function runs as its owner, so **RLS does not
+apply inside it**. If it takes `p_tenant` and `anon` can execute it, the
+tenant is whatever the caller types, and the public key in every repo is
+enough to read it.
+
+So, for anything taking `p_tenant`:
+
+1. `revoke execute … from public, anon` — note **`public`**, the
+   pseudo-role. The grant that matters is usually the bare `=X/postgres`
+   in the ACL; revoking `anon` alone silently changes nothing.
+2. `grant execute … to authenticated, service_role`.
+3. `perform assert_staff_or_service(p_tenant)` as the **first line** of
+   the body, so a signed-in staff member of one tenant cannot pass
+   another tenant's id.
+
+`rpc_audit()` must stay empty apart from the four that are public by
+design: `request_booking`, `submit_application`, `tenant_exists`,
+`tenant_publishes_timetable`.
+
 ### A policy predicate runs as the calling role
 
 If a policy for `anon` reads another table, `anon` must be able to read
@@ -139,6 +161,7 @@ This has cost two outages, both mine, both fixed the same day:
 |---|---|---|
 | Raj's public timetable, ~4 min | `jsonb_set` with `create_missing` only creates the *final* key; Raj's config had no `features` object, so the update was a no-op | `0004`, object merge + `raise exception` guard |
 | Every tenant's analytics and error reporting, ~3 h | `exists (select … from tenants)` inlined into `events_public_w`, evaluated as `anon` | `0007`, `tenant_exists()` + `events_flowing()` canary |
+| Every family's name and phone at every tenant, readable by anyone (pre-existing, not from a migration) | 33 `SECURITY DEFINER` functions taking `p_tenant`, executable by `anon`. `reminder_queue{p_tenant:"raj"}` returned 55 rows to the public key | `0009`, revoke from `public`+`anon`, `rpc_audit()` canary |
 
 Both were caught by **measuring the same thing before and after** — anon
 row counts, then event counts. Neither would have been caught by reading
