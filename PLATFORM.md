@@ -222,6 +222,27 @@ Compare against known-good values: Raj publishes 5 centres, 14 batches,
 
 ---
 
+## Federated tenants
+
+A tenant does not have to live in this database to appear in the
+console. GenAlpha predates the platform, is live with real families, and
+keeps its own Supabase project and its own nineteen-table schema.
+Merging it would mean migrating live data and rewriting a working app
+for nothing its owner would ever see.
+
+So it reports instead. Its app posts `page_view`, `client_error` and a
+daily `tenant_rollup` to this project's `events` table with the public
+anon key — no new secret, no new endpoint, no new table.
+`operator_portfolio()` falls back to the newest rollup when a tenant's
+native rows are empty, so the card shows real numbers.
+
+Counts only, never a name or a phone number. Forgeable by anyone holding
+the public key, which is acceptable for aggregate numbers on a dashboard
+and is exactly why nothing personal goes in one.
+
+`tenants.config.federated = true` marks them. Bill them or don't —
+GenAlpha is on `free` because it runs on its own infrastructure.
+
 ## The repos
 
 ```
