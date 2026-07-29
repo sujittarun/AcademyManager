@@ -101,6 +101,9 @@ bottom.
 | `compute_payouts()` | centre revenue share |
 | `tenant_health()`, `platform_health()`, `cron_health_check()` | operator observability |
 | `rls_audit()` | anon policies with no `tenant_id` in their predicate; logged hourly |
+| `platform_errors()` | client-side errors per tenant, grouped by message + version |
+| `events_flowing()` | canary: false when the events sink has gone quiet despite recent traffic |
+| `tenant_exists()`, `tenant_publishes_timetable()` | the `tenants` lookups a policy may safely do |
 
 If a client needs a number, there is probably already a function for it.
 Read before writing.
@@ -119,6 +122,32 @@ Read before writing.
 - A PIN compared in JavaScript is not access control. Where a tenant app
   uses one, it must sit on top of a real Supabase session, not instead of
   one.
+
+### A policy predicate runs as the calling role
+
+If a policy for `anon` reads another table, `anon` must be able to read
+that table — otherwise the subquery returns nothing and the predicate is
+silently **false**, for every row. It does not fail; it denies.
+
+Anything a policy needs from `tenants` goes through a `SECURITY DEFINER`
+helper: `tenant_exists()`, `tenant_publishes_timetable()`. Never inline
+`exists (select 1 from tenants …)` into a policy.
+
+This has cost two outages, both mine, both fixed the same day:
+
+| Broke | Cause | Fix |
+|---|---|---|
+| Raj's public timetable, ~4 min | `jsonb_set` with `create_missing` only creates the *final* key; Raj's config had no `features` object, so the update was a no-op | `0004`, object merge + `raise exception` guard |
+| Every tenant's analytics and error reporting, ~3 h | `exists (select … from tenants)` inlined into `events_public_w`, evaluated as `anon` | `0007`, `tenant_exists()` + `events_flowing()` canary |
+
+Both were caught by **measuring the same thing before and after** — anon
+row counts, then event counts. Neither would have been caught by reading
+the SQL, and `rls_audit()` passed cleanly through the second one, because
+a shape check cannot see behaviour.
+
+So: after any migration that touches a policy, exercise the real path
+with the real anon key. A dry run proves the SQL parses, not that the
+system still works.
 
 ---
 
