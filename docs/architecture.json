@@ -1,0 +1,177 @@
+{
+  "$schema": "architecture-graph/v1",
+  "system": "Academy Manager platform",
+  "generated": "2026-07-27",
+  "description": "Multi-tenant sports-academy SaaS: static vanilla-JS tenant apps (LeoTennis, Machaxi) + operator consoles (Academy Manager, CourtSync) on GitHub Pages, all backed by one Supabase project (Postgres + RLS + Auth + Edge Function scaffolds). No build step anywhere; apps talk to Supabase over fetch with the anon key + per-role JWTs.",
+  "repos": {
+    "AcademyManager": "operator console (index.html single page)",
+    "LeoTennis": "tenant app template + supabase/ platform SQL (schema.sql, lockdown.sql, launch-reset.sql, edge functions)",
+    "Machaxi": "second tenant app, cloned from LeoTennis (two-venue model)",
+    "MatchPoint": "tenant app for Match Point Badminton Academy (Manikonda, Hyderabad); MatchPointBadminton repo is the superseded prototype",
+    "Raj Sports": "web console for coach-operator Raj (5 centres, 5 sports) + its own migration/cron SQL (WhatsApp reminder engine)",
+    "RajSportsApp": "native Android client (Kotlin) for Raj Sports — same Supabase backend as the web console",
+    "genalpha-glass-web": "Gen Alpha Cricket Academy glass web app — runs on its OWN Supabase project (hwxhigwaklzedxufwedv); legacy repo cricket-academy-manager still serves genalphaacademy.in",
+    "CourtSync": "cross-venue channel-sync monitor"
+  },
+  "nodes": [
+    { "id": "players", "label": "Players & Parents", "group": "actor", "desc": "Public users: book courts, submit admission enquiries, pay fees. No login." },
+    { "id": "staff", "label": "Academy Staff", "group": "actor", "desc": "Coaches/managers of one academy. Supabase Auth users with app_metadata {am_role:'staff', tenant_id}." },
+    { "id": "operator", "label": "Platform Operator", "group": "actor", "desc": "Runs the SaaS. Auth user with app_metadata {am_role:'operator'}; cross-tenant read access." },
+    { "id": "leo-app", "label": "LeoTennis app", "group": "app", "tech": "vanilla JS · GitHub Pages", "desc": "Tenant 'leo'. Public pages (index, booking, admission, pay) + staff console (dashboard, bookings, players, fees, attendance). window.LT_CLOUD adapter, lt-* localStorage keys." },
+    { "id": "machaxi-app", "label": "Machaxi app", "group": "app", "tech": "vanilla JS · GitHub Pages", "desc": "Tenant 'machaxi'. Same template as Leo; the sport dimension doubles as a two-venue court-pool key (rally R1-R6, urban U1-U7). mx-* localStorage keys (shared origin with Leo)." },
+    { "id": "matchpoint-app", "label": "MatchPoint app", "group": "app", "tech": "vanilla JS · badminton", "desc": "Tenant 'matchpoint'. Staff-facing manager for Match Point Badminton Academy (Manikonda, Hyderabad): attendance, bookings, fees, renewals, player skill progress. Same template family." },
+    { "id": "raj-app", "label": "Raj Sports web", "group": "app", "tech": "vanilla JS · 5 centres · 5 sports", "desc": "Tenant 'raj'. Coaching manager for a coach-operator running batches at venues he doesn't own (centres can take revenue share). Product priority: WhatsApp reminders that never give a parent a bad experience. Own migration adds enrollments, member_timeline, reminder_events, reminder_queue()." },
+    { "id": "raj-android", "label": "Raj Sports Android", "group": "app", "tech": "native Kotlin", "desc": "Native Android client for Raj Sports — same Supabase backend as the web console; a payment recorded on the phone shows on the laptop immediately." },
+    { "id": "genalpha-app", "label": "Gen Alpha app", "group": "app", "tech": "vanilla JS · cricket", "desc": "Gen Alpha Cricket Academy (Hyderabad) — the platform's FIRST client; the shared schema was designed around it. Its glass web app currently runs on its own Supabase project; tracked in Academy Manager as an account (tenants + subscriptions rows for 'genalpha')." },
+    { "id": "am-console", "label": "Academy Manager console", "group": "app", "tech": "vanilla JS · single index.html", "desc": "Operator suite: portfolio KPIs, per-academy detail with live 7-day activity feed, billing, growth, platform health." },
+    { "id": "courtsync", "label": "CourtSync console", "group": "app", "tech": "vanilla JS", "desc": "Operator's live channel-sync monitor across venues; venues connect their own channels, operator watches and triggers syncs." },
+    { "id": "auth", "label": "Supabase Auth", "group": "supabase", "tech": "GoTrue JWT", "desc": "Password sign-in for staff + operator. Roles carried in app_metadata (am_role, tenant_id); anon key for public paths. Helpers auth_role()/auth_tenant() drive RLS." },
+    { "id": "rest", "label": "PostgREST API", "group": "supabase", "tech": "/rest/v1", "desc": "Direct table reads/writes gated by RLS. Public may INSERT events + applications only; staff scoped to their tenant; operator reads all." },
+    { "id": "rpc", "label": "SQL RPCs", "group": "supabase", "tech": "26 functions", "desc": "Money & aggregate paths: request_booking (anon, server-side price + flood caps), record_booking, confirm_booking, cancel_booking, block_maintenance, propagate_block/unblock, sync_ingest, partner_sync, submit_application, operator_portfolio, platform_health, reconcile_report, get_channels…" },
+    { "id": "db", "label": "Postgres tables", "group": "supabase", "tech": "13 tables · RLS", "desc": "tenants, subscriptions, integrations, bookings (unique slot index), members, payments, expenses, attendance, reminders_log, applications, events (telemetry), sync_jobs, platform_settings." },
+    { "id": "views", "label": "Derived views", "group": "supabase", "tech": "security_invoker", "desc": "contacts (CRM deduped from bookings — read-only, can never break a booking) and public_slots (anon availability without PII)." },
+    { "id": "queue", "label": "sync_jobs queue", "group": "supabase", "tech": "durable jobs", "desc": "Outbound cross-channel work (block/unblock per partner) enqueued transactionally; claimed with retry/backoff by the sync worker. Survives crashes — nothing is fire-and-forget." },
+    { "id": "cron", "label": "pg_cron", "group": "supabase", "tech": "scheduler", "desc": "Schedules the sync worker (~30s), nightly reconcile + encrypted backup, cron_health_check heartbeat feeding platform_health." },
+    { "id": "vault", "label": "Vault secrets", "group": "supabase", "tech": "encrypted", "desc": "Per-account partner credentials (partner:* secrets) referenced from integrations.config — never plaintext in tables." },
+    { "id": "edge", "label": "Edge Functions", "group": "supabase", "tech": "5 scaffolds", "desc": "sync-worker (drains sync_jobs), partner-webhook (inbound bookings), partner-poll (pull fallback), partner-push (outbound blocks), reconcile (nightly ledger diff + alert). Scaffolded, not yet deployed — DB dummy processor logs the block meanwhile." },
+    { "id": "partners", "label": "Partner channels", "group": "external", "tech": "Playo · Hudle · District", "desc": "Marketplace booking channels. Bookings imported from them carry ext_ref; blocks are propagated to them so a slot sold anywhere closes everywhere." },
+    { "id": "whatsapp", "label": "WhatsApp", "group": "external", "tech": "deep links", "desc": "Fee-renewal reminders with UPI pay links. Leo/Machaxi send from the staff roster (reminders_log); Raj runs the full ladder engine (reminder_events state machine, ported from Gen Alpha)." },
+    { "id": "genalpha-db", "label": "Gen Alpha Supabase", "group": "external", "tech": "separate project", "desc": "hwxhigwaklzedxufwedv.supabase.co — Gen Alpha's own backend, not the shared platform project. Its operational data lives here until the tenant is migrated onto the shared schema." }
+  ],
+  "edges": [
+    { "id": "e1", "from": "players", "to": "leo-app", "label": "book · enquire · pay" },
+    { "id": "e2", "from": "staff", "to": "leo-app", "label": "staff console" },
+    { "id": "e3", "from": "players", "to": "machaxi-app", "label": "book · enquire" },
+    { "id": "e4", "from": "staff", "to": "machaxi-app", "label": "staff console" },
+    { "id": "e5", "from": "operator", "to": "am-console", "label": "portfolio review" },
+    { "id": "e6", "from": "operator", "to": "courtsync", "label": "sync monitor" },
+    { "id": "e7", "from": "leo-app", "to": "auth", "label": "staff sign-in → JWT" },
+    { "id": "e9", "from": "am-console", "to": "auth", "label": "operator sign-in → JWT" },
+    { "id": "e10", "from": "leo-app", "to": "rpc", "label": "booking / application RPCs" },
+    { "id": "e11", "from": "machaxi-app", "to": "rpc", "label": "booking RPCs" },
+    { "id": "e12", "from": "leo-app", "to": "rest", "label": "tenant reads · events (RLS)" },
+    { "id": "e13", "from": "machaxi-app", "to": "rest", "label": "tenant reads · events" },
+    { "id": "e14", "from": "am-console", "to": "rpc", "label": "operator_portfolio · platform_health" },
+    { "id": "e15", "from": "am-console", "to": "rest", "label": "raw events → activity feed" },
+    { "id": "e16", "from": "courtsync", "to": "rpc", "label": "partner_sync · job monitor" },
+    { "id": "e17", "from": "rest", "to": "db", "label": "RLS-gated SQL" },
+    { "id": "e18", "from": "rpc", "to": "db", "label": "security-definer writes" },
+    { "id": "e19", "from": "db", "to": "views", "label": "derives contacts · public_slots" },
+    { "id": "e20", "from": "rpc", "to": "queue", "label": "propagate_block enqueues" },
+    { "id": "e21", "from": "cron", "to": "edge", "label": "every ~30s · nightly" },
+    { "id": "e22", "from": "edge", "to": "queue", "label": "claims jobs (process_sync_jobs)" },
+    { "id": "e23", "from": "edge", "to": "partners", "label": "push blocks · poll bookings" },
+    { "id": "e24", "from": "partners", "to": "edge", "label": "booking webhooks" },
+    { "id": "e25", "from": "edge", "to": "vault", "label": "partner credentials" },
+    { "id": "e27", "from": "edge", "to": "db", "label": "sync_ingest · reconcile diff" },
+    { "id": "e26", "from": "leo-app", "to": "whatsapp", "label": "fee reminders · UPI links" },
+    { "id": "e28", "from": "staff", "to": "matchpoint-app", "label": "staff console" },
+    { "id": "e29", "from": "matchpoint-app", "to": "rpc", "label": "booking · fees RPCs" },
+    { "id": "e30", "from": "matchpoint-app", "to": "rest", "label": "tenant reads · events" },
+    { "id": "e31", "from": "staff", "to": "raj-app", "label": "coaching console" },
+    { "id": "e32", "from": "raj-app", "to": "rpc", "label": "fees · reminder_queue RPCs" },
+    { "id": "e33", "from": "raj-app", "to": "rest", "label": "reads · events · member_timeline" },
+    { "id": "e35", "from": "staff", "to": "raj-android", "label": "on the go" },
+    { "id": "e34", "from": "raj-android", "to": "rest", "label": "same backend, native client" },
+    { "id": "e36", "from": "raj-app", "to": "whatsapp", "label": "reminder ladder sends" },
+    { "id": "e37", "from": "players", "to": "genalpha-app", "label": "cricket academy site" },
+    { "id": "e38", "from": "genalpha-app", "to": "genalpha-db", "label": "own backend (today)" },
+    { "id": "e39", "from": "genalpha-app", "to": "db", "label": "account of record in AM (tenants + subscriptions rows only — no live ops data yet)" }
+  ],
+  "flows": [
+    {
+      "id": "f1", "name": "Player books a court", "color": "#34d399",
+      "summary": "Public slot booking with server-side pricing, atomic court claim, and cross-channel blocking.",
+      "steps": [
+        { "edge": "e1", "title": "Pick a slot", "detail": "Player opens booking.html (no login); availability comes from the anon-safe public_slots view." },
+        { "edge": "e10", "title": "request_booking RPC", "detail": "Anon call: price computed server-side (slot_rate), phone required, per-phone + per-day flood caps, self-cleaning pendings." },
+        { "edge": "e18", "title": "Pending row inserted", "detail": "bookings row status 'pending'; the unique slot index (tenant, date, hour, court) holds the slot." },
+        { "edge": "e2", "title": "Staff review", "detail": "The request appears in the staff console bookings.html." },
+        { "edge": "e10", "title": "confirm_booking RPC", "detail": "Staff JWT required (lockdown guard). Court auto-claimed atomically via the <initial><n> claim loop." },
+        { "edge": "e20", "title": "Cross-channel block enqueued", "detail": "propagate_block writes one durable sync_jobs row per other connected channel." },
+        { "edge": "e21", "title": "Scheduler fires", "detail": "pg_cron wakes the sync-worker (~every 30s)." },
+        { "edge": "e22", "title": "Worker claims jobs", "detail": "process_sync_jobs hands ready jobs to the worker with retry/backoff; failures land in dead letters." },
+        { "edge": "e23", "title": "Slot blocked everywhere", "detail": "Playo / Hudle / District get the block so the hour can't be double-sold." }
+      ]
+    },
+    {
+      "id": "f2", "name": "Staff walk-in booking", "color": "#38bdf8",
+      "summary": "Manual booking entry by academy staff — the provenance trail AM uses to tell humans from imports.",
+      "steps": [
+        { "edge": "e2", "title": "Open bookings.html", "detail": "Staff console, signed in with a tenant-scoped staff JWT." },
+        { "edge": "e10", "title": "record_booking RPC", "detail": "Server computes the rate and claims a court; source set from the form (e.g. Walk-in)." },
+        { "edge": "e18", "title": "Confirmed row lands", "detail": "bookings row status 'confirmed', created_at = now, no ext_ref — the manual-entry fingerprint." },
+        { "edge": "e12", "title": "Telemetry event", "detail": "LT_CLOUD.track('staff_booking_added', {source, venue}) inserts into events." },
+        { "edge": "e15", "title": "Operator sees it", "detail": "AM console's 7-day activity feed shows the action with time and detail." }
+      ]
+    },
+    {
+      "id": "f3", "name": "Partner booking import", "color": "#a78bfa",
+      "summary": "A booking sold on a marketplace flows in via webhook and blocks the slot on every other channel.",
+      "steps": [
+        { "edge": "e24", "title": "Webhook arrives", "detail": "Playo/Hudle/District call partner-webhook when a booking happens on their side." },
+        { "edge": "e25", "title": "Credential check", "detail": "Per-account partner secret fetched from Vault (partner:* entries) — never plaintext." },
+        { "edge": "e27", "title": "sync_ingest writes", "detail": "Booking inserted with ext_ref set (the imported-booking fingerprint) and source = channel name." },
+        { "edge": "e20", "title": "Counter-blocks enqueued", "detail": "propagate_block queues block jobs for every other connected channel." },
+        { "edge": "e22", "title": "Worker drains queue", "detail": "sync-worker claims the jobs on the next cron tick." },
+        { "edge": "e23", "title": "Other channels blocked", "detail": "The slot closes across the remaining marketplaces." }
+      ]
+    },
+    {
+      "id": "f4", "name": "Usage telemetry → activity feed", "color": "#fbbf24",
+      "summary": "Every tenant-app action becomes an event; the operator reads them as a per-academy activity feed.",
+      "steps": [
+        { "edge": "e1", "title": "Any page opens", "detail": "cloud.js logs page_view automatically (+ client_error telemetry with breadcrumbs); pages call LT_CLOUD.track for named actions." },
+        { "edge": "e12", "title": "Anon event insert", "detail": "POST /events with tenant_id, name, props, session_id, page — allowed for anyone by design (events_public_w)." },
+        { "edge": "e17", "title": "Row lands in events", "detail": "Indexed (tenant_id, at); operator-only SELECT policy (events_op_r)." },
+        { "edge": "e5", "title": "Operator opens AM", "detail": "Academy detail view for any tenant." },
+        { "edge": "e14", "title": "Aggregates via RPC", "detail": "operator_portfolio computes usage_daily, sessions, active days, last_event_at, errors per tenant." },
+        { "edge": "e15", "title": "7-day activity feed", "detail": "AM queries raw events for the tenant: day-by-day actions, page-view summaries, session counts, 'No activity' idle days." }
+      ]
+    },
+    {
+      "id": "f5", "name": "Operator portfolio review", "color": "#fb7185",
+      "summary": "Cross-tenant KPIs with PII minimization — aggregates leave the tenant, phone lists never do.",
+      "steps": [
+        { "edge": "e5", "title": "Open the console", "detail": "AM console shell renders instantly, then hydrates." },
+        { "edge": "e9", "title": "Operator sign-in", "detail": "Password grant → JWT with app_metadata.am_role = 'operator'; refresh handled transparently." },
+        { "edge": "e14", "title": "Three RPCs hydrate", "detail": "operator_portfolio (per-tenant KPIs), platform_health (jobs, stale feeds, dead letters), reconcile_report (data gaps)." },
+        { "edge": "e18", "title": "Security-definer aggregates", "detail": "Functions aggregate across tenants/bookings/events server-side; only account-level numbers cross the boundary." },
+        { "node": "am-console", "title": "Rendered views", "detail": "Insight KPIs + GMV trend, academy portfolio table, billing (paid/pending/overdue), growth channels, per-academy detail." }
+      ]
+    },
+    {
+      "id": "f6", "name": "Fee reminder → payment", "color": "#2dd4be",
+      "summary": "Dues chase over WhatsApp with a UPI link, closed out by a recorded payment.",
+      "steps": [
+        { "edge": "e2", "title": "Roster shows dues", "detail": "players.html lists members with renewal dates approaching." },
+        { "edge": "e26", "title": "WhatsApp reminder", "detail": "Deep link opens a prefilled message with a UPI pay link; reminders_log records the send." },
+        { "edge": "e12", "title": "reminder_sent event", "detail": "Telemetry keeps the member timeline and AM feed accurate." },
+        { "edge": "e2", "title": "Payment received", "detail": "Parent pays; staff record it in fees.html (amount, mode)." },
+        { "edge": "e17", "title": "payments row + event", "detail": "payments insert (staff RLS) + payment_recorded event → adoption + GMV metrics update." }
+      ]
+    },
+    {
+      "id": "f7", "name": "Admission enquiry", "color": "#818cf8",
+      "summary": "Public lead capture feeding the staff console and AM growth metrics.",
+      "steps": [
+        { "edge": "e1", "title": "Public form", "detail": "admission.html — program + contact details, no login." },
+        { "edge": "e10", "title": "submit_application RPC", "detail": "Anon insert path for applications (public write policy)." },
+        { "edge": "e18", "title": "Application stored", "detail": "applications row, tenant-scoped; only staff/operator can read." },
+        { "edge": "e12", "title": "admission_submitted event", "detail": "Tracked with program + venue props." },
+        { "edge": "e14", "title": "Shows up in AM Growth", "detail": "apps_30d feeds the enquiries leaderboard and per-academy detail." }
+      ]
+    },
+    {
+      "id": "f8", "name": "Raj renewal reminder ladder", "color": "#f472b6",
+      "summary": "WhatsApp-first dues chasing for Raj Sports — the proven Gen Alpha ladder, tenant-scoped in SQL, driven by cron and mirrored on the staff screen.",
+      "steps": [
+        { "edge": "e31", "title": "Renewal approaches", "detail": "Raj's console tracks enrollments per centre; reminder_queue() computes exactly who is due and for how much." },
+        { "edge": "e32", "title": "One function, two surfaces", "detail": "The same reminder_queue() RPC feeds the cron auto-sender AND the staff click-to-send list — both surfaces always agree." },
+        { "node": "cron", "title": "The ladder schedule", "detail": "-2d heads_up · 0d due · +5d first chase · +7..14d daily · +15d STOP — auto gives way to manual follow-up." },
+        { "edge": "e36", "title": "WhatsApp send", "detail": "Prefilled message + UPI pay link; reminder_events tracks queued → sent → delivered → read, failures → retry_scheduled." },
+        { "edge": "e33", "title": "Timeline closes the loop", "detail": "member_timeline appends the reminder and the eventual payment on the student profile." }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Academy Manager — Platform Architecture</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#020617; }
+  .node { position:absolute; border-radius:12px; padding:10px 12px; cursor:pointer; transition:opacity .25s, box-shadow .25s, transform .2s; user-select:none; }
+  .node:hover { transform:translateY(-1px); }
+  .node.dim { opacity:.18; }
+  .node.lit { box-shadow:0 0 0 1.5px var(--flow, #38bdf8), 0 8px 28px -8px rgba(56,189,248,.35); }
+  .edge-path { fill:none; stroke:#334155; stroke-width:1.5; transition:opacity .25s, stroke .25s; }
+  .edge-path.dim { opacity:.10; }
+  .edge-path.lit { stroke:var(--flow,#38bdf8); stroke-width:2.4; filter:drop-shadow(0 0 4px var(--flow,#38bdf8)); }
+  .edge-path.lit.anim { stroke-dasharray:7 5; animation:march 1.1s linear infinite; }
+  @keyframes march { to { stroke-dashoffset:-24; } }
+  .edge-label { font-size:9.5px; fill:#64748b; transition:opacity .25s; }
+  .edge-label.dim { opacity:.06; }
+  .edge-label.lit { fill:#e2e8f0; font-weight:600; }
+  .stepbadge { transition:opacity .25s; }
+  .flow-btn.active { border-color:var(--flow); color:#fff; background:color-mix(in srgb, var(--flow) 14%, transparent); }
+  .step-item.active { border-color:var(--flow); background:color-mix(in srgb, var(--flow) 10%, transparent); }
+  .group-box { position:absolute; border-radius:16px; border:1px dashed rgba(100,116,139,.35); }
+  .group-title { position:absolute; font-size:10px; letter-spacing:.14em; font-weight:700; color:#475569; text-transform:uppercase; }
+</style>
+</head>
+<body class="text-slate-200 antialiased">
+<div class="max-w-[1400px] mx-auto px-5 py-8">
+
+  <!-- header -->
+  <header class="flex flex-wrap items-end gap-4 mb-6">
+    <div>
+      <div class="text-[11px] font-bold tracking-[.2em] text-sky-400 uppercase">Interactive architecture</div>
+      <h1 class="text-3xl font-extrabold tracking-tight text-white mt-1">Academy Manager platform</h1>
+      <p class="text-sm text-slate-400 mt-1 max-w-2xl">Multi-tenant sports-academy SaaS — static vanilla-JS apps on GitHub Pages (plus one native Android client), one shared Supabase project behind them. Hover a node for details, or pick a flow below to trace a path through the system.</p>
+    </div>
+    <div class="flex gap-2 ml-auto text-[11px] font-semibold">
+      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">5 academies · 8 apps</span>
+      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">13+ tables · 26+ RPCs</span>
+      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">RLS everywhere</span>
+    </div>
+  </header>
+
+  <!-- diagram -->
+  <div class="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+    <div id="stageWrap" class="overflow-x-auto">
+      <div id="stage" style="position:relative; width:1240px; height:845px; transform-origin:top left;">
+        <svg id="wires" width="1240" height="845" style="position:absolute; inset:0;">
+          <defs>
+            <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L8 4 L0 8 z" fill="#475569"/>
+            </marker>
+            <marker id="arrLit" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L8 4 L0 8 z" fill="context-stroke"/>
+            </marker>
+          </defs>
+          <g id="edgeG"></g>
+          <g id="labelG"></g>
+          <g id="badgeG"></g>
+        </svg>
+        <div id="nodeLayer"></div>
+      </div>
+    </div>
+    <!-- legend -->
+    <div class="flex flex-wrap gap-4 px-5 py-3 border-t border-slate-800 text-[11px] text-slate-400">
+      <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#7dd3fc"></i> People</span>
+      <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#34d399"></i> Static apps (GitHub Pages)</span>
+      <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#a78bfa"></i> Supabase</span>
+      <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#fb923c"></i> External</span>
+      <span class="ml-auto text-slate-500">Click a node to isolate its connections · click the background to reset</span>
+    </div>
+  </div>
+
+  <!-- flows -->
+  <section class="mt-8">
+    <div class="text-[11px] font-bold tracking-[.2em] text-sky-400 uppercase">Flows</div>
+    <h2 class="text-xl font-bold text-white mt-1 mb-4">Trace a path through the system</h2>
+    <div class="grid lg:grid-cols-[280px_1fr] gap-5">
+      <div id="flowBtns" class="flex flex-col gap-2"></div>
+      <div id="flowPanel" class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 min-h-[220px]">
+        <div class="text-sm text-slate-500">Select a flow to see its steps and light up its path in the diagram above.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- node detail -->
+  <div id="detail" class="fixed bottom-5 right-5 w-80 rounded-2xl border border-slate-700 bg-slate-900/95 backdrop-blur p-4 shadow-2xl hidden z-50">
+    <div class="flex items-start justify-between gap-2">
+      <div>
+        <div id="dTitle" class="font-bold text-white text-sm"></div>
+        <div id="dTech" class="text-[11px] text-sky-400 font-semibold mt-0.5"></div>
+      </div>
+      <button onclick="hideDetail()" class="text-slate-500 hover:text-white text-lg leading-none">×</button>
+    </div>
+    <p id="dDesc" class="text-[12.5px] text-slate-300 mt-2 leading-relaxed"></p>
+  </div>
+
+  <footer class="mt-10 text-[11px] text-slate-600">
+    Generated 27 Jul 2026 from the AcademyManager / LeoTennis / Machaxi / CourtSync repos · machine-readable graph: <code class="text-slate-400">architecture.json</code>
+  </footer>
+</div>
+
+<script>
+const GRAPH = {
+  nodes: [
+    { id:"players",  label:"Players & Parents", group:"actor", tech:"public · no login", desc:"Public users: book courts, submit admission enquiries, pay fees." },
+    { id:"staff",    label:"Academy Staff", group:"actor", tech:"staff JWT · tenant-scoped", desc:"Coaches/managers of one academy. Supabase Auth users with app_metadata {am_role:'staff', tenant_id}." },
+    { id:"operator", label:"Platform Operator", group:"actor", tech:"operator JWT · cross-tenant", desc:"Runs the SaaS. Auth user with app_metadata {am_role:'operator'}; reads all tenants, aggregates only." },
+    { id:"leo-app",     label:"LeoTennis app", group:"app", tech:"vanilla JS · GitHub Pages", desc:"Tenant 'leo'. Public pages (booking, admission, pay) + staff console (dashboard, bookings, players, fees, attendance). window.LT_CLOUD fetch adapter; fail-soft offline outbox." },
+    { id:"machaxi-app", label:"Machaxi app", group:"app", tech:"vanilla JS · 2 venues", desc:"Tenant 'machaxi'. Cloned from Leo; the sport dimension doubles as the venue court-pool key (rally R1–R6, urban U1–U7). Shares the github.io origin with Leo (mx-* storage keys)." },
+    { id:"matchpoint-app", label:"MatchPoint app", group:"app", tech:"vanilla JS · badminton", desc:"Tenant 'matchpoint'. Staff-facing manager for Match Point Badminton Academy (Manikonda, Hyderabad): attendance, bookings, fees, renewals, player skill progress. Same template family; earlier MatchPointBadminton repo was the prototype." },
+    { id:"raj-app", label:"Raj Sports web", group:"app", tech:"vanilla JS · 5 centres · 5 sports", desc:"Tenant 'raj'. Coaching manager for a coach-operator running batches at venues he doesn't own — centres can take revenue share. Product priority: WhatsApp reminders that never give a parent a bad experience. Own migration + cron SQL (member_timeline, reminder_events, reminder_queue)." },
+    { id:"raj-android", label:"Raj Sports Android", group:"app", tech:"native Kotlin", desc:"Native Android client for Raj Sports — same Supabase backend as the web console, so a payment recorded on the phone shows on the laptop immediately." },
+    { id:"genalpha-app", label:"Gen Alpha app", group:"app", tech:"vanilla JS · cricket", desc:"Gen Alpha Cricket Academy (Hyderabad) — the FIRST client; the shared schema was designed around it ('every table carries tenant_id so Gen Alpha and future academies…'). Its glass web app currently runs on its OWN Supabase project; legacy repo cricket-academy-manager still serves genalphaacademy.in." },
+    { id:"am-console",  label:"Academy Manager", group:"app", tech:"operator console", desc:"Portfolio KPIs, per-academy detail with a live 7-day activity feed, billing, growth, platform health. Single index.html." },
+    { id:"courtsync",   label:"CourtSync", group:"app", tech:"sync monitor", desc:"Operator's live channel-sync monitor across venues; venues connect channels from their own app, operator watches and triggers syncs here." },
+    { id:"auth",  label:"Supabase Auth", group:"supabase", tech:"GoTrue · JWT", desc:"Password sign-in for staff + operator; anon key for public paths. auth_role()/auth_tenant() helpers drive every RLS policy." },
+    { id:"rest",  label:"PostgREST API", group:"supabase", tech:"/rest/v1 · RLS", desc:"Direct table access gated by RLS: public may INSERT events + applications only; staff scoped to their tenant; operator reads everything." },
+    { id:"rpc",   label:"SQL RPCs", group:"supabase", tech:"26 functions", desc:"Money & aggregate paths: request_booking (server-side price, flood caps), record/confirm/cancel_booking, propagate_block, sync_ingest, operator_portfolio, platform_health, reconcile_report…" },
+    { id:"db",    label:"Postgres tables", group:"supabase", tech:"13 tables", desc:"tenants, subscriptions, integrations, bookings (unique slot index), members, payments, expenses, attendance, reminders_log, applications, events, sync_jobs, platform_settings." },
+    { id:"views", label:"Derived views", group:"supabase", tech:"security_invoker", desc:"contacts (CRM deduped from bookings — read-only, can never break a booking) and public_slots (anon availability without PII)." },
+    { id:"queue", label:"sync_jobs queue", group:"supabase", tech:"durable · retryable", desc:"Outbound cross-channel work enqueued transactionally, claimed with retry/backoff. Failures land in dead letters surfaced by platform_health." },
+    { id:"cron",  label:"pg_cron", group:"supabase", tech:"scheduler", desc:"Wakes the sync worker (~30s), nightly reconcile + encrypted backup, heartbeat feeding platform_health." },
+    { id:"vault", label:"Vault secrets", group:"supabase", tech:"encrypted", desc:"Per-account partner credentials (partner:* secrets) referenced from integrations.config — never plaintext." },
+    { id:"edge",  label:"Edge Functions", group:"supabase", tech:"5 scaffolds", desc:"sync-worker, partner-webhook, partner-poll, partner-push, reconcile. Scaffolded, not yet deployed — a DB dummy processor logs blocks meanwhile." },
+    { id:"partners", label:"Partner channels", group:"external", tech:"Playo · Hudle · District", desc:"Marketplace booking channels. Imports carry ext_ref; blocks propagate out so a slot sold anywhere closes everywhere." },
+    { id:"whatsapp", label:"WhatsApp", group:"external", tech:"deep links · UPI", desc:"Fee-renewal reminders with UPI pay links. Leo/Machaxi send from the roster (reminders_log); Raj runs the full ladder engine (reminder_events state machine, ported from Gen Alpha)." },
+    { id:"genalpha-db", label:"Gen Alpha Supabase", group:"external", tech:"separate project", desc:"hwxhigwaklzedxufwedv.supabase.co — Gen Alpha's own backend (not the shared platform project). Its operational data lives here until the tenant is migrated onto the shared schema." }
+  ],
+  edges: [
+    { id:"e1",  from:"players", to:"leo-app", label:"book · enquire · pay" },
+    { id:"e2",  from:"staff", to:"leo-app", label:"staff console" },
+    { id:"e3",  from:"players", to:"machaxi-app", label:"book · enquire" },
+    { id:"e4",  from:"staff", to:"machaxi-app", label:"staff console" },
+    { id:"e5",  from:"operator", to:"am-console", label:"portfolio review" },
+    { id:"e6",  from:"operator", to:"courtsync", label:"sync monitor" },
+    { id:"e7",  from:"leo-app", to:"auth", label:"staff sign-in" },
+    { id:"e9",  from:"am-console", to:"auth", label:"operator sign-in" },
+    { id:"e10", from:"leo-app", to:"rpc", label:"booking / application RPCs" },
+    { id:"e11", from:"machaxi-app", to:"rpc", label:"booking RPCs" },
+    { id:"e12", from:"leo-app", to:"rest", label:"reads · events" },
+    { id:"e13", from:"machaxi-app", to:"rest", label:"reads · events" },
+    { id:"e14", from:"am-console", to:"rpc", label:"operator RPCs" },
+    { id:"e15", from:"am-console", to:"rest", label:"events → activity feed" },
+    { id:"e16", from:"courtsync", to:"rpc", label:"partner_sync" },
+    { id:"e17", from:"rest", to:"db", label:"RLS-gated SQL" },
+    { id:"e18", from:"rpc", to:"db", label:"security-definer writes" },
+    { id:"e19", from:"db", to:"views", label:"derives" },
+    { id:"e20", from:"rpc", to:"queue", label:"propagate_block" },
+    { id:"e21", from:"cron", to:"edge", label:"~30s · nightly" },
+    { id:"e22", from:"edge", to:"queue", label:"claims jobs" },
+    { id:"e23", from:"edge", to:"partners", label:"push blocks · poll" },
+    { id:"e24", from:"partners", to:"edge", label:"booking webhooks" },
+    { id:"e25", from:"edge", to:"vault", label:"credentials" },
+    { id:"e27", from:"edge", to:"db", label:"sync_ingest · reconcile" },
+    { id:"e26", from:"leo-app", to:"whatsapp", label:"fee reminders" },
+    { id:"e28", from:"staff", to:"matchpoint-app", label:"staff console" },
+    { id:"e29", from:"matchpoint-app", to:"rpc", label:"booking · fees RPCs" },
+    { id:"e30", from:"matchpoint-app", to:"rest", label:"reads · events" },
+    { id:"e31", from:"staff", to:"raj-app", label:"coaching console" },
+    { id:"e32", from:"raj-app", to:"rpc", label:"fees · reminder_queue RPCs" },
+    { id:"e33", from:"raj-app", to:"rest", label:"reads · events · timeline" },
+    { id:"e35", from:"staff", to:"raj-android", label:"on the go" },
+    { id:"e34", from:"raj-android", to:"rest", label:"same backend, native client" },
+    { id:"e36", from:"raj-app", to:"whatsapp", label:"reminder ladder sends" },
+    { id:"e37", from:"players", to:"genalpha-app", label:"cricket academy" },
+    { id:"e38", from:"genalpha-app", to:"genalpha-db", label:"own backend (today)" },
+    { id:"e39", from:"genalpha-app", to:"db", label:"account of record in AM" }
+  ],
+  flows: [
+    { id:"f1", name:"Player books a court", color:"#34d399",
+      summary:"Public slot booking with server-side pricing, atomic court claim, and cross-channel blocking.",
+      steps:[
+        { edge:"e1",  title:"Pick a slot", detail:"Player opens booking.html (no login); availability comes from the anon-safe public_slots view." },
+        { edge:"e10", title:"request_booking RPC", detail:"Anon call: price computed server-side, phone required, per-phone + per-day flood caps." },
+        { edge:"e18", title:"Pending row inserted", detail:"bookings row status 'pending'; the unique slot index (tenant, date, hour, court) holds the slot." },
+        { edge:"e2",  title:"Staff review", detail:"The request appears in the staff console bookings.html." },
+        { edge:"e10", title:"confirm_booking RPC", detail:"Staff JWT required (lockdown guard). Court auto-claimed atomically." },
+        { edge:"e20", title:"Cross-channel block enqueued", detail:"propagate_block writes one durable sync_jobs row per other connected channel." },
+        { edge:"e21", title:"Scheduler fires", detail:"pg_cron wakes the sync-worker (~every 30s)." },
+        { edge:"e22", title:"Worker claims jobs", detail:"process_sync_jobs hands ready jobs over with retry/backoff." },
+        { edge:"e23", title:"Slot blocked everywhere", detail:"Playo / Hudle / District can no longer double-sell the hour." } ] },
+    { id:"f2", name:"Staff walk-in booking", color:"#38bdf8",
+      summary:"Manual booking entry by academy staff — the provenance trail AM uses to tell humans from imports.",
+      steps:[
+        { edge:"e2",  title:"Open bookings.html", detail:"Staff console, signed in with a tenant-scoped staff JWT." },
+        { edge:"e10", title:"record_booking RPC", detail:"Server computes the rate and claims a court; source set from the form (e.g. Walk-in)." },
+        { edge:"e18", title:"Confirmed row lands", detail:"status 'confirmed', created_at = now, no ext_ref — the manual-entry fingerprint." },
+        { edge:"e12", title:"Telemetry event", detail:"LT_CLOUD.track('staff_booking_added', {source, venue}) inserts into events." },
+        { edge:"e15", title:"Operator sees it", detail:"AM's 7-day activity feed shows the action with time and detail." } ] },
+    { id:"f3", name:"Partner booking import", color:"#a78bfa",
+      summary:"A booking sold on a marketplace flows in via webhook and blocks the slot on every other channel.",
+      steps:[
+        { edge:"e24", title:"Webhook arrives", detail:"Playo/Hudle/District call partner-webhook when a booking happens on their side." },
+        { edge:"e25", title:"Credential check", detail:"Per-account partner secret fetched from Vault — never plaintext." },
+        { edge:"e27", title:"sync_ingest writes", detail:"Booking inserted with ext_ref set (the imported-booking fingerprint)." },
+        { edge:"e20", title:"Counter-blocks enqueued", detail:"propagate_block queues block jobs for every other connected channel." },
+        { edge:"e22", title:"Worker drains queue", detail:"sync-worker claims the jobs on the next cron tick." },
+        { edge:"e23", title:"Other channels blocked", detail:"The slot closes across the remaining marketplaces." } ] },
+    { id:"f4", name:"Usage telemetry → activity feed", color:"#fbbf24",
+      summary:"Every tenant-app action becomes an event; the operator reads them as a per-academy activity feed.",
+      steps:[
+        { edge:"e1",  title:"Any page opens", detail:"cloud.js logs page_view automatically (+ client_error with breadcrumbs); pages call LT_CLOUD.track for named actions." },
+        { edge:"e12", title:"Anon event insert", detail:"POST /events with tenant_id, name, props, session_id, page — open by design (events_public_w)." },
+        { edge:"e17", title:"Row lands in events", detail:"Indexed (tenant_id, at); operator-only SELECT policy (events_op_r)." },
+        { edge:"e5",  title:"Operator opens AM", detail:"Academy detail view for any tenant." },
+        { edge:"e14", title:"Aggregates via RPC", detail:"operator_portfolio computes usage_daily, sessions, active days, last_event_at, errors." },
+        { edge:"e15", title:"7-day activity feed", detail:"Day-by-day actions, page-view summaries, session counts, 'No activity' idle days." } ] },
+    { id:"f5", name:"Operator portfolio review", color:"#fb7185",
+      summary:"Cross-tenant KPIs with PII minimization — aggregates leave the tenant, phone lists never do.",
+      steps:[
+        { edge:"e5",  title:"Open the console", detail:"AM console shell renders instantly, then hydrates." },
+        { edge:"e9",  title:"Operator sign-in", detail:"Password grant → JWT with am_role 'operator'; silent refresh." },
+        { edge:"e14", title:"Three RPCs hydrate", detail:"operator_portfolio, platform_health (jobs, stale feeds, dead letters), reconcile_report (gaps)." },
+        { edge:"e18", title:"Security-definer aggregates", detail:"Cross-tenant math runs server-side; only account-level numbers cross the boundary." },
+        { node:"am-console", title:"Rendered views", detail:"Insight KPIs + GMV trend, portfolio table, billing, growth, per-academy detail." } ] },
+    { id:"f6", name:"Fee reminder → payment", color:"#2dd4be",
+      summary:"Dues chase over WhatsApp with a UPI link, closed out by a recorded payment.",
+      steps:[
+        { edge:"e2",  title:"Roster shows dues", detail:"players.html lists members with renewals approaching." },
+        { edge:"e26", title:"WhatsApp reminder", detail:"Deep link opens a prefilled message with a UPI pay link; reminders_log records the send." },
+        { edge:"e12", title:"reminder_sent event", detail:"Keeps the member timeline and AM feed accurate." },
+        { edge:"e2",  title:"Payment received", detail:"Parent pays; staff record it in fees.html (amount, mode)." },
+        { edge:"e17", title:"payments row + event", detail:"payments insert (staff RLS) + payment_recorded event → GMV metrics update." } ] },
+    { id:"f7", name:"Admission enquiry", color:"#818cf8",
+      summary:"Public lead capture feeding the staff console and AM growth metrics.",
+      steps:[
+        { edge:"e1",  title:"Public form", detail:"admission.html — program + contact details, no login." },
+        { edge:"e10", title:"submit_application RPC", detail:"Anon insert path for applications (public write policy)." },
+        { edge:"e18", title:"Application stored", detail:"applications row, tenant-scoped; only staff/operator read." },
+        { edge:"e12", title:"admission_submitted event", detail:"Tracked with program + venue props." },
+        { edge:"e14", title:"Shows up in AM Growth", detail:"apps_30d feeds the enquiries leaderboard and academy detail." } ] },
+    { id:"f8", name:"Raj renewal reminder ladder", color:"#f472b6",
+      summary:"WhatsApp-first dues chasing for Raj Sports — the proven Gen Alpha ladder, tenant-scoped in SQL, driven by cron and mirrored on the staff screen.",
+      steps:[
+        { edge:"e31", title:"Renewal approaches", detail:"Raj's console tracks enrollments per centre; reminder_queue() computes exactly who is due and for how much." },
+        { edge:"e32", title:"One function, two surfaces", detail:"The same reminder_queue() RPC feeds the cron auto-sender AND the staff click-to-send list — both surfaces always agree." },
+        { node:"cron", title:"The ladder schedule", detail:"−2d heads_up · 0d due · +5d first chase · +7…14d daily · +15d STOP — auto gives way to manual follow-up." },
+        { edge:"e36", title:"WhatsApp send", detail:"Prefilled message + UPI pay link; reminder_events tracks queued → sent → delivered → read, failures → retry_scheduled." },
+        { edge:"e33", title:"Timeline closes the loop", detail:"member_timeline appends the reminder and the eventual payment on the student profile." } ] }
+  ]
+};
+
+const LAYOUT = {
+  players:     { x: 14,  y: 95,  w: 142 },
+  staff:       { x: 14,  y: 330, w: 142 },
+  operator:    { x: 14,  y: 640, w: 142 },
+  "leo-app":       { x: 178, y: 55,  w: 168 },
+  "machaxi-app":   { x: 178, y: 180, w: 168 },
+  "matchpoint-app":{ x: 178, y: 305, w: 168 },
+  "raj-app":       { x: 178, y: 430, w: 168 },
+  "am-console":    { x: 178, y: 585, w: 168 },
+  courtsync:       { x: 178, y: 710, w: 168 },
+  "genalpha-app":  { x: 362, y: 55,  w: 168 },
+  "raj-android":   { x: 362, y: 430, w: 168 },
+  auth:  { x: 578, y: 45,  w: 178 },
+  rest:  { x: 578, y: 185, w: 178 },
+  rpc:   { x: 578, y: 330, w: 178 },
+  cron:  { x: 578, y: 505, w: 178 },
+  edge:  { x: 578, y: 650, w: 178 },
+  db:    { x: 802, y: 150, w: 185 },
+  views: { x: 802, y: 300, w: 185 },
+  queue: { x: 802, y: 445, w: 185 },
+  vault: { x: 802, y: 590, w: 185 },
+  whatsapp:     { x: 1032, y: 60,  w: 188 },
+  "genalpha-db":{ x: 1032, y: 195, w: 188 },
+  partners:     { x: 1032, y: 640, w: 188 }
+};
+const GROUP_STYLE = {
+  actor:    "bg-sky-950/60 border border-sky-800/60",
+  app:      "bg-emerald-950/50 border border-emerald-800/60",
+  supabase: "bg-violet-950/40 border border-violet-800/50",
+  external: "bg-orange-950/40 border border-orange-800/50"
+};
+const GROUP_DOT = { actor:"#7dd3fc", app:"#34d399", supabase:"#a78bfa", external:"#fb923c" };
+
+const stage = document.getElementById("stage");
+const nodeLayer = document.getElementById("nodeLayer");
+const edgeG = document.getElementById("edgeG");
+const labelG = document.getElementById("labelG");
+const badgeG = document.getElementById("badgeG");
+const nodeEls = {}, edgeEls = {}, labelEls = {};
+const byId = {}; GRAPH.nodes.forEach(n => byId[n.id] = n);
+
+// group boxes
+[["APPS · GitHub Pages + Android", 168, 30, 376, 795, "rgba(52,211,153,.25)"],
+ ["SUPABASE · ugsklcipzyiogxynshnh", 564, 20, 438, 810, "rgba(167,139,250,.25)"],
+ ["EXTERNAL", 1018, 30, 208, 795, "rgba(251,146,60,.25)"]].forEach(g => {
+  const box = document.createElement("div");
+  box.className = "group-box";
+  box.style.cssText = `left:${g[1]}px;top:${g[2]}px;width:${g[3]}px;height:${g[4]}px;border-color:${g[5]}`;
+  const t = document.createElement("div");
+  t.className = "group-title";
+  t.style.cssText = `left:${g[1]+12}px;top:${g[2]-6}px;background:#020617;padding:0 6px`;
+  t.textContent = g[0];
+  nodeLayer.appendChild(box); nodeLayer.appendChild(t);
+});
+
+// nodes
+GRAPH.nodes.forEach(n => {
+  const l = LAYOUT[n.id];
+  const el = document.createElement("div");
+  el.className = "node " + GROUP_STYLE[n.group];
+  el.style.cssText = `left:${l.x}px;top:${l.y}px;width:${l.w}px;`;
+  el.innerHTML = `<div class="flex items-center gap-1.5"><i style="width:7px;height:7px;border-radius:50%;background:${GROUP_DOT[n.group]};flex:none"></i><span class="text-[12.5px] font-bold text-white leading-tight">${n.label}</span></div><div class="text-[10px] text-slate-400 mt-0.5 leading-snug">${n.tech||""}</div>`;
+  el.addEventListener("click", ev => { ev.stopPropagation(); isolateNode(n.id); showDetail(n); });
+  nodeLayer.appendChild(el); nodeEls[n.id] = el;
+});
+
+function rect(id){ const l = LAYOUT[id], el = nodeEls[id]; return { x:l.x, y:l.y, w:l.w, h: el.offsetHeight }; }
+function anchor(a, b){
+  const A = rect(a), B = rect(b);
+  if (B.x > A.x + A.w) return [{x:A.x+A.w, y:A.y+A.h/2},{x:B.x, y:B.y+B.h/2}];
+  if (A.x > B.x + B.w) return [{x:A.x, y:A.y+A.h/2},{x:B.x+B.w, y:B.y+B.h/2}];
+  if (B.y > A.y) return [{x:A.x+A.w/2, y:A.y+A.h},{x:B.x+B.w/2, y:B.y}];
+  return [{x:A.x+A.w/2, y:A.y},{x:B.x+B.w/2, y:B.y+B.h}];
+}
+function drawEdges(){
+  edgeG.innerHTML = ""; labelG.innerHTML = "";
+  GRAPH.edges.forEach(e => {
+    const [p1, p2] = anchor(e.from, e.to);
+    const horiz = Math.abs(p1.y - p2.y) < Math.abs(p1.x - p2.x);
+    const dx = (p2.x - p1.x) * 0.45, dy = (p2.y - p1.y) * 0.45;
+    const d = horiz
+      ? `M${p1.x} ${p1.y} C${p1.x+dx} ${p1.y}, ${p2.x-dx} ${p2.y}, ${p2.x} ${p2.y}`
+      : `M${p1.x} ${p1.y} C${p1.x} ${p1.y+dy}, ${p2.x} ${p2.y-dy}, ${p2.x} ${p2.y}`;
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d", d); path.setAttribute("class","edge-path"); path.setAttribute("marker-end","url(#arr)");
+    edgeG.appendChild(path); edgeEls[e.id] = path;
+    const mid = path.getPointAtLength(path.getTotalLength()*0.5);
+    const txt = document.createElementNS("http://www.w3.org/2000/svg","text");
+    txt.setAttribute("x", mid.x); txt.setAttribute("y", mid.y - 5); txt.setAttribute("text-anchor","middle");
+    txt.setAttribute("class","edge-label"); txt.textContent = e.label;
+    labelG.appendChild(txt); labelEls[e.id] = txt;
+  });
+}
+
+let activeFlow = null;
+function resetHighlight(){
+  activeFlow = null; badgeG.innerHTML = "";
+  Object.values(nodeEls).forEach(el => el.classList.remove("dim","lit"));
+  Object.values(edgeEls).forEach(p => { p.classList.remove("dim","lit","anim"); p.setAttribute("marker-end","url(#arr)"); p.style.removeProperty("--flow"); });
+  Object.values(labelEls).forEach(t => t.classList.remove("dim","lit"));
+  document.querySelectorAll(".flow-btn").forEach(b => b.classList.remove("active"));
+  renderFlowPanel(null);
+}
+function isolateNode(id){
+  resetHighlight();
+  const touched = new Set([id]);
+  GRAPH.edges.forEach(e => {
+    const on = e.from === id || e.to === id;
+    edgeEls[e.id].classList.toggle("dim", !on);
+    labelEls[e.id].classList.toggle("dim", !on);
+    if (on){ edgeEls[e.id].classList.add("lit"); edgeEls[e.id].style.setProperty("--flow","#38bdf8"); edgeEls[e.id].setAttribute("marker-end","url(#arrLit)"); labelEls[e.id].classList.add("lit"); touched.add(e.from); touched.add(e.to); }
+  });
+  GRAPH.nodes.forEach(n => { nodeEls[n.id].classList.toggle("dim", !touched.has(n.id)); if (touched.has(n.id)) nodeEls[n.id].classList.add("lit"), nodeEls[n.id].style.setProperty("--flow","#38bdf8"); });
+}
+function activateFlow(fid, stepIdx){
+  const flow = GRAPH.flows.find(f => f.id === fid);
+  if (!flow) return;
+  activeFlow = fid; badgeG.innerHTML = "";
+  const flowEdges = new Set(flow.steps.filter(s => s.edge).map(s => s.edge));
+  const flowNodes = new Set(flow.steps.filter(s => s.node).map(s => s.node));
+  flowEdges.forEach(eid => { const e = GRAPH.edges.find(x => x.id === eid); if (e){ flowNodes.add(e.from); flowNodes.add(e.to); } });
+  GRAPH.edges.forEach(e => {
+    const on = flowEdges.has(e.id);
+    const p = edgeEls[e.id], t = labelEls[e.id];
+    p.classList.toggle("dim", !on); p.classList.toggle("lit", on); p.classList.toggle("anim", on);
+    p.setAttribute("marker-end", on ? "url(#arrLit)" : "url(#arr)");
+    if (on) p.style.setProperty("--flow", flow.color); else p.style.removeProperty("--flow");
+    t.classList.toggle("dim", !on); t.classList.toggle("lit", on);
+  });
+  GRAPH.nodes.forEach(n => {
+    const on = flowNodes.has(n.id);
+    nodeEls[n.id].classList.toggle("dim", !on); nodeEls[n.id].classList.toggle("lit", on);
+    if (on) nodeEls[n.id].style.setProperty("--flow", flow.color);
+  });
+  // numbered badges along edges (offset when an edge repeats)
+  const used = {};
+  flow.steps.forEach((s, i) => {
+    if (!s.edge || !edgeEls[s.edge]) return;
+    const p = edgeEls[s.edge];
+    used[s.edge] = (used[s.edge] || 0) + 1;
+    const t = used[s.edge] === 1 ? 0.5 : (used[s.edge] === 2 ? 0.32 : 0.68);
+    const pt = p.getPointAtLength(p.getTotalLength() * t);
+    const focus = stepIdx != null && stepIdx === i;
+    const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.setAttribute("class","stepbadge");
+    g.innerHTML = `<circle cx="${pt.x}" cy="${pt.y}" r="${focus?11:9}" fill="${flow.color}" stroke="#020617" stroke-width="2"/><text x="${pt.x}" y="${pt.y+3.5}" text-anchor="middle" font-size="${focus?11:10}" font-weight="800" fill="#020617">${i+1}</text>`;
+    badgeG.appendChild(g);
+  });
+  document.querySelectorAll(".flow-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.flow === fid);
+    b.style.setProperty("--flow", flow.color);
+  });
+  renderFlowPanel(flow, stepIdx);
+}
+function renderFlowPanel(flow, stepIdx){
+  const panel = document.getElementById("flowPanel");
+  if (!flow){ panel.innerHTML = '<div class="text-sm text-slate-500">Select a flow to see its steps and light up its path in the diagram above.</div>'; return; }
+  panel.style.setProperty("--flow", flow.color);
+  panel.innerHTML =
+    `<div class="flex items-center gap-2.5"><i style="width:10px;height:10px;border-radius:50%;background:${flow.color}"></i><h3 class="font-bold text-white">${flow.name}</h3>
+     <button onclick="resetHighlight()" class="ml-auto text-[11px] font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2.5 py-1">Clear</button></div>
+     <p class="text-[12.5px] text-slate-400 mt-1.5">${flow.summary}</p>
+     <ol class="mt-4 space-y-1.5">` +
+    flow.steps.map((s, i) =>
+      `<li class="step-item ${stepIdx===i?'active':''} flex gap-3 items-start rounded-xl border border-slate-800 px-3.5 py-2.5 cursor-pointer hover:border-slate-600 transition-colors" style="--flow:${flow.color}" onclick="activateFlow('${flow.id}', ${i})">
+        <span style="background:${flow.color}" class="w-5 h-5 rounded-full text-[11px] font-extrabold text-slate-950 flex items-center justify-center flex-none mt-0.5">${i+1}</span>
+        <span><b class="text-[13px] text-white">${s.title}</b><span class="block text-[12px] text-slate-400 leading-snug">${s.detail}</span></span></li>`).join("") +
+    "</ol>";
+}
+function showDetail(n){
+  document.getElementById("dTitle").textContent = n.label;
+  document.getElementById("dTech").textContent = n.tech || "";
+  document.getElementById("dDesc").textContent = n.desc || "";
+  document.getElementById("detail").classList.remove("hidden");
+}
+function hideDetail(){ document.getElementById("detail").classList.add("hidden"); }
+
+// flow buttons
+const btnWrap = document.getElementById("flowBtns");
+GRAPH.flows.forEach(f => {
+  const b = document.createElement("button");
+  b.className = "flow-btn text-left rounded-xl border border-slate-800 bg-slate-900/40 px-3.5 py-2.5 hover:border-slate-600 transition-colors";
+  b.dataset.flow = f.id;
+  b.innerHTML = `<span class="flex items-center gap-2"><i style="width:8px;height:8px;border-radius:50%;background:${f.color};flex:none"></i><span class="text-[13px] font-bold">${f.name}</span></span><span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">${f.steps.length} steps</span>`;
+  b.addEventListener("click", () => activateFlow(f.id));
+  btnWrap.appendChild(b);
+});
+
+stage.addEventListener("click", resetHighlight);
+drawEdges();
+// scale to fit
+function fit(){
+  const wrap = document.getElementById("stageWrap");
+  const s = Math.min(1, wrap.clientWidth / 1240);
+  stage.style.transform = `scale(${s})`;
+  wrap.style.height = (845 * s) + "px";
+}
+window.addEventListener("resize", fit); fit();
+</script>
+</body>
+</html>
