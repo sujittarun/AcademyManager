@@ -545,9 +545,20 @@
               var acts = evs.filter(function (e) { return e.name !== "page_view"; });
               var items = acts.slice(0, 6).map(function (e) {
                 var m = evMeta(e.name), d = evDetail(e);
-                return '<div style="display:flex;align-items:center;gap:11px;padding:7px 0">' +
+                return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0">' +
                   '<div style="width:28px;height:28px;border-radius:8px;background:' + m[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:' + m[1] + '">' + m[0] + '</span></div>' +
                   '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + "</div>" +
+                  /* An error in the feed is the one row you want to act on
+                     without going anywhere. Icon only: the row is already
+                     tight, and a word here would crowd the timestamp. */
+                  (e.name === "client_error"
+                    ? '<button class="act-resolve" title="Mark resolved" aria-label="Mark resolved"' +
+                        ' data-resolve="1"' +
+                        ' data-tenant="' + esc(e.tenant_id || a.id) + '"' +
+                        ' data-msg="' + esc(String((e.props || {}).msg || "").slice(0, 90)) + '"' +
+                        ' data-ver="' + esc(String((e.props || {}).ver || "?")) + '">' +
+                        '<span class="mi">check</span></button>'
+                    : "") +
                   '<span style="font-size:11px;color:var(--tx5);white-space:nowrap;font-variant-numeric:tabular-nums">' + evTime(e.at) + "</span></div>";
               }).join("");
               if (acts.length > 6) items += '<div style="font-size:11.5px;color:var(--tx4);padding:4px 0 2px 39px">+' + (acts.length - 6) + " more actions</div>";
@@ -682,18 +693,38 @@
         }
         var res = e.target.closest("[data-resolve]");
         if (res) {
+          var iconOnly = res.classList.contains("act-resolve");
           res.disabled = true;
-          res.innerHTML = '<span class="mi">hourglass_empty</span>Resolving';
+          res.innerHTML = iconOnly
+            ? '<span class="mi">hourglass_empty</span>'
+            : '<span class="mi">hourglass_empty</span>Resolving';
           rpc("resolve_client_error", {
             p_tenant: res.getAttribute("data-tenant"),
             p_msg: res.getAttribute("data-msg"),
             p_ver: res.getAttribute("data-ver")
           }).then(function (r) {
-            if (r && r.ok) return refreshHealth();
-            // Leave the row alone and say so. Silently re-rendering an
-            // unchanged list would read as "resolved" when it was not.
-            res.disabled = false;
-            res.innerHTML = '<span class="mi">error</span>Could not resolve';
+            if (!r || !r.ok) {
+              // Leave it alone and say so. Silently re-rendering an
+              // unchanged list would read as "resolved" when it was not.
+              res.disabled = false;
+              res.innerHTML = iconOnly
+                ? '<span class="mi">error</span>'
+                : '<span class="mi">error</span>Could not resolve';
+              if (iconOnly) res.title = "Could not resolve";
+              return;
+            }
+            if (iconOnly) {
+              /* The activity feed is a record of what happened, and the
+                 error did happen — clearing the row would be rewriting
+                 history. Mark it handled instead; Insight and the errors
+                 card are where it disappears from. */
+              res.innerHTML = '<span class="mi">check_circle</span>';
+              res.title = "Resolved";
+              res.classList.add("act-resolve--done");
+              refreshHealth();
+              return;
+            }
+            refreshHealth();
           });
           return;
         }

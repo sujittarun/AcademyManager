@@ -535,3 +535,55 @@ body { letter-spacing: -.006em; }
   line-height: 1.5;
   color: var(--tx5);
 }
+
+/* --- resolve, inline in the activity feed ---
+   The errors card is for triage; this is for the one you are looking at
+   right now. Icon only — the row already carries a label, a detail line
+   and a timestamp, and a fourth text element would crowd it. */
+.act-row { position: relative; }
+
+.act-resolve {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx4);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s var(--ease), background .14s var(--ease),
+              border-color .14s var(--ease), color .14s var(--ease);
+}
+
+.act-resolve .mi { font-size: 16px; }
+
+/* Shown on hover, and always once focused — a control that only exists
+   for a mouse is not a control for everyone. */
+.act-row:hover .act-resolve,
+.act-resolve:focus-visible { opacity: 1; }
+
+.act-resolve:hover {
+  background: var(--acs);
+  border-color: var(--ac);
+  color: var(--act);
+}
+
+.act-resolve:disabled { opacity: .45; cursor: default; }
+
+@media (hover: none) {
+  /* No hover on a touch screen, so it simply stays visible. */
+  .act-resolve { opacity: 1; }
+}
+
+.act-resolve--done {
+  opacity: 1 !important;
+  color: var(--ac);
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
