@@ -101,7 +101,8 @@ bottom.
 | `compute_payouts()` | centre revenue share |
 | `tenant_health()`, `platform_health()`, `cron_health_check()` | operator observability |
 | `rls_audit()` | anon policies with no `tenant_id` in their predicate; logged hourly |
-| `rpc_audit()` | tenant-scoped functions `anon` can execute; logged hourly |
+| `rpc_audit()` | `SECURITY DEFINER` functions `anon` can execute that touch tenant data; hourly |
+| `policy_fn_audit()` | functions named in a policy that `anon` cannot execute; hourly |
 | `platform_errors()` | client-side errors per tenant, grouped by message + version |
 | `events_flowing()` | canary: false when the events sink has gone quiet despite recent traffic |
 | `tenant_exists()`, `tenant_publishes_timetable()` | the `tenants` lookups a policy may safely do |
@@ -131,7 +132,13 @@ apply inside it**. If it takes `p_tenant` and `anon` can execute it, the
 tenant is whatever the caller types, and the public key in every repo is
 enough to read it.
 
-So, for anything taking `p_tenant`:
+**The default grant is to `PUBLIC`.** A function is anon-callable unless
+you revoke it *from `PUBLIC`* — `revoke … from anon` is a no-op. And
+`p_tenant` is a naming convention, not a security property: the ones
+that leaked hardest (`enrollment_fee`, `enrollment_payment_summary`)
+take an enrollment id and no tenant at all.
+
+So, for any `SECURITY DEFINER` function:
 
 1. `revoke execute … from public, anon` — note **`public`**, the
    pseudo-role. The grant that matters is usually the bare `=X/postgres`
@@ -139,7 +146,10 @@ So, for anything taking `p_tenant`:
 2. `grant execute … to authenticated, service_role`.
 3. `perform assert_staff_or_service(p_tenant)` as the **first line** of
    the body, so a signed-in staff member of one tenant cannot pass
-   another tenant's id.
+   another tenant's id. 28 of 40 already do this — check before adding.
+4. **But never on a function a policy or an anon path calls.** Revoking
+   `is_locked()` from `PUBLIC` took Raj's timetable down, because
+   policies for the `public` role apply to anon and call it.
 
 `rpc_audit()` must stay empty apart from the four that are public by
 design: `request_booking`, `submit_application`, `tenant_exists`,
@@ -161,16 +171,25 @@ This has cost two outages, both mine, both fixed the same day:
 |---|---|---|
 | Raj's public timetable, ~4 min | `jsonb_set` with `create_missing` only creates the *final* key; Raj's config had no `features` object, so the update was a no-op | `0004`, object merge + `raise exception` guard |
 | Every tenant's analytics and error reporting, ~3 h | `exists (select … from tenants)` inlined into `events_public_w`, evaluated as `anon` | `0007`, `tenant_exists()` + `events_flowing()` canary |
-| Every family's name and phone at every tenant, readable by anyone (pre-existing, not from a migration) | 33 `SECURITY DEFINER` functions taking `p_tenant`, executable by `anon`. `reminder_queue{p_tenant:"raj"}` returned 55 rows to the public key | `0009`, revoke from `public`+`anon`, `rpc_audit()` canary |
+| Every family's name and phone at every tenant, readable by anyone (pre-existing) | `reminder_queue{p_tenant:"raj"}` returned 55 rows to the public key — `SECURITY DEFINER` with no guard and `PUBLIC` execute | `0009`, revoke from `public`+`anon` |
+| Fees, payment summaries, the sync queue and the health job, all anon-callable (pre-existing, plus three functions I had added hours earlier) | `0009` keyed on the *argument name* `p_tenant`; `enrollment_fee` and friends take an enrollment id, so it never saw them | `0010`, default-closed across every `SECURITY DEFINER`, `rpc_audit()` redefined around the real property |
+| Raj's public timetable, again, ~6 min | `0010` revoked `is_locked()` from `PUBLIC`; policies for the `public` role apply to anon and call it, so every read errored | `0011`, grant restored, `policy_fn_audit()` canary |
 
 Both were caught by **measuring the same thing before and after** — anon
 row counts, then event counts. Neither would have been caught by reading
 the SQL, and `rls_audit()` passed cleanly through the second one, because
 a shape check cannot see behaviour.
 
-So: after any migration that touches a policy, exercise the real path
-with the real anon key. A dry run proves the SQL parses, not that the
-system still works.
+So: after any migration that touches a policy **or a grant**, exercise
+the real path with the real anon key. A dry run proves the SQL parses,
+not that the system still works.
+
+And **assert on content, not on length.** The `is_locked` breakage hid
+for several minutes behind a probe that did `len(response)` — a
+PostgREST error body is a four-key object, so a hard failure read back
+as "4 rows". A check that cannot tell an error from data is not a check.
+Compare against known-good values: Raj publishes 5 centres, 14 batches,
+5 sports.
 
 ---
 
