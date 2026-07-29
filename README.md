@@ -19,5 +19,7 @@ individual payments. Operational data stays in each academy's own console.
   an ivory canvas, forest accent, compact metric rail, animated portfolio
   chart, lifecycle diagnostics, and responsive operator workflows.
 - **Data**: the multi-tenant Supabase project (org *Academy Manager*);
-  schema in the Leo repo under `supabase/schema.sql`.
+  schema in this repo under `supabase/schema.sql`; migrations in
+  `supabase/migrations/`, applied with `scripts/migrate.sh` and recorded
+  in the `schema_migrations` ledger.
 - **Stack**: vanilla HTML/CSS/JS, no build step. Deploy = push to `main`.
