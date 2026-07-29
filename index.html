@@ -464,6 +464,10 @@
         admission_submitted: ["person_add", "#7c3aed", "#f5f3ff", "Admission enquiry"],
         reminder_sent: ["notifications_active", "#b45309", "#fffbeb", "Fee reminder sent"],
         client_error: ["error", "#b91c1c", "#fef2f2", "App error"],
+        student_added: ["person_add", "#1d4ed8", "#eff6ff", "Student added"],
+        student_updated: ["edit", "#4b5563", "#f3f4f6", "Student updated"],
+        student_discontinued: ["person_remove", "#b45309", "#fffbeb", "Student left"],
+        attendance_marked: ["fact_check", "#047857", "#ecfdf5", "Attendance marked"],
       };
       function evMeta(n) { return EVMETA[n] || ["bolt", "#4b5563", "#f3f4f6", String(n || "").replace(/_/g, " ")]; }
       function evDetail(e) {
