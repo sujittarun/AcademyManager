@@ -146,7 +146,13 @@ So, for any `SECURITY DEFINER` function:
 2. `grant execute … to authenticated, service_role`.
 3. `perform assert_staff_or_service(p_tenant)` as the **first line** of
    the body, so a signed-in staff member of one tenant cannot pass
-   another tenant's id. 28 of 40 already do this — check before adding.
+   another tenant's id. All of them now do, except the four public ones
+   and `slot_rate` — check before adding.
+
+   For a helper only ever called by other `SECURITY DEFINER` functions,
+   `revoke execute … from authenticated` instead. Definer functions run
+   as the owner, so internal calls are unaffected, and it is a smaller
+   change than editing a body.
 4. **But never on a function a policy or an anon path calls.** Revoking
    `is_locked()` from `PUBLIC` took Raj's timetable down, because
    policies for the `public` role apply to anon and call it.
