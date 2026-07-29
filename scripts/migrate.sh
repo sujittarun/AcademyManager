@@ -4,6 +4,7 @@
 #
 #   scripts/migrate.sh --scope shared  supabase/migrations/0002-thing.sql
 #   scripts/migrate.sh --scope raj --dry-run  ../Raj\ Sports/supabase/x.sql
+#   scripts/migrate.sh --target staging --scope shared  supabase/migrations/x.sql
 #
 # There is deliberately ONE copy of this script, here, in the platform
 # repo. Tenant repos used to carry their own; a stale copy without the
@@ -19,6 +20,14 @@
 #      grepping the response for the word "error".
 #   5. --dry-run runs the real SQL inside a transaction and rolls back.
 #
+# --target picks the database. `prod` is the default, deliberately: the
+# safe choice should be the one you type, not the one you get by
+# forgetting. Set STAGING_PROJECT_REF once a staging project exists.
+#
+#   --target prod      the live platform database (default)
+#   --target staging   $STAGING_PROJECT_REF
+#   --target <ref>     any project ref, for a one-off
+#
 # Needs: ~/.supabase/access-token (a Supabase personal access token).
 # ============================================================
 set -euo pipefail
@@ -26,13 +35,33 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SQLPY="$HERE/_sql.py"
 
+resolve_target() {
+  case "$1" in
+    prod)    echo "$PROD_REF" ;;
+    staging)
+      if [ -z "$STAGING_REF" ]; then
+        echo "" ; return
+      fi
+      echo "$STAGING_REF" ;;
+    *)       echo "$1" ;;   # a raw project ref
+  esac
+}
+
 DRY_RUN=0
 SCOPE=""
+TARGET="prod"
+
+PROD_REF="ugsklcipzyiogxynshnh"
+STAGING_REF="${STAGING_PROJECT_REF:-}"
 SQL_FILE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
+    --target)
+      TARGET="${2:-}"
+      shift 2
+      ;;
     --scope)   SCOPE="${2:-}"; shift 2 ;;
     -h|--help)
       sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -74,6 +103,25 @@ select coalesce(
   '[]'::json) as hit
 where to_regclass('public.schema_migrations') is not null;
 SQL
+
+PROJECT_REF="$(resolve_target "$TARGET")"
+if [ -z "$PROJECT_REF" ]; then
+  echo "✗ --target staging, but STAGING_PROJECT_REF is not set." >&2
+  echo "  Create the staging project, then:" >&2
+  echo "    export STAGING_PROJECT_REF=<ref>" >&2
+  exit 1
+fi
+export SUPABASE_PROJECT_REF="$PROJECT_REF"
+
+# Say which database, every time. The migration that took a live tenant
+# down was applied by someone who knew perfectly well it was production
+# and did it anyway; the ones that follow will be applied by someone
+# tired, and they should not have to remember.
+if [ "$PROJECT_REF" = "$PROD_REF" ]; then
+  say "→ target: PRODUCTION ($PROJECT_REF)"
+else
+  say "→ target: $TARGET ($PROJECT_REF)"
+fi
 
 LEDGER_STATE="new"
 if CHECK_OUT="$(python3 "$SQLPY" "$TMP/check.sql" 2>/dev/null)"; then

@@ -173,6 +173,7 @@
           method: cfg.billing ? "UPI · Autopay" : "—", msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
           errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
           wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
+          federated: !!r.federated, rollupAt: r.rollup_at || null,
           tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
         };
       }
@@ -374,7 +375,8 @@
             '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.bookings || "—") + "</td>" +
             '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.enq || "—") + "</td>" +
             '<td style="padding:13px 12px;min-width:120px"><div style="width:112px;height:28px">' + spark(a.usage.slice(-14), 28, "var(--ac)") + "</div></td>" +
-            '<td style="padding:13px 12px">' + pill(a.health, healthStyle(a.health)) + "</td>" +
+            '<td style="padding:13px 12px">' + pill(a.health, healthStyle(a.health)) +
+              (a.federated ? ' <span style="font-size:10.5px;color:var(--tx4);white-space:nowrap">own project</span>' : "") + "</td>" +
             '<td style="padding:13px 18px 13px 12px;font-size:12.5px;color:var(--tx3);white-space:nowrap">' + agoH(a.lastH) + "</td></tr>";
         }).join("");
 
@@ -567,7 +569,8 @@
         var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
         var pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
         var over = a.cap && a.players > a.cap, nearCap = a.cap && a.players >= a.cap * 0.9;
-        var header = '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px"><div style="width:56px;height:56px;border-radius:15px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:30px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap"><h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em">' + esc(a.name) + "</h2>" + pill(a.health, hs) + '</div><div style="font-size:13px;color:var(--tx3);margin-top:3px">' + esc(a.sub) + (a.owner ? " · Owner " + esc(a.owner) : "") + "</div></div>" +
+        var header = '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px"><div style="width:56px;height:56px;border-radius:15px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:30px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap"><h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em">' + esc(a.name) + "</h2>" + pill(a.health, hs) + '</div><div style="font-size:13px;color:var(--tx3);margin-top:3px">' + esc(a.sub) + (a.owner ? " · Owner " + esc(a.owner) : "") +
+          (a.federated ? ' · <span title="Runs on its own Supabase project and reports in. Figures come from its latest rollup, not from tables here.">own project</span>' : "") + "</div></div>" +
           (a.tenant ? '<a class="btn-g" href="' + esc(a.tenantUrl) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--bd-btn);border-radius:9px;padding:9px 14px;font:inherit;font-size:13px;font-weight:600;color:var(--tx2);cursor:pointer;flex:none;text-decoration:none">Open tenant console<span class="mi" style="font-size:17px">open_in_new</span></a>' : "") + "</div>";
 
         if (a.health === "Onboarding") {
