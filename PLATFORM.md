@@ -39,6 +39,14 @@ two.
 
 A batch's colour satisfies none of them, and belongs in the app.
 
+**Performing something and reporting it are different questions.** The
+platform performs channel sync — the keys are in `vault.secrets` and a
+booking made at 2am must not double-sell a court. That does not make a
+stale Playo connection an operator-console fact. CourtSync owns the
+channel board; this console stays account-level, and only alerts on a
+module a tenant has actually bought
+(`config.modules.booking`).
+
 The split for sync, concretely: the tenant app **causes** the work — a
 booking or a court block enqueues a `sync_jobs` row, and staff set their
 own credential through `set_integration_secret`. The platform
