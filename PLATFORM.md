@@ -222,6 +222,25 @@ Compare against known-good values: Raj publishes 5 centres, 14 batches,
 
 ---
 
+## Billing: pending, paid, overdue
+
+The console derives the badge (`index.html:166`), it is not stored:
+
+| shows | when |
+|---|---|
+| **overdue** | `status = 'overdue'`, **or** `renews_on` is in the past |
+| **paid** | `status` is `active` or `paid` |
+| **pending** | anything else — `trial`, `pilot`, `cancelled` |
+
+So "move an academy to paid" is: set the status to `active` **and**
+make sure the renewal is not behind you, or the badge flips to overdue
+instead. `set_subscription()` does both — it rolls a past renewal
+forward a month when you mark someone paid.
+
+Change it from the academy's card in the console, under Plan & billing.
+Operator only, and every change is written to `sync_log`. A tenant's own
+staff cannot mark themselves paid.
+
 ## Federated tenants
 
 A tenant does not have to live in this database to appear in the

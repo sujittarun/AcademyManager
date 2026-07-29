@@ -174,6 +174,7 @@
           errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
           wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
           federated: !!r.federated, rollupAt: r.rollup_at || null,
+          subStatus: r.sub_status || "",
           tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
         };
       }
@@ -593,6 +594,29 @@
         var adoptFacts = facts([["Active days", a.activeDays + " / 30"], ["Sessions · 30d", num(a.sessions)], ["Last activity", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
         var bookFacts = facts([["Bookings · all time", num(a.totalBk)], ["Weekday / weekend", num(a.wkday) + " / " + num(a.wkend)], ["Court revenue · 90d", inr(a.courtRev)], ["Unique bookers", num(a.bookers)]]);
 
+        /* Moving an academy from trial to paying used to mean opening a
+           SQL editor against production. The console read subscriptions
+           and could not write them, which is a poor reason to be typing
+           `update ... where` by hand on a live database. */
+        function billingControl(a) {
+          var statuses = ["trial", "active", "overdue", "pilot", "cancelled"];
+          return '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">' +
+            '<div style="font-size:12px;color:var(--tx4);font-weight:500;margin-bottom:8px">Change billing</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+              '<select id="subStatus" style="flex:1;min-width:120px;height:36px;padding:0 10px;border:1px solid var(--bd-btn);border-radius:9px;background:#fff;font:inherit;font-size:13px">' +
+                statuses.map(function (st) {
+                  return '<option value="' + st + '"' + (st === (a.subStatus || "") ? " selected" : "") + ">" + st + "</option>";
+                }).join("") +
+              "</select>" +
+              '<input id="subMrr" type="number" min="0" step="1" value="' + Number(a.mrr || 0) + '" ' +
+                'style="width:110px;height:36px;padding:0 10px;border:1px solid var(--bd-btn);border-radius:9px;background:#fff;font:inherit;font-size:13px" />' +
+              '<button class="btn-p" data-setsub="' + esc(a.id) + '" style="height:36px">Save</button>' +
+            "</div>" +
+            '<div style="font-size:11.5px;color:var(--tx5);margin-top:8px">' +
+              "active or paid shows as Paid. A renewal date in the past shows Overdue whatever the status, so marking someone paid rolls it forward a month." +
+            "</div></div>";
+        }
+
         function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
         return header +
           '<div class="kpis" style="margin-bottom:20px">' + kpis + "</div>" +
@@ -601,7 +625,7 @@
             card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
             activityCard(a) +
           "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
-            card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>") +
+            card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
             card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
             card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
           "</div></div>" + tenantErrorsCard(a);
@@ -628,6 +652,33 @@
           state.view = "academies";
           state.sel = tenants.length === 1 ? tenants[0] : null;
           render(); scrollTop(); return;
+        }
+        var setsub = e.target.closest("[data-setsub]");
+        if (setsub) {
+          var st = (document.getElementById("subStatus") || {}).value;
+          var mrrEl = document.getElementById("subMrr");
+          var mrr = mrrEl && mrrEl.value !== "" ? Number(mrrEl.value) : null;
+          setsub.disabled = true;
+          setsub.textContent = "Saving…";
+          rpc("set_subscription", {
+            p_tenant: setsub.getAttribute("data-setsub"),
+            p_status: st,
+            p_mrr: mrr,
+          }).then(function (r) {
+            if (!r || !r.ok) {
+              setsub.disabled = false;
+              setsub.textContent = "Could not save";
+              return;
+            }
+            // Re-read the portfolio rather than patching the row: the
+            // server may have moved the renewal date, and guessing what
+            // it did is how the screen and the database drift apart.
+            rpc("operator_portfolio").then(function (rows) {
+              if (rows) state.data = rows.map(mapAccount).sort(function (x, y) { return y.gmv - x.gmv; });
+              render();
+            });
+          });
+          return;
         }
         var res = e.target.closest("[data-resolve]");
         if (res) {
