@@ -11,19 +11,21 @@
   .node:hover { transform:translateY(-1px); }
   .node.dim { opacity:.18; }
   .node.lit { box-shadow:0 0 0 1.5px var(--flow, #38bdf8), 0 8px 28px -8px rgba(56,189,248,.35); }
-  .edge-path { fill:none; stroke:#334155; stroke-width:1.5; transition:opacity .25s, stroke .25s; }
-  .edge-path.dim { opacity:.10; }
-  .edge-path.lit { stroke:var(--flow,#38bdf8); stroke-width:2.4; filter:drop-shadow(0 0 4px var(--flow,#38bdf8)); }
+  .edge-path { fill:none; stroke:#2b3950; stroke-width:1.2; opacity:.55; transition:opacity .25s, stroke .25s; }
+  .edge-path.dim { opacity:.06; }
+  .edge-path.lit { stroke:var(--flow,#38bdf8); stroke-width:2.4; opacity:1; filter:drop-shadow(0 0 4px var(--flow,#38bdf8)); }
   .edge-path.lit.anim { stroke-dasharray:7 5; animation:march 1.1s linear infinite; }
   @keyframes march { to { stroke-dashoffset:-24; } }
-  .edge-label { font-size:9.5px; fill:#64748b; transition:opacity .25s; }
-  .edge-label.dim { opacity:.06; }
-  .edge-label.lit { fill:#e2e8f0; font-weight:600; }
+  .edge-label { font-size:9.5px; fill:#94a3b8; opacity:0; transition:opacity .25s; paint-order:stroke; stroke:#020617; stroke-width:3px; }
+  .edge-label.dim { opacity:0; }
+  .edge-label.lit { fill:#e2e8f0; font-weight:600; opacity:1; }
   .stepbadge { transition:opacity .25s; }
   .flow-btn.active { border-color:var(--flow); color:#fff; background:color-mix(in srgb, var(--flow) 14%, transparent); }
   .step-item.active { border-color:var(--flow); background:color-mix(in srgb, var(--flow) 10%, transparent); }
   .group-box { position:absolute; border-radius:16px; border:1px dashed rgba(100,116,139,.35); }
   .group-title { position:absolute; font-size:10px; letter-spacing:.14em; font-weight:700; color:#475569; text-transform:uppercase; }
+  .tech-chip { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; background:rgba(148,163,184,.08); border:1px solid rgba(148,163,184,.18); border-radius:6px; padding:1px 6px; color:#93c5fd; white-space:nowrap; }
+  .kind-chip { font-size:9px; font-weight:800; letter-spacing:.08em; border-radius:5px; padding:1.5px 5px; flex:none; }
 </style>
 </head>
 <body class="text-slate-200 antialiased">
@@ -34,11 +36,11 @@
     <div>
       <div class="text-[11px] font-bold tracking-[.2em] text-sky-400 uppercase">Interactive architecture</div>
       <h1 class="text-3xl font-extrabold tracking-tight text-white mt-1">Academy Manager platform</h1>
-      <p class="text-sm text-slate-400 mt-1 max-w-2xl">Multi-tenant sports-academy SaaS — static vanilla-JS apps on GitHub Pages (plus one native Android client), one shared Supabase project behind them. Hover a node for details, or pick a flow below to trace a path through the system.</p>
+      <p class="text-sm text-slate-400 mt-1 max-w-2xl">Multi-tenant sports-academy SaaS — static apps on GitHub Pages (vanilla JS, one React + Vite, one native Android client), one shared Supabase project behind them. Hover a node for details, or pick a flow below to trace a path through the system.</p>
     </div>
     <div class="flex gap-2 ml-auto text-[11px] font-semibold">
-      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">5 academies · 8 apps</span>
-      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">13+ tables · 26+ RPCs</span>
+      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">6 tenants · 9 apps</span>
+      <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">15 granular flows</span>
       <span class="px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700">RLS everywhere</span>
     </div>
   </header>
@@ -69,17 +71,18 @@
       <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#34d399"></i> Static apps (GitHub Pages)</span>
       <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#a78bfa"></i> Supabase</span>
       <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#fb923c"></i> External</span>
-      <span class="ml-auto text-slate-500">Click a node to isolate its connections · click the background to reset</span>
+      <span class="ml-auto text-slate-500">Link labels appear when you select a flow or click a node · click the background to reset</span>
     </div>
   </div>
 
   <!-- flows -->
   <section class="mt-8">
     <div class="text-[11px] font-bold tracking-[.2em] text-sky-400 uppercase">Flows</div>
-    <h2 class="text-xl font-bold text-white mt-1 mb-4">Trace a path through the system</h2>
-    <div class="grid lg:grid-cols-[280px_1fr] gap-5">
+    <h2 class="text-xl font-bold text-white mt-1 mb-1">Trace a path through the system</h2>
+    <p class="text-[12.5px] text-slate-500 mb-4">Each step is typed — <span class="kind-chip" style="background:rgba(56,189,248,.15);color:#38bdf8">UI</span> <span class="kind-chip" style="background:rgba(167,139,250,.15);color:#a78bfa">RPC</span> <span class="kind-chip" style="background:rgba(251,191,36,.15);color:#fbbf24">GUARD</span> <span class="kind-chip" style="background:rgba(52,211,153,.15);color:#34d399">WRITE</span> <span class="kind-chip" style="background:rgba(34,211,238,.15);color:#22d3ee">ASYNC</span> <span class="kind-chip" style="background:rgba(251,113,133,.15);color:#fb7185">ALERT</span> <span class="kind-chip" style="background:rgba(248,113,113,.18);color:#f87171">FAIL</span> — with the exact functions and tables involved.</p>
+    <div class="grid lg:grid-cols-[300px_1fr] gap-5">
       <div id="flowBtns" class="flex flex-col gap-2"></div>
-      <div id="flowPanel" class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 min-h-[220px]">
+      <div id="flowPanel" class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 min-h-[220px] self-start lg:sticky lg:top-4">
         <div class="text-sm text-slate-500">Select a flow to see its steps and light up its path in the diagram above.</div>
       </div>
     </div>
@@ -98,7 +101,7 @@
   </div>
 
   <footer class="mt-10 text-[11px] text-slate-600">
-    Generated 27 Jul 2026 from the AcademyManager / LeoTennis / Machaxi / CourtSync repos · machine-readable graph: <code class="text-slate-400">architecture.json</code>
+    Generated 29 Jul 2026 from the AcademyManager / LeoTennis / Machaxi / MatchPoint / Raj Sports / RajSportsApp / MatchPointPride / genalpha-glass-web / CourtSync repos · machine-readable graph: <code class="text-slate-400">architecture.json</code>
   </footer>
 </div>
 
@@ -110,24 +113,25 @@ const GRAPH = {
     { id:"operator", label:"Platform Operator", group:"actor", tech:"operator JWT · cross-tenant", desc:"Runs the SaaS. Auth user with app_metadata {am_role:'operator'}; reads all tenants, aggregates only." },
     { id:"leo-app",     label:"LeoTennis app", group:"app", tech:"vanilla JS · GitHub Pages", desc:"Tenant 'leo'. Public pages (booking, admission, pay) + staff console (dashboard, bookings, players, fees, attendance). window.LT_CLOUD fetch adapter; fail-soft offline outbox." },
     { id:"machaxi-app", label:"Machaxi app", group:"app", tech:"vanilla JS · 2 venues", desc:"Tenant 'machaxi'. Cloned from Leo; the sport dimension doubles as the venue court-pool key (rally R1–R6, urban U1–U7). Shares the github.io origin with Leo (mx-* storage keys)." },
-    { id:"matchpoint-app", label:"MatchPoint app", group:"app", tech:"vanilla JS · badminton", desc:"Tenant 'matchpoint'. Staff-facing manager for Match Point Badminton Academy (Manikonda, Hyderabad): attendance, bookings, fees, renewals, player skill progress. Same template family; earlier MatchPointBadminton repo was the prototype." },
-    { id:"raj-app", label:"Raj Sports web", group:"app", tech:"vanilla JS · 5 centres · 5 sports", desc:"Tenant 'raj'. Coaching manager for a coach-operator running batches at venues he doesn't own — centres can take revenue share. Product priority: WhatsApp reminders that never give a parent a bad experience. Own migration + cron SQL (member_timeline, reminder_events, reminder_queue)." },
-    { id:"raj-android", label:"Raj Sports Android", group:"app", tech:"native Kotlin", desc:"Native Android client for Raj Sports — same Supabase backend as the web console, so a payment recorded on the phone shows on the laptop immediately." },
-    { id:"genalpha-app", label:"Gen Alpha app", group:"app", tech:"vanilla JS · cricket", desc:"Gen Alpha Cricket Academy (Hyderabad) — the FIRST client; the shared schema was designed around it ('every table carries tenant_id so Gen Alpha and future academies…'). Its glass web app currently runs on its OWN Supabase project; legacy repo cricket-academy-manager still serves genalphaacademy.in." },
-    { id:"am-console",  label:"Academy Manager", group:"app", tech:"operator console", desc:"Portfolio KPIs, per-academy detail with a live 7-day activity feed, billing, growth, platform health. Single index.html." },
-    { id:"courtsync",   label:"CourtSync", group:"app", tech:"sync monitor", desc:"Operator's live channel-sync monitor across venues; venues connect channels from their own app, operator watches and triggers syncs here." },
+    { id:"matchpoint-app", label:"MatchPoint app", group:"app", tech:"vanilla JS · player tracking", desc:"Tenant 'matchpoint'. Staff manager for Match Point Badminton Academy (Manikonda): attendance, bookings, fees, renewals — plus a full player-progress module (7 tables: player_progress, player_goals, training_observations… and promote_player / record_development_review RPCs)." },
+    { id:"mpp-app", label:"MatchPoint Pride app", group:"app", tech:"React 18 + TS · Vite", desc:"Tenant 'mpp'. Separate app for the Pride venue owner (7 indoor courts, Narsingi) — the only React app on the platform. Its client-side money math was deleted (242 lines of selectors) in favor of the same SQL functions every other client calls; offline writes queue through an outbox that replays RPCs." },
+    { id:"raj-app", label:"Raj Sports web", group:"app", tech:"vanilla JS · 5 centres · 5 sports", desc:"Tenant 'raj'. Coaching manager for a coach-operator running batches at venues he doesn't own — centres can take revenue share. NO bookings module. Product priority: WhatsApp reminders that never give a parent a bad experience." },
+    { id:"raj-android", label:"Raj Sports Android", group:"app", tech:"native Kotlin", desc:"Native Android client for Raj Sports — same backend: signs in via Auth, reads ~14 tables over PostgREST, and calls 14 RPCs including the full money suite (resolve_fee, record_fee_payment, reminder_queue, compute_payouts). Breaking RPC changes ship as _v2 — the app can't be force-updated." },
+    { id:"genalpha-app", label:"Gen Alpha app", group:"app", tech:"vanilla JS · federated", desc:"Gen Alpha Cricket Academy — the platform's FIRST client, live with real families. FEDERATED tenant (config.federated = true): keeps its own Supabase project and 19-table schema, and reports telemetry into the shared events table instead of migrating." },
+    { id:"am-console",  label:"Academy Manager", group:"app", tech:"operator console", desc:"Portfolio KPIs, per-academy detail with a live 7-day activity feed, billing (set_subscription — audited in sync_log), growth, platform health. Account-level only: members and phone numbers never appear here." },
+    { id:"courtsync",   label:"CourtSync", group:"app", tech:"sync monitor", desc:"Operator's live channel-sync board across venues. Sold as an optional module — on only where tenants.config.modules.booking is true." },
     { id:"auth",  label:"Supabase Auth", group:"supabase", tech:"GoTrue · JWT", desc:"Password sign-in for staff + operator; anon key for public paths. auth_role()/auth_tenant() helpers drive every RLS policy." },
     { id:"rest",  label:"PostgREST API", group:"supabase", tech:"/rest/v1 · RLS", desc:"Direct table access gated by RLS: public may INSERT events + applications only; staff scoped to their tenant; operator reads everything." },
-    { id:"rpc",   label:"SQL RPCs", group:"supabase", tech:"26 functions", desc:"Money & aggregate paths: request_booking (server-side price, flood caps), record/confirm/cancel_booking, propagate_block, sync_ingest, operator_portfolio, platform_health, reconcile_report…" },
-    { id:"db",    label:"Postgres tables", group:"supabase", tech:"13 tables", desc:"tenants, subscriptions, integrations, bookings (unique slot index), members, payments, expenses, attendance, reminders_log, applications, events, sync_jobs, platform_settings." },
+    { id:"rpc",   label:"SQL RPCs", group:"supabase", tech:"money + aggregates", desc:"THE HOUSE RULE lives here: resolve_fee (7-level chain), record_fee_payment (the one write path), apply_payment_coverage, compute_payouts, reminder_queue — plus request/record/confirm/cancel_booking, propagate_block, sync_ingest, operator_portfolio, platform_health. No client ever computes money." },
+    { id:"db",    label:"Postgres tables", group:"supabase", tech:"tenants · money · telemetry", desc:"tenants, subscriptions, integrations, bookings, members, enrollments, fee_rules, payments, expenses, attendance, member_timeline, reminder_events, reminders_log, applications, events, sync_jobs, schema_migrations, platform_settings. Every row carries tenant_id." },
     { id:"views", label:"Derived views", group:"supabase", tech:"security_invoker", desc:"contacts (CRM deduped from bookings — read-only, can never break a booking) and public_slots (anon availability without PII)." },
-    { id:"queue", label:"sync_jobs queue", group:"supabase", tech:"durable · retryable", desc:"Outbound cross-channel work enqueued transactionally, claimed with retry/backoff. Failures land in dead letters surfaced by platform_health." },
-    { id:"cron",  label:"pg_cron", group:"supabase", tech:"scheduler", desc:"Wakes the sync worker (~30s), nightly reconcile + encrypted backup, heartbeat feeding platform_health." },
-    { id:"vault", label:"Vault secrets", group:"supabase", tech:"encrypted", desc:"Per-account partner credentials (partner:* secrets) referenced from integrations.config — never plaintext." },
-    { id:"edge",  label:"Edge Functions", group:"supabase", tech:"5 scaffolds", desc:"sync-worker, partner-webhook, partner-poll, partner-push, reconcile. Scaffolded, not yet deployed — a DB dummy processor logs blocks meanwhile." },
-    { id:"partners", label:"Partner channels", group:"external", tech:"Playo · Hudle · District", desc:"Marketplace booking channels. Imports carry ext_ref; blocks propagate out so a slot sold anywhere closes everywhere." },
-    { id:"whatsapp", label:"WhatsApp", group:"external", tech:"deep links · UPI", desc:"Fee-renewal reminders with UPI pay links. Leo/Machaxi send from the roster (reminders_log); Raj runs the full ladder engine (reminder_events state machine, ported from Gen Alpha)." },
-    { id:"genalpha-db", label:"Gen Alpha Supabase", group:"external", tech:"separate project", desc:"hwxhigwaklzedxufwedv.supabase.co — Gen Alpha's own backend (not the shared platform project). Its operational data lives here until the tenant is migrated onto the shared schema." }
+    { id:"queue", label:"sync_jobs queue", group:"supabase", tech:"durable · retryable", desc:"Outbound cross-channel work enqueued transactionally, claimed with retry/backoff by process_sync_jobs every minute under pg_cron. Failures land in dead letters surfaced by platform_health." },
+    { id:"cron",  label:"pg_cron", group:"supabase", tech:"scheduler", desc:"Every minute: process_sync_jobs drains the queue. Hourly: cron_health_check runs the audits + anon_probe. Nightly: reconcile + backup.take_snapshot (14-day retention, same database — free plan has no PITR)." },
+    { id:"vault", label:"Vault secrets", group:"supabase", tech:"encrypted", desc:"Per-account partner credentials (partner:* secrets) set by staff via set_integration_secret, referenced from integrations.config — never plaintext, never in a client." },
+    { id:"edge",  label:"Edge Functions", group:"supabase", tech:"5 scaffolds", desc:"sync-worker, partner-webhook, partner-poll, partner-push, reconcile. Scaffolded, not yet deployed — the DB processor under pg_cron does the work meanwhile." },
+    { id:"partners", label:"Partner channels", group:"external", tech:"Playo · Hudle · District", desc:"Marketplace booking channels. Imports carry ext_ref; blocks propagate out so a slot sold anywhere closes everywhere. Inbound sync_ingest is authenticated by tenants.api_key." },
+    { id:"whatsapp", label:"WhatsApp", group:"external", tech:"deep links · UPI", desc:"Fee-renewal reminders with UPI pay links. Leo/Machaxi send from the staff roster (reminders_log); Raj runs the full ladder engine (reminder_events state machine, ported from Gen Alpha)." },
+    { id:"genalpha-db", label:"Gen Alpha Supabase", group:"external", tech:"separate project", desc:"Gen Alpha's own backend — its operational data (real families) stays here by design. Merging would mean migrating live data and rewriting a working app for nothing its owner would see." }
   ],
   edges: [
     { id:"e1",  from:"players", to:"leo-app", label:"book · enquire · pay" },
@@ -137,9 +141,15 @@ const GRAPH = {
     { id:"e5",  from:"operator", to:"am-console", label:"portfolio review" },
     { id:"e6",  from:"operator", to:"courtsync", label:"sync monitor" },
     { id:"e7",  from:"leo-app", to:"auth", label:"staff sign-in" },
+    { id:"e8",  from:"machaxi-app", to:"auth", label:"staff sign-in" },
     { id:"e9",  from:"am-console", to:"auth", label:"operator sign-in" },
-    { id:"e10", from:"leo-app", to:"rpc", label:"booking / application RPCs" },
-    { id:"e11", from:"machaxi-app", to:"rpc", label:"booking RPCs" },
+    { id:"e43", from:"matchpoint-app", to:"auth", label:"staff sign-in" },
+    { id:"e44", from:"raj-app", to:"auth", label:"staff sign-in" },
+    { id:"e45", from:"raj-android", to:"auth", label:"staff sign-in" },
+    { id:"e46", from:"mpp-app", to:"auth", label:"staff sign-in" },
+    { id:"e47", from:"courtsync", to:"auth", label:"operator sign-in" },
+    { id:"e10", from:"leo-app", to:"rpc", label:"booking · sync · application RPCs" },
+    { id:"e11", from:"machaxi-app", to:"rpc", label:"booking · sync RPCs" },
     { id:"e12", from:"leo-app", to:"rest", label:"reads · events" },
     { id:"e13", from:"machaxi-app", to:"rest", label:"reads · events" },
     { id:"e14", from:"am-console", to:"rpc", label:"operator RPCs" },
@@ -149,7 +159,7 @@ const GRAPH = {
     { id:"e18", from:"rpc", to:"db", label:"security-definer writes" },
     { id:"e19", from:"db", to:"views", label:"derives" },
     { id:"e20", from:"rpc", to:"queue", label:"propagate_block" },
-    { id:"e21", from:"cron", to:"edge", label:"~30s · nightly" },
+    { id:"e21", from:"cron", to:"edge", label:"every minute · nightly" },
     { id:"e22", from:"edge", to:"queue", label:"claims jobs" },
     { id:"e23", from:"edge", to:"partners", label:"push blocks · poll" },
     { id:"e24", from:"partners", to:"edge", label:"booking webhooks" },
@@ -157,89 +167,160 @@ const GRAPH = {
     { id:"e27", from:"edge", to:"db", label:"sync_ingest · reconcile" },
     { id:"e26", from:"leo-app", to:"whatsapp", label:"fee reminders" },
     { id:"e28", from:"staff", to:"matchpoint-app", label:"staff console" },
-    { id:"e29", from:"matchpoint-app", to:"rpc", label:"booking · fees RPCs" },
-    { id:"e30", from:"matchpoint-app", to:"rest", label:"reads · events" },
+    { id:"e29", from:"matchpoint-app", to:"rpc", label:"booking · fees · player-progress RPCs" },
+    { id:"e30", from:"matchpoint-app", to:"rest", label:"reads · events · player progress" },
     { id:"e31", from:"staff", to:"raj-app", label:"coaching console" },
-    { id:"e32", from:"raj-app", to:"rpc", label:"fees · reminder_queue RPCs" },
-    { id:"e33", from:"raj-app", to:"rest", label:"reads · events · timeline" },
+    { id:"e32", from:"raj-app", to:"rpc", label:"money · attendance · admin RPCs" },
+    { id:"e33", from:"raj-app", to:"rest", label:"reads: enrollments · payouts · events" },
     { id:"e35", from:"staff", to:"raj-android", label:"on the go" },
-    { id:"e34", from:"raj-android", to:"rest", label:"same backend, native client" },
+    { id:"e34", from:"raj-android", to:"rpc", label:"money · admin RPCs (14)" },
+    { id:"e48", from:"raj-android", to:"rest", label:"roster · ledgers · timeline reads" },
     { id:"e36", from:"raj-app", to:"whatsapp", label:"reminder ladder sends" },
     { id:"e37", from:"players", to:"genalpha-app", label:"cricket academy" },
-    { id:"e38", from:"genalpha-app", to:"genalpha-db", label:"own backend (today)" },
-    { id:"e39", from:"genalpha-app", to:"db", label:"account of record in AM" }
+    { id:"e38", from:"genalpha-app", to:"genalpha-db", label:"own backend (by design)" },
+    { id:"e39", from:"genalpha-app", to:"rest", label:"federated telemetry (anon)" },
+    { id:"e40", from:"staff", to:"mpp-app", label:"venue owner" },
+    { id:"e41", from:"mpp-app", to:"rest", label:"reads · events" },
+    { id:"e42", from:"mpp-app", to:"rpc", label:"fee chain · reminder RPCs" }
   ],
   flows: [
-    { id:"f1", name:"Player books a court", color:"#34d399",
-      summary:"Public slot booking with server-side pricing, atomic court claim, and cross-channel blocking.",
+    /* ============ BOOKING & CHANNEL SYNC ============ */
+    { id:"f1", cat:"Booking & channel sync", name:"Player books a court", color:"#34d399",
+      summary:"Public slot booking: server-side pricing, anti-abuse guards, atomic court claim, cross-channel blocking.",
       steps:[
-        { edge:"e1",  title:"Pick a slot", detail:"Player opens booking.html (no login); availability comes from the anon-safe public_slots view." },
-        { edge:"e10", title:"request_booking RPC", detail:"Anon call: price computed server-side, phone required, per-phone + per-day flood caps." },
-        { edge:"e18", title:"Pending row inserted", detail:"bookings row status 'pending'; the unique slot index (tenant, date, hour, court) holds the slot." },
-        { edge:"e2",  title:"Staff review", detail:"The request appears in the staff console bookings.html." },
-        { edge:"e10", title:"confirm_booking RPC", detail:"Staff JWT required (lockdown guard). Court auto-claimed atomically." },
-        { edge:"e20", title:"Cross-channel block enqueued", detail:"propagate_block writes one durable sync_jobs row per other connected channel." },
-        { edge:"e21", title:"Scheduler fires", detail:"pg_cron wakes the sync-worker (~every 30s)." },
-        { edge:"e22", title:"Worker claims jobs", detail:"process_sync_jobs hands ready jobs over with retry/backoff." },
-        { edge:"e23", title:"Slot blocked everywhere", detail:"Playo / Hudle / District can no longer double-sell the hour." } ] },
-    { id:"f2", name:"Staff walk-in booking", color:"#38bdf8",
-      summary:"Manual booking entry by academy staff — the provenance trail AM uses to tell humans from imports.",
+        { edge:"e1",  kind:"ui",    title:"Pick a slot", tech:"public_slots", detail:"booking.html, no login. Availability comes from the anon-safe public_slots view — no PII crosses the wire." },
+        { edge:"e10", kind:"guard", title:"Anti-abuse gate", tech:"request_booking() · slot_rate()", detail:"Anon RPC, verified guards: 6:00–22:00 only, ≤90 days ahead, real 10-digit phone required, stale pendings self-clean after 90 min, caps of 5 pending per phone and max(courts×8, 24) per venue-day. Price computed server-side." },
+        { edge:"e18", kind:"write", title:"Pending row counts against capacity", tech:"bookings · status='pending' · court NULL", detail:"The request has no court yet — the slot is protected by the capacity check (bookings for that sport/hour vs court_count). The unique index (tenant, date, hour, court) guards the atomic court claim at confirm time." },
+        { edge:"e2",  kind:"ui",    title:"Staff review", tech:"bookings.html", detail:"The pending request surfaces in the staff console." },
+        { edge:"e10", kind:"rpc",   title:"Confirm", tech:"confirm_booking() · assert_staff", detail:"Staff JWT required. Court auto-claimed atomically via the <initial><n> claim loop — first free court wins." },
+        { edge:"e20", kind:"async", title:"Counter-blocks enqueued", tech:"propagate_block() → sync_jobs", detail:"One durable job per other connected channel, written in the same transaction as the confirm." },
+        { edge:"e21", kind:"async", title:"Scheduler tick", tech:"pg_cron · every minute", detail:"process_sync_jobs drains the queue holding the partner secrets — a 2am booking cannot double-sell a court." },
+        { edge:"e22", kind:"async", title:"Jobs claimed with retry", tech:"25/batch · FOR UPDATE SKIP LOCKED · backoff 30s×n · failed after 5", detail:"Failed pushes back off and retry; nothing outbound is fire-and-forget." },
+        { edge:"e23", kind:"write", title:"Slot closed everywhere", tech:"Playo · Hudle · District", detail:"The designed path. Today the DB processor records the block and logs to sync_log — the partner HTTP call is the scaffolded edge-function half." } ] },
+    { id:"f2", cat:"Booking & channel sync", name:"Staff walk-in booking", color:"#38bdf8",
+      summary:"Manual entry by staff — it blocks the marketplaces exactly like an online booking, and leaves the provenance fingerprint that distinguishes humans from imports.",
       steps:[
-        { edge:"e2",  title:"Open bookings.html", detail:"Staff console, signed in with a tenant-scoped staff JWT." },
-        { edge:"e10", title:"record_booking RPC", detail:"Server computes the rate and claims a court; source set from the form (e.g. Walk-in)." },
-        { edge:"e18", title:"Confirmed row lands", detail:"status 'confirmed', created_at = now, no ext_ref — the manual-entry fingerprint." },
-        { edge:"e12", title:"Telemetry event", detail:"LT_CLOUD.track('staff_booking_added', {source, venue}) inserts into events." },
-        { edge:"e15", title:"Operator sees it", detail:"AM's 7-day activity feed shows the action with time and detail." } ] },
-    { id:"f3", name:"Partner booking import", color:"#a78bfa",
-      summary:"A booking sold on a marketplace flows in via webhook and blocks the slot on every other channel.",
+        { edge:"e2",  kind:"ui",    title:"Open bookings.html", tech:"staff JWT", detail:"Tenant-scoped session; lockdown requires real Supabase Auth, not a JS-compared PIN." },
+        { edge:"e10", kind:"rpc",   title:"Record", tech:"record_booking(p_source)", detail:"Server computes the rate and claims a court; source comes from the form (e.g. Walk-in)." },
+        { edge:"e18", kind:"write", title:"Confirmed row lands", tech:"created_at=now() · ext_ref IS NULL", detail:"The manual-entry fingerprint: fresh created_at, no ext_ref. (Channel imports set ext_ref; seed batches share one bulk created_at.)" },
+        { edge:"e20", kind:"async", title:"Channels blocked too", tech:"record_booking → propagate_block()", detail:"Same propagation as an online booking: record_booking calls propagate_block right after the insert — one durable sync_jobs row per other connected channel, so a walk-in can't be double-sold on Playo/Hudle/District." },
+        { edge:"e22", kind:"async", title:"Worker pushes the blocks", tech:"process_sync_jobs · every minute", detail:"These are the same jobs CourtSync's board monitors — a walk-in shows up there like any other block." },
+        { edge:"e23", kind:"write", title:"Hour closed on marketplaces", tech:"cross-partner block", detail:"The designed path: the court disappears from every channel within ~a minute of the front-desk entry (partner HTTP is the scaffolded half — today the processor records + logs each block)." },
+        { edge:"e16", kind:"read", title:"Visible on the CourtSync board", tech:"get_channels · partner_sync · process_sync_jobs", detail:"CourtSync reads the same sync_jobs queue, so the walk-in's blocks appear on the operator's channel board — and a stuck job can be re-driven from there." },
+        { edge:"e12", kind:"async", title:"Telemetry", tech:"track('staff_booking_added')", detail:"Outbox-backed insert into events — survives offline." },
+        { edge:"e15", kind:"read",  title:"Operator sees it", tech:"AM activity feed", detail:"Shows in the 7-day per-academy feed with time and detail." } ] },
+    { id:"f3", cat:"Booking & channel sync", name:"Partner booking import", color:"#a78bfa",
+      summary:"A booking sold on a marketplace flows in and closes the slot on every other channel.",
       steps:[
-        { edge:"e24", title:"Webhook arrives", detail:"Playo/Hudle/District call partner-webhook when a booking happens on their side." },
-        { edge:"e25", title:"Credential check", detail:"Per-account partner secret fetched from Vault — never plaintext." },
-        { edge:"e27", title:"sync_ingest writes", detail:"Booking inserted with ext_ref set (the imported-booking fingerprint)." },
-        { edge:"e20", title:"Counter-blocks enqueued", detail:"propagate_block queues block jobs for every other connected channel." },
-        { edge:"e22", title:"Worker drains queue", detail:"sync-worker claims the jobs on the next cron tick." },
-        { edge:"e23", title:"Other channels blocked", detail:"The slot closes across the remaining marketplaces." } ] },
-    { id:"f4", name:"Usage telemetry → activity feed", color:"#fbbf24",
-      summary:"Every tenant-app action becomes an event; the operator reads them as a per-academy activity feed.",
+        { edge:"e24", kind:"async", title:"Webhook arrives", tech:"partner-webhook", detail:"Playo/Hudle/District call in when a booking happens on their side (partner-poll is the pull fallback)." },
+        { edge:"e25", kind:"guard", title:"Identity & credentials", tech:"tenants.api_key (inbound) · vault.secrets (outbound)", detail:"The inbound call is authenticated by the venue's unique api_key — Vault plays no part in verifying webhooks; its partner credentials serve the outbound counter-block pushes." },
+        { edge:"e27", kind:"write", title:"Booking ingested", tech:"sync_ingest() · ext_ref", detail:"Row inserted with ext_ref set — the imported-booking fingerprint — and source = channel name." },
+        { edge:"e20", kind:"async", title:"Counter-blocks enqueued", tech:"propagate_block()", detail:"Block jobs queued for every other connected channel." },
+        { edge:"e22", kind:"async", title:"Queue drained", tech:"process_sync_jobs()", detail:"Next minute tick claims the jobs." },
+        { edge:"e23", kind:"write", title:"Other channels blocked", tech:"cross-partner block", detail:"The slot closes across the remaining marketplaces." } ] },
+    { id:"f9", cat:"Booking & channel sync", name:"Cancel / maintenance block", color:"#4ade80",
+      summary:"Rain, maintenance, or a change of plans — freeing a slot re-opens it everywhere, durably.",
       steps:[
-        { edge:"e1",  title:"Any page opens", detail:"cloud.js logs page_view automatically (+ client_error with breadcrumbs); pages call LT_CLOUD.track for named actions." },
-        { edge:"e12", title:"Anon event insert", detail:"POST /events with tenant_id, name, props, session_id, page — open by design (events_public_w)." },
-        { edge:"e17", title:"Row lands in events", detail:"Indexed (tenant_id, at); operator-only SELECT policy (events_op_r)." },
-        { edge:"e5",  title:"Operator opens AM", detail:"Academy detail view for any tenant." },
-        { edge:"e14", title:"Aggregates via RPC", detail:"operator_portfolio computes usage_daily, sessions, active days, last_event_at, errors." },
-        { edge:"e15", title:"7-day activity feed", detail:"Day-by-day actions, page-view summaries, session counts, 'No activity' idle days." } ] },
-    { id:"f5", name:"Operator portfolio review", color:"#fb7185",
-      summary:"Cross-tenant KPIs with PII minimization — aggregates leave the tenant, phone lists never do.",
+        { edge:"e2",  kind:"ui",    title:"Staff cancel or block", tech:"bookings.html · court sheet", detail:"Cancel a booking (rain/maintenance reasons) or block a court range." },
+        { edge:"e10", kind:"rpc",   title:"Server does the change", tech:"cancel_booking() · block_maintenance()", detail:"Staff-guarded RPCs; refunds/credits stay a money question answered in Postgres." },
+        { edge:"e18", kind:"write", title:"Slot freed", tech:"status='cancelled'", detail:"The partial unique index ignores cancelled rows — the hour is instantly sellable again." },
+        { edge:"e20", kind:"async", title:"Unblock propagated", tech:"propagate_unblock() → sync_jobs", detail:"One durable unblock job per channel, same transactional pattern as blocking." },
+        { edge:"e23", kind:"write", title:"Slot reopens everywhere", tech:"cross-partner unblock", detail:"Marketplaces show the hour again — no manual channel juggling." } ] },
+    { id:"f10", cat:"Booking & channel sync", name:"Sync failure, retry & dead letters", color:"#f59e0b",
+      summary:"What happens when a partner API is down — and how the operator finds out and recovers.",
       steps:[
-        { edge:"e5",  title:"Open the console", detail:"AM console shell renders instantly, then hydrates." },
-        { edge:"e9",  title:"Operator sign-in", detail:"Password grant → JWT with am_role 'operator'; silent refresh." },
-        { edge:"e14", title:"Three RPCs hydrate", detail:"operator_portfolio, platform_health (jobs, stale feeds, dead letters), reconcile_report (gaps)." },
-        { edge:"e18", title:"Security-definer aggregates", detail:"Cross-tenant math runs server-side; only account-level numbers cross the boundary." },
-        { node:"am-console", title:"Rendered views", detail:"Insight KPIs + GMV trend, portfolio table, billing, growth, per-academy detail." } ] },
-    { id:"f6", name:"Fee reminder → payment", color:"#2dd4be",
-      summary:"Dues chase over WhatsApp with a UPI link, closed out by a recorded payment.",
+        { edge:"e22", kind:"failure", title:"Push fails", tech:"attempts++ · last_error = SQLERRM", detail:"Partner API down or rejecting. The job records the error instead of vanishing (claimed in batches of 25, FOR UPDATE SKIP LOCKED)." },
+        { node:"queue", kind:"async", title:"Backoff scheduled", tech:"next_run_at = now() + attempts×30s", detail:"The job retires to the queue with a later next_run_at; the next tick retries it." },
+        { node:"queue", kind:"failure", title:"Dead letter", tech:"status='failed' after 5 attempts", detail:"The fifth failure stops retrying — the job parks as a dead letter instead of hammering the partner." },
+        { edge:"e14", kind:"alert", title:"Health surfaces it", tech:"platform_health() · dead_letters · oldest_pending_mins", detail:"Dead letters, stale integrations and queue age are first-class health fields." },
+        { node:"am-console", kind:"alert", title:"Operator alerted", tech:"SYNC ENGINE card · needs-attention strip", detail:"Sidebar flips to Degraded; the Overview banner lists what to clear. Alerts only fire where CourtSync is actually sold (config.modules.booking)." },
+        { edge:"e6",  kind:"ui", title:"Recover", tech:"CourtSync board · re-sync", detail:"Operator inspects the venue's channel board, fixes the credential or triggers a re-sync; resolves inline from the activity feed." } ] },
+    /* ============ MONEY — THE HOUSE RULE ============ */
+    { id:"f11", cat:"Money — the house rule", name:"Resolving what a player owes", color:"#fbbf24",
+      summary:"resolve_fee(): one SQL function, seven levels of override — the reason two screens can never quote different amounts.",
       steps:[
-        { edge:"e2",  title:"Roster shows dues", detail:"players.html lists members with renewals approaching." },
-        { edge:"e26", title:"WhatsApp reminder", detail:"Deep link opens a prefilled message with a UPI pay link; reminders_log records the send." },
-        { edge:"e12", title:"reminder_sent event", detail:"Keeps the member timeline and AM feed accurate." },
-        { edge:"e2",  title:"Payment received", detail:"Parent pays; staff record it in fees.html (amount, mode)." },
-        { edge:"e17", title:"payments row + event", detail:"payments insert (staff RLS) + payment_recorded event → GMV metrics update." } ] },
-    { id:"f7", name:"Admission enquiry", color:"#818cf8",
-      summary:"Public lead capture feeding the staff console and AM growth metrics.",
+        { node:"rpc", kind:"guard", title:"THE HOUSE RULE", tech:"money computes in Postgres only", detail:"The fee chain, renewal roll-forward and payout split are SQL functions called by web, Android AND the reminder engine. No client does the arithmetic." },
+        { edge:"e32", kind:"rpc",  title:"Walk the chain", tech:"resolve_fee()", detail:"7-level precedence: enrolment override → member → batch → centre+sport → sport → centre → tenant default. First hit wins." },
+        { node:"db",  kind:"read", title:"Rules consulted", tech:"fee_rules · enrollments · batches", detail:"All tenant-scoped; the same rows serve every client." },
+        { edge:"e34", kind:"note", title:"Same answer on Android", tech:"Supabase.kt → resolve_fee", detail:"Verified in source: the phone calls the identical RPC — a parent's WhatsApp message and the manager's screen can never disagree." } ] },
+    { id:"f12", cat:"Money — the house rule", name:"Recording a payment", color:"#34d399",
+      summary:"record_fee_payment() is the ONE write path — it rolls the renewal forward, writes the timeline, and closes the reminder, atomically.",
       steps:[
-        { edge:"e1",  title:"Public form", detail:"admission.html — program + contact details, no login." },
-        { edge:"e10", title:"submit_application RPC", detail:"Anon insert path for applications (public write policy)." },
-        { edge:"e18", title:"Application stored", detail:"applications row, tenant-scoped; only staff/operator read." },
-        { edge:"e12", title:"admission_submitted event", detail:"Tracked with program + venue props." },
-        { edge:"e14", title:"Shows up in AM Growth", detail:"apps_30d feeds the enquiries leaderboard and academy detail." } ] },
-    { id:"f8", name:"Raj renewal reminder ladder", color:"#f472b6",
-      summary:"WhatsApp-first dues chasing for Raj Sports — the proven Gen Alpha ladder, tenant-scoped in SQL, driven by cron and mirrored on the staff screen.",
+        { edge:"e31", kind:"ui",    title:"Staff record a payment", tech:"web or Android", detail:"Amount, mode (cash/UPI/card) against an enrollment." },
+        { edge:"e32", kind:"rpc",   title:"The one write path", tech:"record_fee_payment()", detail:"Every fee payment goes through this function — there is no second door." },
+        { node:"db",  kind:"write", title:"Coverage computed", tech:"apply_payment_coverage()", detail:"Which months this payment covers — partial and advance payments handled in SQL, not in a client." },
+        { node:"db",  kind:"write", title:"Renewal rolls forward", tech:"enrollments.renewal_on · member_timeline", detail:"Next due date advances; the student profile gets an append-only timeline entry." },
+        { node:"db",  kind:"write", title:"Reminder closed", tech:"reminder_events", detail:"Any open reminder for this enrollment resolves — the parent stops getting chased the moment money lands." },
+        { edge:"e14", kind:"read",  title:"Metrics update", tech:"operator_portfolio() · GMV · adoption", detail:"AM's numbers move on the next hydrate. void_payment()/confirm_payment() exist for reversals — also SQL." } ] },
+    { id:"f8", cat:"Money — the house rule", name:"Renewal reminder ladder", color:"#f472b6",
+      summary:"WhatsApp-first dues chasing — one SQL function feeds both the cron auto-sender and the staff screen, so they always agree.",
       steps:[
-        { edge:"e31", title:"Renewal approaches", detail:"Raj's console tracks enrollments per centre; reminder_queue() computes exactly who is due and for how much." },
-        { edge:"e32", title:"One function, two surfaces", detail:"The same reminder_queue() RPC feeds the cron auto-sender AND the staff click-to-send list — both surfaces always agree." },
-        { node:"cron", title:"The ladder schedule", detail:"−2d heads_up · 0d due · +5d first chase · +7…14d daily · +15d STOP — auto gives way to manual follow-up." },
-        { edge:"e36", title:"WhatsApp send", detail:"Prefilled message + UPI pay link; reminder_events tracks queued → sent → delivered → read, failures → retry_scheduled." },
-        { edge:"e33", title:"Timeline closes the loop", detail:"member_timeline appends the reminder and the eventual payment on the student profile." } ] }
+        { edge:"e31", kind:"ui",   title:"Renewal approaches", tech:"enrollments.renewal_on", detail:"The console shows who is coming due per centre." },
+        { edge:"e32", kind:"rpc",  title:"One function, two surfaces", tech:"reminder_queue()", detail:"Computes who is due and for how much. The cron uses it to send; the staff screen uses the SAME function for the manual click-to-send list." },
+        { node:"cron", kind:"async", title:"The ladder", tech:"−2d heads_up · 0d due · +5d chase · +7–14d daily", detail:"Each stage is a state in reminder_events: queued → sent → delivered → read; failures → retry_scheduled." },
+        { edge:"e36", kind:"write", title:"WhatsApp send", tech:"prefilled message + UPI link", detail:"The parent gets a polite, correctly-priced message — the amount came from resolve_fee(), so it is never wrong." },
+        { node:"cron", kind:"failure", title:"+15d: STOP", tech:"manual_followup", detail:"Automation stands down — past two weeks overdue, a human must call. No parent gets robo-chased forever." },
+        { edge:"e33", kind:"write", title:"Timeline closes the loop", tech:"member_timeline", detail:"Reminder and eventual payment both append to the student profile." } ] },
+    { id:"f13", cat:"Money — the house rule", name:"Centre revenue share", color:"#fb923c",
+      summary:"Raj coaches at venues he doesn't own — the payout split is computed in Postgres like every other money rule.",
+      steps:[
+        { node:"raj-app", kind:"note", title:"The business shape", tech:"5 centres · revenue share", detail:"Schools, clubs and communities host the batches; a centre can take rent or a % of collections." },
+        { edge:"e32", kind:"rpc",  title:"Split computed", tech:"compute_payouts()", detail:"The month's collections divided per centre by its share rules — in SQL, per the house rule." },
+        { node:"db",  kind:"read", title:"Inputs", tech:"payments · centre share config", detail:"Same payment rows the fee chain wrote; no parallel bookkeeping." },
+        { edge:"e31", kind:"ui",   title:"Payout statement", tech:"finance screen", detail:"Raj sees what each centre is owed; the Android app shows identical numbers." } ] },
+    /* ============ TELEMETRY & OPERATOR ============ */
+    { id:"f4", cat:"Telemetry & operator", name:"Usage telemetry → activity feed", color:"#22d3ee",
+      summary:"Every tenant-app action becomes a durable event; the operator reads them as a per-academy activity feed.",
+      steps:[
+        { edge:"e1",  kind:"ui",    title:"Any page opens", tech:"track('page_view') · breadcrumbs", detail:"cloud.js auto-logs page views and keeps a 12-crumb ring of recent actions; client_error events attach the crumbs for replay-free triage." },
+        { edge:"e12", kind:"async", title:"Durable anon insert", tech:"POST /events · outbox", detail:"tenant_id, name, props, session_id, page. Public INSERT is allowed by design (events_public_w); the offline outbox flushes when the connection returns." },
+        { edge:"e17", kind:"write", title:"Row lands", tech:"events (tenant_id, at) index · events_op_r", detail:"Operator-only SELECT policy — telemetry flows from anyone, but only the operator reads it." },
+        { edge:"e5",  kind:"ui",    title:"Operator opens AM", tech:"academy detail", detail:"Any academy card → detail view." },
+        { edge:"e14", kind:"read",  title:"Aggregates", tech:"operator_portfolio()", detail:"usage_daily, sessions_30d, active_days, last_event_at, errors_30d — computed server-side per tenant." },
+        { edge:"e15", kind:"read",  title:"7-day raw feed", tech:"events?tenant_id=eq.X&at=gte.7d", detail:"Day-by-day actions with time and detail, page-view summaries per screen, session counts, idle days marked 'No activity'." } ] },
+    { id:"f5", cat:"Telemetry & operator", name:"Portfolio review & billing badge", color:"#fb7185",
+      summary:"Cross-tenant KPIs with PII minimization — and exactly how the paid/pending/overdue badge is derived.",
+      steps:[
+        { edge:"e5",  kind:"ui",   title:"Open the console", tech:"index.html", detail:"Shell renders instantly, then hydrates." },
+        { edge:"e9",  kind:"guard", title:"Operator sign-in", tech:"am_role='operator' · silent refresh", detail:"Password grant → JWT; tokens refresh transparently 90s before expiry." },
+        { edge:"e14", kind:"rpc",  title:"Three RPCs hydrate", tech:"operator_portfolio() · platform_health() · reconcile_report()", detail:"Per-tenant KPIs; jobs/stale-feeds/dead-letters; data gaps." },
+        { edge:"e18", kind:"read", title:"Aggregates only", tech:"security definer", detail:"Cross-tenant math runs server-side. Phone lists never leave a tenant — contacts_count crosses the boundary, contacts don't." },
+        { node:"am-console", kind:"note", title:"Badge derivation", tech:"overdue: status='overdue' OR renews_on < today · paid: active|paid · else pending", detail:"Derived at render, not stored. 'Move to paid' = set_subscription(): sets status AND rolls a past renewal forward so the badge doesn't flip straight to overdue." },
+        { node:"am-console", kind:"guard", title:"Audited control", tech:"sync_log", detail:"Every billing change writes an audit row; a tenant's own staff cannot mark themselves paid." } ] },
+    { id:"f14", cat:"Telemetry & operator", name:"Federated tenant reporting (Gen Alpha)", color:"#818cf8",
+      summary:"A tenant doesn't have to live in this database to appear in the console — Gen Alpha reports instead of migrating.",
+      steps:[
+        { node:"genalpha-app", kind:"note", title:"Why federated", tech:"config.federated = true", detail:"Gen Alpha predates the platform and is live with real families on its own 19-table Supabase. Migrating would risk live data for zero owner-visible benefit." },
+        { edge:"e38", kind:"write", title:"Ops data stays home", tech:"own Supabase project", detail:"Bookings, members, payments — all remain in Gen Alpha's backend." },
+        { edge:"e39", kind:"async", title:"Telemetry reports in", tech:"page_view · client_error · daily tenant_rollup", detail:"Posted to the shared events table with the public anon key — no new secret, no new endpoint, no new table." },
+        { edge:"e17", kind:"guard", title:"Counts only", tech:"never a name or phone", detail:"Rollups are forgeable by anyone holding the public key — acceptable for aggregate dashboard numbers, and exactly why nothing personal goes in one." },
+        { edge:"e14", kind:"read", title:"Fallback aggregation", tech:"operator_portfolio() → newest rollup", detail:"When a tenant's native rows are empty, the portfolio falls back to its latest rollup — the card shows real numbers." },
+        { node:"am-console", kind:"note", title:"Billing optional", tech:"plan='free'", detail:"Gen Alpha runs its own infrastructure, so it's tracked but not billed." } ] },
+    /* ============ PLATFORM SAFETY ============ */
+    { id:"f15", cat:"Platform safety", name:"Hourly watchdog & anon probe", color:"#f87171",
+      summary:"Three shape checks plus one behavior check — because the worst leak this platform had passed every shape check.",
+      steps:[
+        { node:"cron", kind:"async", title:"Hourly tick", tech:"cron_health_check()", detail:"Runs the audit battery and logs anything suspicious." },
+        { node:"db", kind:"read", title:"Shape checks", tech:"rls_audit() · rpc_audit() · policy_fn_audit()", detail:"Anon policies without a tenant filter; SECURITY DEFINER functions anon can execute (must be empty except the 4 public ones); policy-referenced functions anon can't run." },
+        { node:"rest", kind:"guard", title:"Behavior check", tech:"anon_probe()", detail:"Actually CALLS the dangerous endpoints as anon, hourly — and the must-keep-working paths too, asserting on CONTENT (Raj publishes 5 centres, 14 batches, 5 sports), never on length. An error body reading as '4 rows' hid a real outage once." },
+        { node:"db", kind:"read", title:"Canary", tech:"events_flowing()", detail:"False when the events sink goes quiet despite recent traffic — catches silent telemetry death." },
+        { node:"db", kind:"alert", title:"Warnings logged", tech:"sync_log · tenant_id='platform'", detail:"Anything failing lands in the platform log." },
+        { edge:"e14", kind:"alert", title:"Console surfaces it", tech:"platform_health()", detail:"AM's health score, system card, and needs-attention banner reflect the watchdog within the hour." } ] },
+    { id:"f16", cat:"Platform safety", name:"Applying a migration", color:"#a3e635",
+      summary:"One ledger-checked runner, blast-radius awareness, and measurement before belief.",
+      steps:[
+        { node:"operator", kind:"ui", title:"Dry-run first, always", tech:"migrate.sh --dry-run --scope <scope>", detail:"A change to a shared table reaches every live tenant, including apps in daily use. The dry run proves the SQL parses — not that the system still works." },
+        { node:"db", kind:"guard", title:"Ledger gate", tech:"schema_migrations · filename + sha256", detail:"The runner refuses a file already applied, and refuses louder if it changed since. Never rename an applied .sql file." },
+        { node:"db", kind:"write", title:"Atomic apply", tech:"change + ledger row, one transaction", detail:"The migration and its ledger entry commit together or not at all." },
+        { node:"rest", kind:"guard", title:"Exercise the real path", tech:"real anon key · before/after row counts", detail:"After touching any policy OR grant: call the endpoints as anon and compare against known-good values. Both past outages were caught by measuring, not by reading SQL." },
+        { node:"db", kind:"failure", title:"The lessons behind the rule", tech:"is_locked() revocation · inlined tenants subquery", detail:"A policy predicate runs as the calling role — an anon-unreadable subquery silently denies every row. Revoking is_locked() from PUBLIC took Raj's timetable down; policy helpers are SECURITY DEFINER for a reason." } ] },
+    { id:"f17", cat:"Platform safety", name:"Nightly snapshot & the backup gap", color:"#94a3b8",
+      summary:"What the platform can recover from — and, honestly, what it can't yet.",
+      steps:[
+        { node:"cron", kind:"async", title:"Nightly snapshot", tech:"backup.take_snapshot()", detail:"Copies the tenant tables every night, keeps 14 days." },
+        { node:"db", kind:"write", title:"Into the same database", tech:"backup schema", detail:"Covers a migration doing more than intended — which has happened." },
+        { node:"db", kind:"failure", title:"The gap", tech:"free plan · no PITR", detail:"If the project itself is lost, the snapshots go with it. There is no restorable daily backup today." },
+        { node:"operator", kind:"note", title:"The fix", tech:"Pro plan + PITR add-on", detail:"Known, priced, and on the list — the honest line in the ops docs rather than a false sense of safety." } ] }
   ]
 };
 
@@ -254,6 +335,7 @@ const LAYOUT = {
   "am-console":    { x: 178, y: 585, w: 168 },
   courtsync:       { x: 178, y: 710, w: 168 },
   "genalpha-app":  { x: 362, y: 55,  w: 168 },
+  "mpp-app":       { x: 362, y: 185, w: 168 },
   "raj-android":   { x: 362, y: 430, w: 168 },
   auth:  { x: 578, y: 45,  w: 178 },
   rest:  { x: 578, y: 185, w: 178 },
@@ -275,6 +357,11 @@ const GROUP_STYLE = {
   external: "bg-orange-950/40 border border-orange-800/50"
 };
 const GROUP_DOT = { actor:"#7dd3fc", app:"#34d399", supabase:"#a78bfa", external:"#fb923c" };
+const KIND = {
+  ui:     ["UI","#38bdf8"], rpc: ["RPC","#a78bfa"], guard: ["GUARD","#fbbf24"],
+  write:  ["WRITE","#34d399"], read: ["READ","#94a3b8"], async: ["ASYNC","#22d3ee"],
+  alert:  ["ALERT","#fb7185"], failure: ["FAIL","#f87171"], note: ["NOTE","#64748b"]
+};
 
 const stage = document.getElementById("stage");
 const nodeLayer = document.getElementById("nodeLayer");
@@ -286,7 +373,7 @@ const byId = {}; GRAPH.nodes.forEach(n => byId[n.id] = n);
 
 // group boxes
 [["APPS · GitHub Pages + Android", 168, 30, 376, 795, "rgba(52,211,153,.25)"],
- ["SUPABASE · ugsklcipzyiogxynshnh", 564, 20, 438, 810, "rgba(167,139,250,.25)"],
+ ["SUPABASE · shared platform project", 564, 20, 438, 810, "rgba(167,139,250,.25)"],
  ["EXTERNAL", 1018, 30, 208, 795, "rgba(251,146,60,.25)"]].forEach(g => {
   const box = document.createElement("div");
   box.className = "group-box";
@@ -310,22 +397,54 @@ GRAPH.nodes.forEach(n => {
 });
 
 function rect(id){ const l = LAYOUT[id], el = nodeEls[id]; return { x:l.x, y:l.y, w:l.w, h: el.offsetHeight }; }
-function anchor(a, b){
+function sideFor(a, b){
   const A = rect(a), B = rect(b);
-  if (B.x > A.x + A.w) return [{x:A.x+A.w, y:A.y+A.h/2},{x:B.x, y:B.y+B.h/2}];
-  if (A.x > B.x + B.w) return [{x:A.x, y:A.y+A.h/2},{x:B.x+B.w, y:B.y+B.h/2}];
-  if (B.y > A.y) return [{x:A.x+A.w/2, y:A.y+A.h},{x:B.x+B.w/2, y:B.y}];
-  return [{x:A.x+A.w/2, y:A.y},{x:B.x+B.w/2, y:B.y+B.h}];
+  if (B.x > A.x + A.w) return ["right","left"];
+  if (A.x > B.x + B.w) return ["left","right"];
+  if (B.y > A.y) return ["bottom","top"];
+  return ["top","bottom"];
 }
 function drawEdges(){
   edgeG.innerHTML = ""; labelG.innerHTML = "";
+  // distribute connection points along each node side so edges don't knot at one point
+  const groups = {};
   GRAPH.edges.forEach(e => {
-    const [p1, p2] = anchor(e.from, e.to);
-    const horiz = Math.abs(p1.y - p2.y) < Math.abs(p1.x - p2.x);
-    const dx = (p2.x - p1.x) * 0.45, dy = (p2.y - p1.y) * 0.45;
-    const d = horiz
-      ? `M${p1.x} ${p1.y} C${p1.x+dx} ${p1.y}, ${p2.x-dx} ${p2.y}, ${p2.x} ${p2.y}`
-      : `M${p1.x} ${p1.y} C${p1.x} ${p1.y+dy}, ${p2.x} ${p2.y-dy}, ${p2.x} ${p2.y}`;
+    const [sa, sb] = sideFor(e.from, e.to);
+    const A = rect(e.from), B = rect(e.to);
+    (groups[e.from+"|"+sa] = groups[e.from+"|"+sa] || []).push({ e, end:"from", sort:(sa==="left"||sa==="right") ? B.y+B.h/2 : B.x+B.w/2 });
+    (groups[e.to+"|"+sb]   = groups[e.to+"|"+sb]   || []).push({ e, end:"to",   sort:(sb==="left"||sb==="right") ? A.y+A.h/2 : A.x+A.w/2 });
+  });
+  const port = {};
+  Object.keys(groups).forEach(k => {
+    const list = groups[k].sort((x,y)=>x.sort-y.sort);
+    const [nid, side] = k.split("|");
+    const R = rect(nid);
+    list.forEach((item, i) => {
+      const t = (i+1)/(list.length+1);
+      let p;
+      if (side==="right")       p = {x:R.x+R.w,   y:R.y+R.h*t};
+      else if (side==="left")   p = {x:R.x,       y:R.y+R.h*t};
+      else if (side==="bottom") p = {x:R.x+R.w*t, y:R.y+R.h};
+      else                      p = {x:R.x+R.w*t, y:R.y};
+      port[item.e.id+"|"+item.end] = { p, side };
+    });
+  });
+  GRAPH.edges.forEach(e => {
+    const s = port[e.id+"|from"], t2 = port[e.id+"|to"];
+    const p1 = s.p, p2 = t2.p;
+    const horiz = s.side==="left" || s.side==="right";
+    let d;
+    if (horiz){
+      const reach = Math.max(40, Math.abs(p2.x-p1.x)*0.45);
+      const c1x = p1.x + (s.side==="right" ? reach : -reach);
+      const c2x = p2.x + (t2.side==="left" ? -reach : reach);
+      d = `M${p1.x} ${p1.y} C${c1x} ${p1.y}, ${c2x} ${p2.y}, ${p2.x} ${p2.y}`;
+    } else {
+      const reach = Math.max(30, Math.abs(p2.y-p1.y)*0.45);
+      const c1y = p1.y + (s.side==="bottom" ? reach : -reach);
+      const c2y = p2.y + (t2.side==="top" ? -reach : reach);
+      d = `M${p1.x} ${p1.y} C${p1.x} ${c1y}, ${p2.x} ${c2y}, ${p2.x} ${p2.y}`;
+    }
     const path = document.createElementNS("http://www.w3.org/2000/svg","path");
     path.setAttribute("d", d); path.setAttribute("class","edge-path"); path.setAttribute("marker-end","url(#arr)");
     edgeG.appendChild(path); edgeEls[e.id] = path;
@@ -393,23 +512,29 @@ function activateFlow(fid, stepIdx){
   });
   document.querySelectorAll(".flow-btn").forEach(b => {
     b.classList.toggle("active", b.dataset.flow === fid);
-    b.style.setProperty("--flow", flow.color);
+    const f2 = GRAPH.flows.find(x => x.id === b.dataset.flow);
+    if (f2) b.style.setProperty("--flow", f2.color);
   });
   renderFlowPanel(flow, stepIdx);
+}
+function kindChip(k){
+  const m = KIND[k] || KIND.note;
+  return `<span class="kind-chip" style="background:color-mix(in srgb, ${m[1]} 15%, transparent);color:${m[1]}">${m[0]}</span>`;
 }
 function renderFlowPanel(flow, stepIdx){
   const panel = document.getElementById("flowPanel");
   if (!flow){ panel.innerHTML = '<div class="text-sm text-slate-500">Select a flow to see its steps and light up its path in the diagram above.</div>'; return; }
   panel.style.setProperty("--flow", flow.color);
   panel.innerHTML =
-    `<div class="flex items-center gap-2.5"><i style="width:10px;height:10px;border-radius:50%;background:${flow.color}"></i><h3 class="font-bold text-white">${flow.name}</h3>
-     <button onclick="resetHighlight()" class="ml-auto text-[11px] font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2.5 py-1">Clear</button></div>
-     <p class="text-[12.5px] text-slate-400 mt-1.5">${flow.summary}</p>
+    `<div class="flex items-center gap-2.5"><i style="width:10px;height:10px;border-radius:50%;background:${flow.color};flex:none"></i><div><div class="text-[10px] font-bold tracking-[.12em] text-slate-500 uppercase">${flow.cat}</div><h3 class="font-bold text-white leading-tight">${flow.name}</h3></div>
+     <button onclick="resetHighlight()" class="ml-auto text-[11px] font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2.5 py-1 flex-none">Clear</button></div>
+     <p class="text-[12.5px] text-slate-400 mt-2">${flow.summary}</p>
      <ol class="mt-4 space-y-1.5">` +
     flow.steps.map((s, i) =>
       `<li class="step-item ${stepIdx===i?'active':''} flex gap-3 items-start rounded-xl border border-slate-800 px-3.5 py-2.5 cursor-pointer hover:border-slate-600 transition-colors" style="--flow:${flow.color}" onclick="activateFlow('${flow.id}', ${i})">
         <span style="background:${flow.color}" class="w-5 h-5 rounded-full text-[11px] font-extrabold text-slate-950 flex items-center justify-center flex-none mt-0.5">${i+1}</span>
-        <span><b class="text-[13px] text-white">${s.title}</b><span class="block text-[12px] text-slate-400 leading-snug">${s.detail}</span></span></li>`).join("") +
+        <span class="min-w-0"><span class="flex items-center gap-2 flex-wrap"><b class="text-[13px] text-white">${s.title}</b>${kindChip(s.kind)}${s.tech ? '<code class="tech-chip">'+s.tech+"</code>" : ""}</span>
+        <span class="block text-[12px] text-slate-400 leading-snug mt-1">${s.detail}</span></span></li>`).join("") +
     "</ol>";
 }
 function showDetail(n){
@@ -420,12 +545,21 @@ function showDetail(n){
 }
 function hideDetail(){ document.getElementById("detail").classList.add("hidden"); }
 
-// flow buttons
+// flow buttons, grouped by category
 const btnWrap = document.getElementById("flowBtns");
+let lastCat = null;
 GRAPH.flows.forEach(f => {
+  if (f.cat !== lastCat){
+    lastCat = f.cat;
+    const h = document.createElement("div");
+    h.className = "text-[10px] font-bold tracking-[.16em] text-slate-500 uppercase mt-3 first:mt-0 px-1";
+    h.textContent = f.cat;
+    btnWrap.appendChild(h);
+  }
   const b = document.createElement("button");
   b.className = "flow-btn text-left rounded-xl border border-slate-800 bg-slate-900/40 px-3.5 py-2.5 hover:border-slate-600 transition-colors";
   b.dataset.flow = f.id;
+  b.style.setProperty("--flow", f.color);
   b.innerHTML = `<span class="flex items-center gap-2"><i style="width:8px;height:8px;border-radius:50%;background:${f.color};flex:none"></i><span class="text-[13px] font-bold">${f.name}</span></span><span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">${f.steps.length} steps</span>`;
   b.addEventListener("click", () => activateFlow(f.id));
   btnWrap.appendChild(b);
