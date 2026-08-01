@@ -298,6 +298,34 @@ and is exactly why nothing personal goes in one.
 `tenants.config.federated = true` marks them. Bill them or don't —
 GenAlpha is on `free` because it runs on its own infrastructure.
 
+## Co-tenant, NOT a tenant: the Remembering App
+
+`memories` and `push_subscriptions` are **not Academy Manager tables**.
+They belong to *Suhas's Remembering App* — a family side project that
+shares this Supabase project only because the free-project quota ran
+out. The app itself has since moved to Deno KV; the tables hold his
+personal data and nothing else.
+
+The guardrail, in full:
+
+1. **Never treat them as platform work.** No migrations against them
+   (beyond keeping them closed), no schema reuse, no tenant modelling,
+   no inclusion in the console, docs, exports, or any audit *findings
+   list*. They do not appear in `docs/architecture.*` and must not.
+2. **Never drop or "clean them up".** The rows are someone's personal
+   data. Removing them is a family decision, not a platform chore.
+3. **They stay closed to the public key.** Migration `0033` revoked all
+   anon/authenticated access; `anon_probe()` proves hourly that both the
+   read and write paths stay denied, and `rls_audit()` would flag any
+   reopened policy. That is the entire extent of the platform's
+   involvement: proving they stay sealed.
+4. **No upgrades.** It is a simple fun project by design. If it ever
+   needs Supabase again, it gets its own scoped path or its own project
+   — it does not grow into this schema.
+5. Both tables carry a `comment on table` in the database saying all of
+   the above, so anyone who finds them in the catalogue learns what they
+   are before touching them.
+
 ## The repos
 
 ```
