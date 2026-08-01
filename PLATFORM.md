@@ -214,6 +214,7 @@ bottom.
 | `resolve_upi()` | which account a fee is collected to: batch → centre → tenant `config.billing`. It is money, so it lives here |
 | `my_access()` | who the caller is and what they may reach. Clients route on it after sign-in |
 | `my_centres()`, `my_attendance_batches()`, `assert_attendance_access()` | the attendance-only `coach` role, scoped to its assigned centres |
+| `my_attendance_insights()` | one batch's calendar, rates and per-student standing. `p_batch` is a required **target**, which is what lets a coach call it; no money, no phone numbers |
 
 If a client needs a number, there is probably already a function for it.
 Read before writing.
