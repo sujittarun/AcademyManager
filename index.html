@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/console.css?v=15" />
+  <link rel="stylesheet" href="assets/css/console.css?v=16" />
 </head>
 <body>
   <!-- operator sign-in -->
@@ -268,7 +268,7 @@
               "</header>" +
               '<div class="am-scroll" id="amScroll"><div class="view">' + body + "</div></div>" +
             "</main>" +
-          "</div>";
+          "</div>" + waPopup();
       }
 
       function kpiCard(icon, value, label, sub, trend, trendColor, trendIcon) {
@@ -441,7 +441,11 @@
           var d = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, u = d >= 0;
           return '<div style="border:1px solid var(--bd2);border-radius:12px;padding:15px 16px"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:8px"><span style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + a.bookings + '</span><span style="font-size:12.5px;font-weight:600;color:' + (u ? "#16a34a" : "#dc2626") + '"><span class="mi" style="font-size:14px;vertical-align:-2px">' + (u ? "north_east" : "south_east") + "</span>" + (u ? "+" : "") + d + "%</span></div></div>";
         }).join("") || '<div style="color:var(--tx4);font-size:13px;padding:8px">No booking activity yet.</div>';
-        return '<div class="grid2">' +
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 2px 16px">' +
+            '<div><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Channel &amp; reminder performance</h2>' +
+            '<span style="font-size:12.5px;color:var(--tx3)">Where bookings come from, and whether fee reminders are converting</span></div>' +
+            '<button class="wa-trigger" data-wa-open><span class="mi">forum</span>WhatsApp stats</button></div>' +
+          '<div class="grid2">' +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Coaching enquiries · 30d</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">New leads captured across the portfolio</p><div style="display:flex;flex-direction:column;gap:16px;margin-top:20px">' + leaders + "</div></div>" +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Booking channels</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">Where portfolio bookings originate · 30d</p><div style="margin-top:20px">' + mixBar(agg, 14) + '</div><div style="display:flex;flex-direction:column;gap:2px;margin-top:18px">' + legend + "</div></div></div>" +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04);margin-top:20px"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em;margin-bottom:16px">Booking momentum · 30d vs prior</h3><div class="cardgrid">' + momentum + "</div></div>";
@@ -643,8 +647,141 @@
           "</div></div>" + tenantErrorsCard(a);
       }
 
+      /* ============ WhatsApp reminder performance ============
+         One RPC returns the whole dashboard already aggregated, so no
+         raw event ever reaches this browser — which is both the privacy
+         position (parents' numbers stay in the database) and the reason
+         it stays fast at >1000 events. */
+      var wa = { open: false, tenant: "all", months: 4, sort: "remindersSent", data: null, loading: false, error: null };
+
+      function waLoad() {
+        wa.loading = true; wa.error = null; render();
+        rpc("whatsapp_reminder_stats", { p_tenant: wa.tenant, p_months: wa.months })
+          .then(function (r) {
+            wa.loading = false;
+            if (!r || r.success !== true) { wa.error = "The statistics service did not answer."; }
+            else { wa.data = r; }
+            render();
+          })
+          .catch(function () { wa.loading = false; wa.error = "Could not reach the statistics service."; render(); });
+      }
+      function waOpen() { wa.open = true; wa.tenant = "all"; wa.data = null; waLoad(); }
+      function waClose() { wa.open = false; wa.data = null; wa.error = null; render(); }
+
+      function waPct(v) { return v == null ? "—" : v + "%"; }
+      function waMoney(n) { return inrK(Number(n || 0)); }
+
+      function waTiles(t) {
+        var noDelivery = !t.hasDeliveryData;
+        return '<div class="wa-tiles">' +
+          '<div class="wa-tile"><span>Reminders sent</span><strong>' + num(t.remindersSent) + '</strong><small>' + num(t.uniquePlayers) + ' unique players</small></div>' +
+          '<div class="wa-tile"><span>Academies using</span><strong>' + num(t.academiesUsing) + '</strong><small>with at least one reminder</small></div>' +
+          '<div class="wa-tile"><span>Payments via reminder</span><strong>' + num(t.paymentsViaReminder) + '</strong><small>' + num(t.proofs) + ' proofs received</small></div>' +
+          '<div class="wa-tile"><span>Revenue via reminder</span><strong>' + waMoney(t.revenueViaReminder) + '</strong><small>confirmed payments only</small></div>' +
+          '<div class="wa-tile"><span>Delivery rate</span><strong>' + (noDelivery ? "—" : waPct(t.deliveryRate)) + '</strong><small>' + (noDelivery ? "no callbacks yet" : "of reminders sent") + '</small></div>' +
+          '<div class="wa-tile"><span>Read rate</span><strong>' + (noDelivery ? "—" : waPct(t.readRate)) + '</strong><small>' + (noDelivery ? "no callbacks yet" : "read implies delivered") + '</small></div>' +
+          '<div class="wa-tile"><span>Conversion</span><strong>' + waPct(t.conversionRate) + '</strong><small>reminders that led to payment</small></div>' +
+          '<div class="wa-tile"><span>Proofs received</span><strong>' + num(t.proofs) + '</strong><small>payment screenshots</small></div>' +
+          "</div>";
+      }
+
+      function waMonths(ms, noDelivery) {
+        var max = Math.max.apply(null, ms.map(function (m) { return Number(m.remindersSent || 0); }).concat([1]));
+        return '<div class="wa-months">' + ms.map(function (m) {
+          var w = Math.max(4, Math.round((Number(m.remindersSent || 0) / max) * 100));
+          return '<div class="wa-m' + (m.isMTD ? " mtd" : "") + '">' +
+            '<h4>' + esc(m.label) + (m.isMTD ? '<span class="wa-mtd">MTD</span>' : "") + "</h4>" +
+            '<div class="wa-big">' + num(m.remindersSent) + '<em>reminders</em></div>' +
+            '<div class="wa-bar"><i style="width:' + w + '%"></i></div>' +
+            '<div class="wa-kv"><span>Players reached</span><b>' + num(m.playersReached) + "</b></div>" +
+            '<div class="wa-kv"><span>Delivered / read</span><b>' + (noDelivery ? "—" : waPct(m.deliveryRate) + " / " + waPct(m.readRate)) + "</b></div>" +
+            '<div class="wa-kv"><span>Proofs</span><b>' + num(m.proofs) + "</b></div>" +
+            '<div class="wa-kv"><span>Payments</span><b>' + num(m.paymentsViaReminder) + "</b></div>" +
+            '<div class="wa-kv"><span>Revenue</span><b>' + waMoney(m.revenueViaReminder) + "</b></div>" +
+            '<div class="wa-kv"><span>Conversion</span><b>' + waPct(m.conversionRate) + "</b></div>" +
+            "</div>";
+        }).join("") + "</div>";
+      }
+
+      function waTable(rows, noDelivery) {
+        var cols = [["academyName", "Academy"], ["remindersSent", "Reminders"], ["playersReached", "Players"],
+                    ["paymentsViaReminder", "Payments"], ["revenueViaReminder", "Revenue"],
+                    ["deliveryRate", "Delivered"], ["readRate", "Read"], ["conversionRate", "Conversion"]];
+        var sorted = rows.slice().sort(function (a, b) {
+          if (wa.sort === "academyName") return String(a.academyName).localeCompare(String(b.academyName));
+          return (Number(b[wa.sort] || 0) - Number(a[wa.sort] || 0));
+        });
+        return '<div class="wa-tablewrap"><div class="wa-scroll"><table class="wa-table"><thead><tr>' +
+          cols.map(function (c) { return '<th data-wasort="' + c[0] + '" class="' + (wa.sort === c[0] ? "on" : "") + '">' + c[1] + "</th>"; }).join("") +
+          "</tr></thead><tbody>" +
+          sorted.map(function (a) {
+            return '<tr data-tenant="' + esc(a.tenantId) + '">' +
+              "<td>" + esc(a.academyName || a.tenantId) + "</td>" +
+              "<td>" + num(a.remindersSent) + "</td>" +
+              "<td>" + num(a.playersReached) + "</td>" +
+              "<td>" + num(a.paymentsViaReminder) + "</td>" +
+              "<td>" + waMoney(a.revenueViaReminder) + "</td>" +
+              "<td>" + (noDelivery ? "—" : waPct(a.deliveryRate)) + "</td>" +
+              "<td>" + (noDelivery ? "—" : waPct(a.readRate)) + "</td>" +
+              "<td>" + waPct(a.conversionRate) + "</td></tr>";
+          }).join("") + "</tbody></table></div></div>";
+      }
+
+      function waPopup() {
+        if (!wa.open) return "";
+        var body;
+        if (wa.loading) {
+          body = '<div class="wa-msg"><div class="wa-spin"></div><h4>Reading reminder history…</h4><p>Aggregating across academies.</p></div>';
+        } else if (wa.error) {
+          body = '<div class="wa-msg"><span class="mi">cloud_off</span><h4>Could not load statistics</h4><p>' + esc(wa.error) + '</p><button data-wa-retry>Try again</button></div>';
+        } else if (!wa.data) {
+          body = '<div class="wa-msg"><div class="wa-spin"></div></div>';
+        } else {
+          var t = wa.data.totals || {}, ms = wa.data.months || [], acc = wa.data.academies || [];
+          var noDelivery = !t.hasDeliveryData;
+          if (!Number(t.remindersSent)) {
+            body = '<div class="wa-msg"><span class="mi">forum</span><h4>No reminders in this period</h4>' +
+              '<p>Nothing was sent by ' + (wa.tenant === "all" ? "any academy" : "this academy") +
+              ' in the last ' + wa.months + ' months. Reminders appear here as soon as the engine sends its first message.</p></div>';
+          } else {
+            body = waTiles(t) +
+              '<div class="wa-sec"><h3>Month on month</h3><span>' + (wa.tenant === "all" ? "all academies combined" : "this academy") + ', current month marked MTD</span></div>' +
+              waMonths(ms, noDelivery) +
+              (wa.tenant === "all"
+                ? '<div class="wa-sec"><h3>By academy</h3><span>tap a row for that academy’s detail · tap a heading to sort</span></div>' + waTable(acc, noDelivery)
+                : "") +
+              (noDelivery
+                ? '<p class="wa-note"><b>Delivery and read rates are unavailable.</b> Both academies run WhatsApp in manual mode, so Meta has not sent delivery callbacks yet. These fill in automatically once the WABA is live — they are shown as “—” rather than 0% so an unmeasured rate is never read as a bad one.</p>'
+                : "") +
+              '<p class="wa-note">Counts deduplicate Meta callbacks on (academy + message id) and count each player once per academy per month. Payments count only when a reminder led to a confirmed payment; revenue is the confirmed amount. Months use each academy’s own timezone.</p>';
+          }
+        }
+        var opts = '<option value="all"' + (wa.tenant === "all" ? " selected" : "") + ">All academies</option>" +
+          state.data.map(function (a) { return '<option value="' + esc(a.id) + '"' + (wa.tenant === a.id ? " selected" : "") + ">" + esc(a.name) + "</option>"; }).join("");
+        var mopts = [3, 4, 6, 12].map(function (m) { return '<option value="' + m + '"' + (wa.months === m ? " selected" : "") + ">Last " + m + " months</option>"; }).join("");
+
+        return '<div class="wa-back" data-wa-back><section class="wa-panel" role="dialog" aria-modal="true" aria-labelledby="waTitle">' +
+          '<div class="wa-head"><div><div class="eyebrow">WhatsApp performance</div><h2 id="waTitle">Reminders to payments</h2>' +
+          '<p>Deduplicated month-on-month results across academies.</p></div>' +
+          '<button class="wa-x" data-wa-close aria-label="Close"><span class="mi">close</span></button></div>' +
+          '<div class="wa-controls"><select data-wa-tenant aria-label="Academy">' + opts + "</select>" +
+          '<select data-wa-months aria-label="Reporting period">' + mopts + "</select></div>" +
+          '<div class="wa-body">' + body + "</div></section></div>";
+      }
+
       /* ============ events (delegated; survive re-renders) ============ */
       document.addEventListener("click", function (e) {
+        // ---- WhatsApp stats popup (before nav, so clicks inside it never fall through) ----
+        if (e.target.closest("[data-wa-open]")) { waOpen(); return; }
+        if (e.target.closest("[data-wa-close]")) { waClose(); return; }
+        if (e.target.closest("[data-wa-retry]")) { waLoad(); return; }
+        var waSort = e.target.closest("[data-wasort]");
+        if (waSort) { wa.sort = waSort.getAttribute("data-wasort"); render(); return; }
+        var waRow = e.target.closest("[data-tenant]");
+        if (waRow && wa.open) { wa.tenant = waRow.getAttribute("data-tenant"); waLoad(); return; }
+        if (e.target.hasAttribute && e.target.hasAttribute("data-wa-back")) { waClose(); return; }
+        if (wa.open && e.target.closest(".wa-panel")) return;   // clicks inside the dialog do nothing else
+
         if (e.target.closest("[data-menu]")) { var app = document.querySelector(".app"); if (app) app.classList.toggle("nav-open"); return; }
         var nav = e.target.closest("[data-nav]");
         if (nav) { state.view = nav.getAttribute("data-nav"); state.sel = null; render(); scrollTop(); return; }
@@ -730,6 +867,18 @@
           return;
         }
       });
+      // the two popup selects
+      document.addEventListener("change", function (e) {
+        var t = e.target.closest("[data-wa-tenant]");
+        if (t) { wa.tenant = t.value; waLoad(); return; }
+        var m = e.target.closest("[data-wa-months]");
+        if (m) { wa.months = Number(m.value) || 4; waLoad(); return; }
+      });
+      // Escape closes the dialog
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && wa.open) waClose();
+      });
+
       function scrollTop() { var s = document.getElementById("amScroll"); if (s) s.scrollTop = 0; }
 
       /* Re-read health from the server rather than splicing the resolved

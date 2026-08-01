@@ -587,3 +587,128 @@ body { letter-spacing: -.006em; }
   background: transparent;
   cursor: default;
 }
+
+/* ============================================================
+   WhatsApp reminder performance — operator popup
+   Modelled on the Gen Alpha stats panel, rebuilt in this console's
+   own tokens. Lives in a dialog rather than the page, because it is
+   something you open with a question, not something you watch.
+   ============================================================ */
+.wa-trigger {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--act);
+  background: var(--acs); border: 1px solid #cdeee9; border-radius: 9px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap;
+  transition: background .15s, border-color .15s, transform .15s;
+}
+.wa-trigger:hover { background: #e2f7f4; border-color: #a9ded7; transform: translateY(-1px); }
+.wa-trigger .mi { font-size: 17px; }
+
+.wa-back {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(15, 26, 22, .38); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  animation: waFade .18s var(--ease, ease-out);
+}
+@keyframes waFade { from { opacity: 0 } to { opacity: 1 } }
+.wa-panel {
+  background: var(--card); border: 1px solid var(--bd); border-radius: 18px;
+  width: min(1080px, 100%);
+  /* dvh so mobile browser chrome cannot clip the footer */
+  max-height: min(88dvh, 900px);
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px -20px rgba(16, 32, 26, .45);
+  animation: waRise .2s var(--ease, ease-out);
+}
+@keyframes waRise { from { opacity: 0; transform: translateY(10px) scale(.99) } to { opacity: 1; transform: none } }
+
+.wa-head { display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px 14px; border-bottom: 1px solid var(--bd2); flex: none; }
+.wa-head .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--tx4); }
+.wa-head h2 { font-size: 17px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
+.wa-head p { font-size: 12px; color: var(--tx4); margin-top: 2px; }
+.wa-x { margin-left: auto; width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--bd-btn);
+        background: #fff; cursor: pointer; display: grid; place-items: center; color: var(--tx3); flex: none; }
+.wa-x:hover { background: var(--page); color: var(--tx); }
+
+.wa-controls { display: flex; flex-wrap: wrap; gap: 10px; padding: 13px 20px; border-bottom: 1px solid var(--bd2); flex: none; }
+.wa-controls select {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--tx2);
+  border: 1px solid var(--bd-btn); border-radius: 9px; padding: 7px 30px 7px 11px; background: #fff;
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%235b6470' stroke-width='2'><path d='M2 4l4 4 4-4'/></svg>");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.wa-controls select:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--acs); }
+
+/* the one scrolling region */
+.wa-body { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 16px 20px 22px; }
+
+.wa-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.wa-tile { border: 1px solid var(--bd2); border-radius: 13px; padding: 13px 14px; background: var(--fill); }
+.wa-tile span { display: block; font-size: 11px; font-weight: 600; color: var(--tx4); }
+.wa-tile strong { display: block; font-size: 20px; font-weight: 700; letter-spacing: -.02em; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.wa-tile small { display: block; font-size: 11px; color: var(--tx4); margin-top: 2px; }
+
+.wa-sec { display: flex; align-items: baseline; gap: 9px; margin: 22px 0 11px; }
+.wa-sec h3 { font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; }
+.wa-sec span { font-size: 11.5px; color: var(--tx4); }
+
+.wa-months { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.wa-m { border: 1px solid var(--bd2); border-radius: 13px; padding: 13px 14px; position: relative; }
+.wa-m.mtd { border-color: #cdeee9; background: linear-gradient(180deg, #f6fdfc, #fff); }
+.wa-m h4 { font-size: 12.5px; font-weight: 700; }
+.wa-mtd { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; color: var(--act);
+          background: var(--acs); border-radius: 5px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+.wa-big { font-size: 22px; font-weight: 700; letter-spacing: -.025em; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.wa-big em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--tx4); margin-left: 5px; }
+.wa-bar { height: 5px; border-radius: 4px; background: #eef1f0; overflow: hidden; margin: 9px 0 11px; }
+.wa-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--ac), var(--ac2, #14b8a6)); }
+.wa-kv { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; padding: 3px 0; }
+.wa-kv span { color: var(--tx4); }
+.wa-kv b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.wa-tablewrap { border: 1px solid var(--bd2); border-radius: 13px; overflow: hidden; }
+.wa-scroll { overflow-x: auto; }
+.wa-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.wa-table th {
+  text-align: left; padding: 10px 12px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--tx4); background: var(--fill); white-space: nowrap;
+  cursor: pointer; user-select: none; border-bottom: 1px solid var(--bd2);
+}
+.wa-table th:hover { color: var(--tx); }
+.wa-table th.on { color: var(--act); }
+.wa-table td { padding: 11px 12px; font-size: 12.5px; border-bottom: 1px solid var(--bd3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wa-table tr[data-tenant] { cursor: pointer; }
+.wa-table tr[data-tenant]:hover td { background: var(--acs); }
+.wa-table td:first-child { font-weight: 600; }
+
+.wa-msg { text-align: center; padding: 40px 20px; color: var(--tx3); }
+.wa-msg .mi { font-size: 34px; color: var(--tx5); }
+.wa-msg h4 { font-size: 15px; font-weight: 700; color: var(--tx2); margin-top: 10px; }
+.wa-msg p { font-size: 12.5px; margin-top: 5px; max-width: 400px; margin-inline: auto; line-height: 1.55; }
+.wa-msg button { margin-top: 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: #fff;
+                 background: var(--ac); border: 0; border-radius: 9px; padding: 8px 16px; cursor: pointer; }
+.wa-note { font-size: 11.5px; color: var(--tx4); margin-top: 14px; line-height: 1.5; }
+.wa-spin { width: 26px; height: 26px; border: 2.5px solid var(--bd); border-top-color: var(--ac);
+           border-radius: 50%; margin: 0 auto; animation: waSpin .7s linear infinite; }
+@keyframes waSpin { to { transform: rotate(360deg) } }
+
+/* Mobile: tiles and months become one swipeable row each, and the
+   panel takes the full sheet. */
+@media (max-width: 720px) {
+  .wa-back { padding: 0; align-items: flex-end; }
+  .wa-panel { width: 100%; max-height: 92dvh; border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .wa-body { padding: 14px 0 calc(20px + env(safe-area-inset-bottom)); }
+  .wa-head, .wa-controls { padding-inline: 15px; }
+  .wa-sec { padding-inline: 15px; }
+  .wa-tiles, .wa-months {
+    display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory;
+    padding: 2px 15px 6px; -webkit-overflow-scrolling: touch;
+  }
+  .wa-tiles::-webkit-scrollbar, .wa-months::-webkit-scrollbar { display: none; }
+  .wa-tile { flex: 0 0 62%; scroll-snap-align: start; }
+  .wa-m    { flex: 0 0 78%; scroll-snap-align: start; }
+  .wa-tablewrap { border-radius: 0; border-inline: 0; }
+  .wa-controls select { flex: 1 1 auto; }
+}
