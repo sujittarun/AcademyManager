@@ -347,33 +347,23 @@ second half; the first half is a shape check on git history.
 6. **Pick your migration number immediately before applying.** Parallel
    sessions have collided; the ledger is keyed on the filename.
 
-## Co-tenant, NOT a tenant: the Remembering App
+## One database, one business
 
-`memories` and `push_subscriptions` are **not Academy Manager tables**.
-They belong to *Suhas's Remembering App* — a family side project that
-shares this Supabase project only because the free-project quota ran
-out. The app itself has since moved to Deno KV; the tables hold his
-personal data and nothing else.
+This project holds Academy Manager and nothing else.
 
-The guardrail, in full:
+It briefly also held two tables (`memories`, `push_subscriptions`), an
+edge function and an every-minute cron job belonging to a family side
+project that borrowed the space when a free-project quota ran out. That
+app moved to Deno KV long before; what remained was residue, and it
+cost four pieces of platform machinery to guard — a seal, an hourly
+probe, table comments, and a rule in this file.
 
-1. **Never treat them as platform work.** No migrations against them
-   (beyond keeping them closed), no schema reuse, no tenant modelling,
-   no inclusion in the console, docs, exports, or any audit *findings
-   list*. They do not appear in `docs/architecture.*` and must not.
-2. **Never drop or "clean them up".** The rows are someone's personal
-   data. Removing them is a family decision, not a platform chore.
-3. **They stay closed to the public key.** Migration `0033` revoked all
-   anon/authenticated access; `anon_probe()` proves hourly that both the
-   read and write paths stay denied, and `rls_audit()` would flag any
-   reopened policy. That is the entire extent of the platform's
-   involvement: proving they stay sealed.
-4. **No upgrades.** It is a simple fun project by design. If it ever
-   needs Supabase again, it gets its own scoped path or its own project
-   — it does not grow into this schema.
-5. Both tables carry a `comment on table` in the database saying all of
-   the above, so anyone who finds them in the catalogue learns what they
-   are before touching them.
+Migration `0041` removed all of it, with the owner's consent and after
+exporting the rows. The lesson is worth keeping even though the
+tenant is gone: **nothing shares this project that is not Academy
+Manager.** A side project needing a database gets its own — the cost
+of a second free project is far below the cost of explaining, guarding
+and second-guessing a stranger's tables inside a client-facing system.
 
 ## The repos
 
