@@ -526,6 +526,7 @@ MatchPoint/        tenant 'matchpoint' — badminton, player tracking
 MatchPointPride/   tenant 'mpp'      — separate app for the Pride venue owner
 Raj Sports/        tenant 'raj'      — coaching only, NO bookings
 RajSportsApp/      Android client for 'raj'
+RajSportsIOS/      iOS client for 'raj'
 ```
 
 Tenant repos are **handed to clients**. Keep platform-wide material out

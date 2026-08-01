@@ -139,6 +139,16 @@ rupee.
 
 - Tenant repos are handed to clients. Keep platform-wide material out.
 - Per-tenant behaviour in `tenants.config`; generic table names.
+- **Before proposing any new table**, work through "Which table does a
+  new feature go in?" in PLATFORM.md — same noun → existing table; extra
+  detail → jsonb; genuinely new noun → a module cluster gated on
+  `config.modules.X`. The forcing question: *can one SQL function answer
+  this for every tenant that has the feature?* Say which noun you
+  believe is new, and why, before writing the migration. `attendance`
+  is what happens when nobody does.
+- **Set the module flags when a module is sold.** Nothing enforces it,
+  and a gate reading `config.modules.X` on a tenant whose `modules` is
+  `{}` is correct only by accident.
 - A breaking change to anything an Android client calls ships as `_v2`.
 - Tell me plainly when something you said turns out to be wrong.
 
