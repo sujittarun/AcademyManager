@@ -34,6 +34,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SQLPY="$HERE/_sql.py"
+TXCHECK="$HERE/_txcheck.py"
 
 resolve_target() {
   case "$1" in
@@ -97,12 +98,20 @@ fi
 # is silent — the runner reports success either way. It happened while
 # applying 0037, which is why this check is here.
 #
-# Only top-level statements matter: `begin`/`end` inside a `do $$ … $$`
-# block is PL/pgSQL and is fine, so this is anchored to a line holding
-# nothing but the keyword and a semicolon.
-if grep -qiE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$SQL_FILE"; then
+# _txcheck.py blanks out comments, string literals and dollar-quoted
+# bodies, then asks whether any remaining STATEMENT is transaction
+# control. Two things that a grep could not do:
+#
+#   * `end;` is included. It is a synonym for COMMIT, but it is also how
+#     a nested PL/pgSQL block closes — ten times in schema.sql alone —
+#     so a line-based check had to skip it and would sail past a real
+#     one. After the dollar-quoted bodies are blanked, a surviving
+#     `end;` can only be a commit.
+#   * matching the WHOLE statement rather than a substring, so
+#     `select case when x then 1 else 2 end;` is a select, not a commit.
+if ! TX_HITS="$(python3 "$TXCHECK" "$SQL_FILE")"; then
   echo "refusing: $SQL_FILE manages its own transaction." >&2
-  grep -niE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$SQL_FILE" | sed 's/^/    /' >&2
+  printf '%s\n' "$TX_HITS" | sed 's/^/    /' >&2
   echo "  This script already wraps the file in one, and the ledger row" >&2
   echo "  rides inside it. A commit here ends that transaction: --dry-run" >&2
   echo "  would apply for real and still report 'nothing was kept'." >&2
