@@ -116,6 +116,21 @@ KEY="$(basename "$SQL_FILE")"
 SHA="$(shasum -a 256 "$SQL_FILE" | awk '{print $1}')"
 
 # ------------------------------------------------------------
+# Naming. Sequence numbers collide when two teams work in parallel —
+# 0038 was used twice in one afternoon, by two chat windows that could
+# not see each other. Dates cannot collide, and they say when.
+# A warning, not a refusal: the numbered files are history and must
+# keep applying.
+# ------------------------------------------------------------
+case "$KEY" in
+  [0-9][0-9][0-9][0-9]-*)
+    echo "⚠ $KEY uses a sequence number." >&2
+    echo "  Parallel sessions have already collided on one. Prefer:" >&2
+    echo "    $(date +%Y-%m-%d)-$(echo "$KEY" | sed 's/^[0-9]*-//')" >&2
+    ;;
+esac
+
+# ------------------------------------------------------------
 # Scope gate. A tenant-scoped file may not touch shared objects — that
 # is what --scope shared (and a platform-repo review) is for. This is
 # the migration-raj-3 incident (check constraints on shared tables from

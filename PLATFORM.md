@@ -71,9 +71,77 @@ always:
 AcademyManager/scripts/migrate.sh --dry-run --scope <scope> <file.sql>
 ```
 
+A dry run proves the SQL parses. For anything that touches a grant, a
+policy or a role, follow it with a behaviour test holding the real token:
+
+```bash
+AcademyManager/scripts/run-test.sh <migration.sql> <test.sql>
+```
+
+Both run inside a transaction that is always rolled back. Tests live in
+`AcademyManager/supabase/tests/`, named for the migration they prove.
+
 New tables are **generic** (`enrollments`, not `raj_enrollments`) so the
 next client reuses them. Per-tenant behaviour goes in `tenants.config`
 jsonb, never a new column.
+
+---
+
+## Which table does a new feature go in?
+
+Six teams, one schema, and a new client every few months wanting
+something nobody has asked for before. Four questions, in order; stop at
+the first that fits. The picture is `docs/tables.html`.
+
+**1. Does the platform already have this thing, meaning the same thing?**
+→ use the existing table. Not the same *word* — whether one sentence
+honestly describes both. A client calling members "students" is a label,
+not a new noun; that is `mapping.ts`'s job, and it may reshape, not
+decide.
+
+**2. Same thing, one tenant wants an extra detail on it?** → a jsonb
+field on the shared table. Not a new column, not a parallel table.
+Promote it to a real column when a **shared** function reads it, a second
+tenant needs it, or it needs a constraint or an index — the moment a
+shared function reads a key it has become platform vocabulary.
+
+**3. A genuinely new noun only some tenants have?** → its own tables,
+still `tenant_id`-scoped, still `--scope shared`, gated on
+`config.modules.X`, with RLS and `revoke … from public` in the **first**
+migration rather than a follow-up. MatchPoint's 11-table player-tracking
+cluster did this correctly; copy it.
+
+**4. Same word, different shape?** → **the trap.** Two teams model the
+same-sounding thing two ways, each inside their own repo, and nobody
+sees both. Decide out loud before writing anything.
+
+**The forcing question before any new table:** *can one SQL function
+answer this for every tenant that has the feature?* If not, you have
+either the wrong table or the wrong noun, and you must say which.
+
+### What case 4 actually cost
+
+"Attendance" means three things here, and two of them shared a table
+told apart only by an unconstrained text column:
+
+| | | |
+|---|---|---|
+| `attendance` `kind='staff'` | an employee worked. Payroll | mpp 130, leo 8 |
+| `attendance` `kind='member'` | a member visited the venue. Footfall | leo 23, machaxi 5 |
+| `sessions`+`attendance_records` | a student present in a scheduled batch | raj 1,884 |
+
+`attendance_roster()`, `attendance_history()`, `attendance_dashboard()`
+and `mark_attendance()` read the third only — so the functions this file
+lists under *"call these, do not reimplement"* answer for Raj and are
+blind to Leo's 23 rows. Nobody noticed, because nothing ever asked.
+
+They were **not** merged, and that is the right call:
+`attendance_records.session_id`, `.enrollment_id` and `sessions.batch_id`
+are all `NOT NULL`, so the rich model requires batch → session →
+enrolment. Leo has 231 bookings and **zero enrolments** — a court venue,
+not a coaching academy. Its rows are a different fact, not a broken copy
+of class attendance. `0041` constrained `kind`, wrote what each table
+holds into `comment on table`, and added the coverage canary below.
 
 ---
 
@@ -141,7 +209,11 @@ bottom.
 | `policy_fn_audit()` | functions named in a policy that `anon` cannot execute; hourly |
 | `platform_errors()` | client-side errors per tenant, grouped by message + version |
 | `events_flowing()` | canary: false when the events sink has gone quiet despite recent traffic |
+| `shared_fn_coverage()` | per tenant, rows the shared functions can see vs rows that exist where they do not read. `BLIND` means a function in this table cannot answer for that tenant |
 | `tenant_exists()`, `tenant_publishes_timetable()` | the `tenants` lookups a policy may safely do |
+| `resolve_upi()` | which account a fee is collected to: batch → centre → tenant `config.billing`. It is money, so it lives here |
+| `my_access()` | who the caller is and what they may reach. Clients route on it after sign-in |
+| `my_centres()`, `my_attendance_batches()`, `assert_attendance_access()` | the attendance-only `coach` role, scoped to its assigned centres |
 
 If a client needs a number, there is probably already a function for it.
 Read before writing.
@@ -157,6 +229,7 @@ Read before writing.
 | `policy_fn_audit()` | functions a policy names that anon cannot execute |
 | `anon_probe()` | **actually calls the dangerous endpoints as anon**, hourly |
 | `events_flowing()` | the sink has gone quiet despite recent traffic |
+| `shared_fn_coverage()` | a tenant's rows sit somewhere no shared function reads. Hourly at :37 |
 
 The first three read the catalogue. `anon_probe()` reads behaviour, and
 it exists because the shape checks passed cleanly through the worst leak
@@ -183,6 +256,37 @@ itself is lost. The fix is Pro plus the PITR add-on.
 - A PIN compared in JavaScript is not access control. Where a tenant app
   uses one, it must sit on top of a real Supabase session, not instead of
   one.
+- **Never prefill a password in a client file.** Tenant apps are public
+  static sites, so a value in `login.html` is a live credential on the
+  open web, and it stays in git history after you remove it. Rotate, do
+  not merely delete. `Raj Sports/login.html` did exactly this; removed
+  and rotated.
+
+### A third role: `coach`, and the shape to copy
+
+`app_metadata.am_role = 'coach'` is attendance-only, scoped to the centres
+named in `staff_scopes` (migration `0039`). The shape is worth reusing,
+because the tempting version is wrong in four ways:
+
+1. **Do not loosen `assert_staff()`** to admit the new role. That single
+   line guards `record_fee_payment`, `reminder_queue`, `compute_payouts`
+   and every other definer function; widening it to let someone mark a
+   register hands them the whole academy. Write a narrower guard for the
+   specific functions instead — `assert_attendance_access(tenant, batch)`.
+2. **A new role passes no RLS policy**, because every policy tests
+   `auth_role() = 'staff'`. That is what keeps the change small: the
+   tables return nothing and the guarded functions are the role's entire
+   reach. Verify it; do not assume it.
+3. **Only guard on an argument that is a target, not a filter.**
+   `attendance_history(p_tenant, p_from, p_to, p_centre, p_batch, …)`
+   takes `p_batch` as an optional filter, so a per-batch check waves a
+   null straight through and returns every centre. Those keep the staff
+   guard.
+4. **Prove it by signing in.**
+   `supabase/tests/0039-attendance-access.sql` sets a real JWT and asserts
+   what the role can and cannot reach. It is mutation-tested, so it fails
+   when the guard is broken. Reading the grants would have caught none of
+   the above — the same lesson as `anon_probe()`.
 
 ### SECURITY DEFINER goes around RLS — grants are the only gate
 
@@ -327,6 +431,50 @@ happened. When they disagree, believe `ddl_log`.
 shipped, any shared-boundary DDL in their repo, plus the platform truth
 (drift, cross-tenant rows, the three audits, the probe). Read the
 second half; the first half is a shape check on git history.
+
+### Shared tables hold what EVERY tenant needs
+
+A shared table is not a convenient place to put a field. It is a
+contract six academies sign.
+
+- **Tenant-specific field** → a tenant-owned table keyed on the shared
+  row's id, or `config` jsonb. Not a new column on `members`.
+- **Tenant-specific rule** → a partial constraint that names the tenant:
+  `check (tenant_id <> 'raj' or status in ('held','cancelled'))`.
+  A bare `CHECK` on a shared table is a law for all six. Raj's session
+  lifecycle was one until 2026-08-01.
+- **Genuine data sanity** (`amount >= 0`, `end_time > start_time`,
+  valid UPI) *should* bind everyone. Keep those.
+
+`shared_widening_audit()` finds both drifts — columns only one tenant
+fills, and policy-shaped `CHECK`s with no tenant scope. Everything true
+on 2026-08-01 is **baselined as accepted**, so the weekly report shows
+only what is NEW. One new finding is a five-minute conversation; forty
+is wallpaper, which is why the baseline exists.
+
+### New tenants start from the vanilla-JS template
+
+Leo → Machaxi → MatchPoint are the same app with the names changed.
+That is the intended path: a new academy starts as a copy of the
+closest existing vanilla-JS tenant, not a new stack.
+
+MatchPoint Pride (React + Vite) is a **deliberate exception**, not the
+new default. Adopt React for a tenant only when that tenant's product
+needs it and someone has decided to carry two stacks — never by
+accident, and never because it is the most recent thing built.
+
+### The week runs itself
+
+| When | What | Where |
+|---|---|---|
+| every minute | sync queue drains | `process_sync_jobs` |
+| hourly | audits, anon probe, DDL drift, cross-tenant rows | `sync_log`, tenant `platform` |
+| **Monday 07:00 UTC** | **weekly digest** — what needs a human, what each team shipped, which academies were active | `sync_log`, action `weekly_digest` |
+| when you want it | the same, on screen, plus per-repo git activity | `scripts/team-report.sh [days]` |
+
+Migration files are named **by date** (`2026-08-01-thing.sql`), not by
+sequence. Two sessions collided on `0038` in one afternoon; dates
+cannot collide. The runner warns on numbered names.
 
 ### The rules teams are held to
 

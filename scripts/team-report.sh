@@ -107,11 +107,14 @@ RLS="$(py rls)"; RPC="$(py rpc)"; PROBE="$(py probe)"; MIG="$(py migrations)"
 line() { # label value badness
   if [ "$2" = "0" ]; then grn "  ✓ $1: $2"; else red "  ✗ $1: $2   ← $3"; fi
 }
+DRIFTNEW="$(run_sql "select count(*) as n from shared_widening_new();" | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['n'])" 2>/dev/null || echo "?")"
+
 line "cross-tenant rows"          "$XT"    "one tenant's row points at another's — investigate now"
 line "shared DDL outside runner"  "$BYP"   "someone changed the shared schema without migrate.sh"
 line "unsafe anon policies"       "$RLS"   "rls_audit()"
 line "anon-callable definers"     "$RPC"   "rpc_audit()"
 line "probe failures"             "$PROBE" "anon_probe()"
+line "new shared-surface drift"   "$DRIFTNEW" "a tenant-specific column or rule landed in a shared table"
 dim  "  · shared-schema changes reviewed-pending: $DRIFT"
 dim  "  · migrations applied in window: $MIG"
 
