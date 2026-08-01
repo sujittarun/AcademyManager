@@ -81,6 +81,35 @@ if [ -z "$SCOPE" ]; then
   exit 2
 fi
 
+# ------------------------------------------------------------
+# The file must NOT manage its own transaction.
+#
+# This script wraps it: `begin;`, the file, then either the ledger row
+# and `commit;`, or `rollback;` for a dry run. A top-level `commit;` in
+# the file ends THIS script's transaction, so:
+#
+#   * --dry-run applies the migration for real and then prints
+#     "✓ dry run clean — Nothing was kept", which is a lie; and
+#   * the change lands with no ledger row, because the insert meant to
+#     ride in the same transaction never runs inside it.
+#
+# That is the exact state the ledger exists to make impossible, and it
+# is silent — the runner reports success either way. It happened while
+# applying 0037, which is why this check is here.
+#
+# Only top-level statements matter: `begin`/`end` inside a `do $$ … $$`
+# block is PL/pgSQL and is fine, so this is anchored to a line holding
+# nothing but the keyword and a semicolon.
+if grep -qiE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$SQL_FILE"; then
+  echo "refusing: $SQL_FILE manages its own transaction." >&2
+  grep -niE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$SQL_FILE" | sed 's/^/    /' >&2
+  echo "  This script already wraps the file in one, and the ledger row" >&2
+  echo "  rides inside it. A commit here ends that transaction: --dry-run" >&2
+  echo "  would apply for real and still report 'nothing was kept'." >&2
+  echo "  Remove them — begin/end inside a do \$\$ … \$\$ block is fine." >&2
+  exit 2
+fi
+
 # The ledger is keyed on the basename, so the same file cannot be applied
 # twice under two different relative paths.
 KEY="$(basename "$SQL_FILE")"
