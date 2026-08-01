@@ -298,6 +298,55 @@ and is exactly why nothing personal goes in one.
 `tenants.config.federated = true` marks them. Bill them or don't —
 GenAlpha is on `free` because it runs on its own infrastructure.
 
+## Watching the teams: how one tenant is stopped from breaking another
+
+Six tenant teams now ship into one database. The danger is no longer a
+leak — RLS handles reads — it is a **write or a schema change made by
+one team that lands on everyone**. Three layers, in the order they fire:
+
+**1. Prevention — the runner refuses it.**
+`migrate.sh` rejects a file applied with a tenant `--scope` that alters
+a shared table, creates any trigger, or replaces a shared function. This
+is the `migration-raj-3` and `player-progress-matchpoint` lesson made
+mechanical. Grants on shared tables are allowed but warn out loud.
+
+**2. Attribution — every change is stamped.**
+The runner sets `app.migration` inside the transaction, so the database
+records *which file, at which scope* caused each object change.
+
+**3. Detection — the database tells on everyone, including us.**
+| | |
+|---|---|
+| `ddl_log` + `schema_drift(days)` | every DDL statement in the database, whoever ran it. A shared-object row with `migration IS NULL` **bypassed the runner** — dashboard, psql, another chat window. Hourly alarm. |
+| `cross_tenant_integrity()` | walks the FK catalogue and finds rows whose parent belongs to a *different* tenant (a payment on another academy's enrollment). Catalogue-driven, so new tables are covered the day they get a FK. Hourly alarm. |
+
+`schema_migrations` records intent; `ddl_log` records what actually
+happened. When they disagree, believe `ddl_log`.
+
+**The manager's view:** `scripts/team-report.sh [days]` — what each team
+shipped, any shared-boundary DDL in their repo, plus the platform truth
+(drift, cross-tenant rows, the three audits, the probe). Read the
+second half; the first half is a shape check on git history.
+
+### The rules teams are held to
+
+1. **Shared DDL is shared-scope, always** — even when it is tenant-
+   guarded. A trigger on `members` fires for all six tenants; the guard
+   makes it *safe*, not *tenant repo material*.
+2. **Never DELETE or UPDATE a shared table without `tenant_id` in the
+   WHERE clause.** Ids are global. `delete from bookings where ext_ref
+   is not null` empties every academy's channel bookings.
+3. **Never write another tenant's id** — not in app code, not in a
+   seed, not in a test. A test that inserts `tenant_id='leo'` from the
+   Raj repo is a cross-tenant write with a friendly name.
+4. **Tests do not run against production.** A regression harness that
+   inserts into shared tables and rolls back is one failed rollback away
+   from being a data incident.
+5. **A new `SECURITY DEFINER` function is `PUBLIC`-executable until you
+   revoke it.** Revoking `anon` alone changes nothing.
+6. **Pick your migration number immediately before applying.** Parallel
+   sessions have collided; the ledger is keyed on the filename.
+
 ## Co-tenant, NOT a tenant: the Remembering App
 
 `memories` and `push_subscriptions` are **not Academy Manager tables**.

@@ -115,6 +115,45 @@ fi
 KEY="$(basename "$SQL_FILE")"
 SHA="$(shasum -a 256 "$SQL_FILE" | awk '{print $1}')"
 
+# ------------------------------------------------------------
+# Scope gate. A tenant-scoped file may not touch shared objects — that
+# is what --scope shared (and a platform-repo review) is for. This is
+# the migration-raj-3 incident (check constraints on shared tables from
+# a tenant repo) and the player-progress trigger (trigger on shared
+# members from a tenant repo), made impossible at the only door.
+#
+# Static text matching, so it is a shape check: it can be fooled, but
+# the DDL sentinel (0037) logs what actually happens in the database
+# and flags anything that did not come through here.
+# ------------------------------------------------------------
+SHARED_TABLES='tenants|subscriptions|members|bookings|payments|expenses|attendance|events|applications|reminders_log|sync_jobs|sync_log|integrations|platform_settings|enrollments|fee_rules|batches|centres|sports|coaches|member_timeline|reminder_events|payouts|payout_rules|schema_migrations|ddl_log|contacts|public_slots'
+SHARED_FUNCS='resolve_fee|record_fee_payment|apply_payment_coverage|reminder_queue|void_payment|confirm_payment|mark_attendance|attendance_roster|attendance_history|attendance_dashboard|compute_payouts|tenant_health|platform_health|cron_health_check|cron_anon_probe|cron_ddl_check|rls_audit|rpc_audit|policy_fn_audit|anon_probe|operator_portfolio|request_booking|record_booking|confirm_booking|cancel_booking|block_maintenance|propagate_block|propagate_unblock|process_sync_jobs|sync_ingest|partner_sync|connect_integration|set_integration_secret|submit_application|tenant_exists|tenant_publishes_timetable|is_locked|auth_role|auth_tenant|slot_rate|court_count|reconcile_report|get_channels|events_flowing|platform_errors|set_subscription|assert_staff|assert_staff_or_service|log_ddl|log_ddl_drop'
+if [ "$SCOPE" != "shared" ]; then
+  VIOLATIONS=""
+  V1="$(grep -niE "(alter|drop)[[:space:]]+table[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?(only[[:space:]]+)?(public\.)?($SHARED_TABLES)\b" "$SQL_FILE" || true)"
+  V2="$(grep -niE "create([[:space:]]+or[[:space:]]+replace)?[[:space:]]+trigger\b" "$SQL_FILE" || true)"
+  V3="$(grep -niE "create[[:space:]]+or[[:space:]]+replace[[:space:]]+function[[:space:]]+(public\.)?($SHARED_FUNCS)[[:space:]]*\(" "$SQL_FILE" || true)"
+  V4="$(grep -niE "drop[[:space:]]+function[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?(public\.)?($SHARED_FUNCS)\b" "$SQL_FILE" || true)"
+  VIOLATIONS="$(printf '%s\n%s\n%s\n%s' "$V1" "$V2" "$V3" "$V4" | sed '/^$/d')"
+  if [ -n "$VIOLATIONS" ]; then
+    echo "✗ refusing: --scope $SCOPE, but $KEY touches SHARED objects:" >&2
+    printf '%s\n' "$VIOLATIONS" | sed 's/^/    /' >&2
+    echo "  Shared DDL belongs in AcademyManager/supabase/migrations with" >&2
+    echo "  --scope shared, where every tenant's reviewer can see it." >&2
+    echo "  (Triggers count: even tenant-guarded ones live in shared scope" >&2
+    echo "  — that is the player-progress-matchpoint lesson.)" >&2
+    exit 2
+  fi
+  # Grants on shared tables are sometimes legitimate from a tenant file
+  # (raj's public timetable), but they widen access — say so out loud.
+  W1="$(grep -niE "(grant|revoke)[[:space:]].*[[:space:]]on[[:space:]]+(table[[:space:]]+)?(public\.)?($SHARED_TABLES)\b" "$SQL_FILE" || true)"
+  if [ -n "$W1" ]; then
+    echo "⚠ heads-up: $KEY changes grants on shared tables under tenant scope:" >&2
+    printf '%s\n' "$W1" | sed 's/^/    /' >&2
+    echo "  Allowed, but exercise the anon paths after applying." >&2
+  fi
+fi
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -190,6 +229,10 @@ fi
 # ------------------------------------------------------------
 {
   echo "begin;"
+  # Attribution marker for the DDL sentinel (0037): every object this
+  # transaction touches is stamped with the file and scope that did it.
+  # Transaction-local, so it vanishes at commit/rollback.
+  echo "select set_config('app.migration', '$KEY scope=$SCOPE', true);"
   cat "$SQL_FILE"
   echo ""
   if [ "$DRY_RUN" -eq 0 ]; then
