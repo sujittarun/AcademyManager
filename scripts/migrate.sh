@@ -132,6 +132,11 @@ SHA="$(shasum -a 256 "$SQL_FILE" | awk '{print $1}')"
 # keep applying.
 # ------------------------------------------------------------
 case "$KEY" in
+  # A date is already four digits and a dash, so it has to be excluded
+  # first or every correctly-named file is told to rename itself — which
+  # it was, suggesting "2026-08-05-08-05b-…". The trailing * allows the
+  # same-day suffix (2026-08-01b, 2026-08-01c) that two files already use.
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*) : ;;
   [0-9][0-9][0-9][0-9]-*)
     echo "⚠ $KEY uses a sequence number." >&2
     echo "  Parallel sessions have already collided on one. Prefer:" >&2
