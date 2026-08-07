@@ -13,14 +13,18 @@
   <link rel="stylesheet" href="assets/css/console.css?v=16" />
 </head>
 <body>
-  <!-- operator sign-in -->
+  <!-- operator sign-in.
+       NEVER put value= on these two inputs. This file has been served
+       from GitHub Pages, so a value here is a live operator credential
+       on the open web — and it stays in git history after removal.
+       On 2026-08-05 exactly that happened: the operator password was
+       public on both this console and CourtSync. -->
   <div class="gate" id="gate">
     <form class="gate-card" id="gateForm">
       <img src="assets/branding/logo-full.jpg" alt="Academy Manager — Sports · Operations · Insight" style="width:250px;display:block;margin:0 auto 2px;border-radius:14px" />
       <p>Operator console. Account-level metrics only — member data stays inside each academy.</p>
-      <!-- prefilled DUMMY credentials — remove the value attributes when real accounts land -->
-      <label><span>Email</span><input type="email" name="email" required value="operator@academymanager.in" placeholder="you@academymanager.in" /></label>
-      <label><span>Password</span><input type="password" name="password" required value="123456" placeholder="••••••••" /></label>
+      <label><span>Email</span><input type="email" name="email" required  placeholder="you@academymanager.in" /></label>
+      <label><span>Password</span><input type="password" name="password" required  placeholder="••••••••" /></label>
       <button type="submit">Sign in</button>
     </form>
   </div>
