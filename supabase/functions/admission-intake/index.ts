@@ -80,25 +80,59 @@ function serviceHeaders(extra: Record<string, string> = {}) {
 // needed: a GET with only Content-Profile still reads `public`.
 const DB_SCHEMA = "genalpha";
 
-// GenAlpha's Meta token, not the platform's. Same reasoning as the phone
-// number id above: secrets are project-wide, and META_WHATSAPP_TOKEN here
-// belongs to the platform's WABA (the shared number whatsapp-reminder
-// sends from). A token is scoped to its WABA, so the platform's simply
-// cannot send from GenAlpha's number — it would fail at Meta with an
-// unhelpful permissions error rather than anything that names the cause.
+// GenAlpha's WhatsApp sender comes from the DATABASE, not from this
+// function's environment.
 //
-// No fallback to META_WHATSAPP_TOKEN on purpose. A fallback here would
-// turn "GenAlpha's token is missing" into "messages fail at Meta for
-// reasons nobody can see from the logs".
-function metaToken(): string {
-  const token = env("ADMISSION_INTAKE_META_TOKEN");
-  if (!token) {
-    throw new Error(
-      "ADMISSION_INTAKE_META_TOKEN is missing. This is GenAlpha's own Meta token; " +
-        "META_WHATSAPP_TOKEN is the platform's and is scoped to a different WABA.",
-    );
+// The token lives in vault.secrets as 'whatsapp:genalpha' and is read by
+// whatsapp_credentials(), which is service_role-only — the platform's
+// designed home for a per-tenant Meta token, and the same place
+// whatsapp-reminder reads it from. The phone number id and WABA id come
+// from tenants.config alongside it.
+//
+// An earlier version of this file kept both in edge-function secrets.
+// That was two copies of one credential, which is precisely the problem
+// it was written to avoid for the phone number id: project-wide secrets
+// are shared by every function on a project that now hosts every tenant,
+// and a rotation that updates one copy leaves the other sending as the
+// wrong academy — or not at all, at 2am, to real families.
+//
+// One source. Rotating the token is `select set_whatsapp_secret(...)`
+// and nothing here changes.
+type Sender = { token: string; phoneNumberId: string; wabaId: string };
+let senderPromise: Promise<Sender> | null = null;
+
+function whatsappSender(): Promise<Sender> {
+  if (!senderPromise) {
+    senderPromise = (async () => {
+      const rows = await rest("rpc/whatsapp_credentials", {
+        method: "POST",
+        body: JSON.stringify({ p_tenant: "genalpha" }),
+        // whatsapp_credentials lives in public; rest() pins genalpha
+        headers: { "Accept-Profile": "public", "Content-Profile": "public" },
+      });
+      const creds = Array.isArray(rows) ? rows[0] : rows;
+      if (!creds?.ok) {
+        throw new Error(`GenAlpha WhatsApp credentials unavailable: ${creds?.reason || "unknown"}`);
+      }
+      if (!creds.token) {
+        throw new Error(
+          "GenAlpha has no Meta token in the vault. Set it with: select set_whatsapp_secret('genalpha', '<token>')",
+        );
+      }
+      if (!creds.phoneNumberId) {
+        throw new Error("GenAlpha has no whatsapp.phoneNumberId configured in tenants.config.");
+      }
+      return {
+        token: creds.token as string,
+        phoneNumberId: creds.phoneNumberId as string,
+        wabaId: (creds.wabaId as string) || "",
+      };
+    })().catch((error) => {
+      senderPromise = null; // a transient read must not poison the isolate
+      throw error;
+    });
   }
-  return token;
+  return senderPromise;
 }
 
 async function rest(path: string, init: RequestInit = {}) {
@@ -119,41 +153,6 @@ async function rest(path: string, init: RequestInit = {}) {
 
 async function rpc(name: string, payload: Record<string, unknown>) {
   return await rest(`rpc/${name}`, { method: "POST", body: JSON.stringify(payload) });
-}
-
-// Two places now hold GenAlpha's WhatsApp sender: this function's
-// ADMISSION_INTAKE_PHONE_NUMBER_ID secret, and tenants.config for
-// 'genalpha' in the database. Nothing keeps them in step, and if they
-// drift the failure is silent and bad — messages go out from another
-// academy's number, or from the platform's, to real families.
-//
-// So check once per isolate, on the first send, and refuse rather than
-// send from the wrong number. Reads `public`, overriding the genalpha
-// profile that rest() otherwise pins.
-let senderCheck: Promise<void> | null = null;
-function assertGenAlphaSender(phoneNumberId: string): Promise<void> {
-  if (!senderCheck) {
-    senderCheck = (async () => {
-      const rows = await rest(
-        "tenants?id=eq.genalpha&select=config",
-        { headers: { "Accept-Profile": "public" } },
-      );
-      const configured = rows?.[0]?.config?.whatsapp?.phoneNumberId || "";
-      if (!configured) {
-        throw new Error("genalpha has no whatsapp.phoneNumberId configured in the database.");
-      }
-      if (configured !== phoneNumberId) {
-        throw new Error(
-          `Sender mismatch: this function is set to send from ${phoneNumberId}, ` +
-            `but the database says GenAlpha's number is ${configured}. Refusing to send.`,
-        );
-      }
-    })().catch((error) => {
-      senderCheck = null; // a transient read failure must not poison the isolate
-      throw error;
-    });
-  }
-  return senderCheck;
 }
 
 async function sendRenewalParentConfirmation(
@@ -524,7 +523,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 async function downloadMetaMedia(mediaId: string) {
-  const token = metaToken();
+  const token = (await whatsappSender()).token;
   const meta = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(mediaId)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -550,7 +549,7 @@ function formatMetaError(prefix: string, body: any, status: number): string {
 }
 
 async function metaTokenHealth() {
-  const token = metaToken();
+  const token = (await whatsappSender()).token;
   const headers = { Authorization: `Bearer ${token}` };
   const [identityResponse, permissionsResponse] = await Promise.all([
     fetch("https://graph.facebook.com/v20.0/me?fields=id", { headers }),
@@ -1134,26 +1133,18 @@ function summary(session: any, result: any, match: any = null) {
 
 async function sendWhatsappSummary(session: any, text: string) {
   if (session.channel === "web") return "";
-  const token = metaToken();
-  // Edge-function secrets are project-wide, and this project now hosts
-  // every tenant. META_WHATSAPP_PHONE_NUMBER_ID is the PLATFORM's shared
-  // number (1274588119067440), which whatsapp-reminder sends from; this
-  // function must send from GenAlpha's own (1131427080050707), the number
-  // its families already recognise. Sharing one variable would have made
-  // whichever function was configured last silently send as the wrong
-  // academy.
-  //
-  // The DB is the source of truth — tenants.config.whatsapp.phoneNumberId
-  // for 'genalpha', which whatsapp_senders() reports. This variable must
-  // agree with it; assertGenAlphaSender() below checks that on boot rather
-  // than trusting the two to stay in step.
-  const phoneNumberId = env("ADMISSION_INTAKE_PHONE_NUMBER_ID");
+  const token = (await whatsappSender()).token;
+  // The number a GenAlpha parent sees must be GenAlpha's own, never the
+  // platform's shared one. whatsappSender() reads both the number and the
+  // token from the database, so there is nothing here that can drift out
+  // of step with what whatsapp_senders() reports.
+  const sender = await whatsappSender();
+  const phoneNumberId = sender.phoneNumberId;
   if (!token || !phoneNumberId) {
     throw new Error(
-      "Meta WhatsApp secrets are missing (ADMISSION_INTAKE_PHONE_NUMBER_ID / META_WHATSAPP_TOKEN).",
+      "GenAlpha's WhatsApp sender is not configured in the database.",
     );
   }
-  await assertGenAlphaSender(phoneNumberId);
   const isGroup = session.channel === "whatsapp_group";
   const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
     method: "POST",
