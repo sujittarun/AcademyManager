@@ -1,3 +1,21 @@
 .DS_Store
 node_modules/
 *.log
+
+# ---------------------------------------------------------------
+# Data-loading migrations are NOT tracked.
+#
+# A migration that loads real rows embeds real families — names, parent
+# phone numbers, home addresses — as SQL literals. Those files are one-off
+# loads: schema_migrations records them by basename + sha256, and the
+# ledger lives in the database, so nothing needs the file in git to know
+# it ran.
+#
+# The DDL, the functions and the checks are committed; only the row data
+# is kept out. Copies live beside the export they came from, in
+# ../_archive/genalpha-premerge-*/ .
+#
+# See supabase/migrations/DATA-MIGRATIONS.md.
+# ---------------------------------------------------------------
+supabase/migrations/*-genalpha-admission-reload.sql
+supabase/migrations/*-genalpha-merge-gaps.sql
