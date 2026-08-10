@@ -36,3 +36,16 @@ right to.
 A migration that carries data carries whatever that data is. Schema
 migrations belong in git; rows about real children do not. Generate them
 into a working directory, apply them, and let them go.
+
+## 2026-08-11e and -11f are ledgered but empty
+
+Both were generated with `sed` from `2026-08-10e`/`-10f`, which no longer
+exist on disk — the history rewrite that purged the data-bearing
+migrations took them too. `sed` wrote zero bytes, `migrate.sh` applied
+zero bytes, and both were recorded as successful.
+
+A migration runner cannot distinguish an empty file from a deliberate
+no-op. The ledger rows are real; the work they claim is not.
+
+`2026-08-11g-genalpha-attendance-fees.sql` does what those two were
+supposed to do, and asserts the outcome rather than the execution.

@@ -142,13 +142,28 @@ def transform(arc):
             "program": "Cricket",
             "notes": s.get("comments"),
             "whatsapp_status": s.get("whatsapp_contact_status"),
+            # 2026-08-10q widened members, so these stop being side-table
+            # material and become platform vocabulary
+            "added_by": s.get("added_by"),
+            "updated_by": s.get("updated_by"),
+            "reg_no": s.get("reg_no"),
+            "rejoined_at": s.get("rejoined_at"),
+            "reminders_paused": bool(s.get("whatsapp_reminders_paused")),
+            "reminders_paused_at": s.get("whatsapp_reminders_paused_at"),
+            "reminders_paused_by": s.get("whatsapp_reminders_paused_by"),
         })
         # everything members has no column for -> the tenant-owned side table
+        # Anything with a home on the shared table is NOT duplicated here.
+        # Before 2026-08-10q this list was 25 columns; the widening moved
+        # seven of them into members where they belong.
         extras = {k: v for k, v in s.items()
                   if k not in {"id", "name", "father_guardian_name", "parent_contact_no",
                                "alternate_contact_no", "school_college", "grade", "address",
                                "join_date", "discontinued", "discontinued_at", "comments",
-                               "whatsapp_contact_status", "created_at", "updated_at"}}
+                               "whatsapp_contact_status", "created_at", "updated_at",
+                               "added_by", "updated_by", "reg_no", "rejoined_at",
+                               "whatsapp_reminders_paused", "whatsapp_reminders_paused_at",
+                               "whatsapp_reminders_paused_by"}}
         carried |= set(extras)
         r.add("genalpha.student_details", {
             "member_ref": mid, "legacy_uuid": s["id"], **extras,
@@ -215,6 +230,12 @@ def transform(arc):
             "status": "paid" if p.get("verification_status") in (None, "verified") else "pending_verification",
             "ref": p.get("payment_reference"), "note": p.get("comment"),
             "proof_path": p.get("proof_path"), "collected_by": p.get("recorded_by"),
+            # payments.breakdown (2026-08-10q): a payment covering coaching
+            # + admission + kit can now be itemised instead of flattened
+            "breakdown": {k: float(p[k]) for k in
+                          ("coaching_fee", "admission_fee", "jersey_amount")
+                          if p.get(k) and float(p[k]) > 0} or None,
+            "period_from": p.get("cycle_start_date"),
         })
     if truncated:
         r.problem(f"{truncated} payments have non-integer amounts; "
@@ -249,6 +270,18 @@ def transform(arc):
             "parent_phone": a.get("parent_contact_no"), "dob": a.get("date_of_birth"),
             "gender": a.get("gender"), "school": a.get("school_college"),
             "sport": "cricket", "created_at": a.get("created_at"),
+            # widened 2026-08-10q — 11 more of the form now has a home
+            "address": a.get("address"), "city": a.get("city"), "age": a.get("age"),
+            "emergency_contact_no": a.get("emergency_contact_no"),
+            "join_date": a.get("join_date"), "comments": a.get("comments"),
+            "filled_by": a.get("filled_by"), "grade": a.get("grade"),
+            "review_notes": a.get("review_notes"),
+            "source_channel": a.get("source_channel"),
+            # the consent record the platform never had anywhere to keep
+            "consent_accepted": a.get("consent_accepted"),
+            "terms_accepted": a.get("terms_accepted"),
+            "consent_accepted_at": a.get("created_at") if a.get("consent_accepted") else None,
+            "status": a.get("review_status") or "pending",
         })
     for e in expenses:
         # GenAlpha names these differently; read its columns, do not assume

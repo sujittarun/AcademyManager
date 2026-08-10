@@ -118,6 +118,9 @@ create index if not exists genalpha_student_details_uuid_idx
 
 alter table genalpha.student_details enable row level security;
 -- Same shape as the rest of the platform: staff of this tenant only.
+-- Idempotent: the schema survived the 2026-08-10k unstage on purpose, so
+-- a re-merge finds the policy already there.
+drop policy if exists genalpha_details_staff on genalpha.student_details;
 create policy genalpha_details_staff on genalpha.student_details
   for all to authenticated
   using (auth_role() in ('staff','operator') and (auth_role()='operator' or auth_tenant()='genalpha'))
@@ -158,6 +161,20 @@ def stage_b():
     enrolls = {e["member_ref"]: e for e in load("enrollments")}
     batches = load("batches")
 
+    # Derive the expected overdue count FROM THE EXPORT rather than
+    # hard-coding it. The first run baked in 12; by the time the merge
+    # re-ran a payment had landed and the truth was 11, so a correct
+    # migration failed on a stale constant. An assertion should be
+    # computed from the same source as the data it checks.
+    import datetime as _dt
+    def _d(x):
+        try: return _dt.datetime.strptime(str(x)[:10], "%Y-%m-%d").date()
+        except Exception: return None
+    _today = _dt.date.today()
+    _exp_overdue = sum(1 for e in enrolls.values()
+                       if e.get("status") == "active"
+                       and (_d(e.get("renewal_on")) or _today) < _today)
+
     rows = []
     for m in members:
         mid = m["_id"]
@@ -174,7 +191,9 @@ def stage_b():
             "m": {k: m.get(k) for k in
                   ("name", "phone", "parent_name", "parent_phone", "alt_phone", "school",
                    "grade", "address", "joined", "status", "discontinued_on", "program",
-                   "notes", "whatsapp_status")},
+                   "notes", "whatsapp_status", "added_by", "updated_by", "reg_no",
+                   "rejoined_at", "reminders_paused", "reminders_paused_at",
+                   "reminders_paused_by")},
             "d": {k: d.get(k) for k in known if k not in ("member_ref",)},
             "e": {k: e.get(k) for k in ("batch_ref", "sport", "plan_months", "joined_on",
                                         "renewal_on", "status", "discontinued_on")},
@@ -221,12 +240,20 @@ begin
   loop
     insert into members (tenant_id, name, phone, parent_name, parent_phone, alt_phone,
                          school, grade, address, joined, status, discontinued_on,
-                         program, notes, whatsapp_status)
+                         program, notes, whatsapp_status,
+                         added_by, updated_by, reg_no, rejoined_at,
+                         reminders_paused, reminders_paused_at, reminders_paused_by)
     values ('{T}',
       r->'m'->>'name', r->'m'->>'phone', r->'m'->>'parent_name', r->'m'->>'parent_phone',
       r->'m'->>'alt_phone', r->'m'->>'school', r->'m'->>'grade', r->'m'->>'address',
       (r->'m'->>'joined')::date, r->'m'->>'status', (r->'m'->>'discontinued_on')::date,
-      r->'m'->>'program', r->'m'->>'notes', r->'m'->>'whatsapp_status')
+      r->'m'->>'program', r->'m'->>'notes', r->'m'->>'whatsapp_status',
+      -- widened 2026-08-10q: these used to go to the side table
+      r->'m'->>'added_by', r->'m'->>'updated_by',
+      nullif(r->'m'->>'reg_no','')::bigint, nullif(r->'m'->>'rejoined_at','')::date,
+      coalesce((r->'m'->>'reminders_paused')::boolean, false),
+      nullif(r->'m'->>'reminders_paused_at','')::timestamptz,
+      r->'m'->>'reminders_paused_by')
     returning id into v_member;
 
     insert into genalpha.student_details (
@@ -295,8 +322,8 @@ begin
   -- wrong families and we stop here.
   select count(*) into v_over from enrollments
    where tenant_id='{T}' and status='active' and renewal_on < current_date;
-  if v_over <> 12 then
-    raise exception 'expected 12 overdue active enrollments (GenAlpha''s own figure), got %', v_over;
+  if v_over <> {_exp_overdue} then
+    raise exception 'expected {_exp_overdue} overdue active enrollments (computed from the export, which matched GenAlpha''s own student_paid_through_date at export time), got %', v_over;
   end if;
 
   if (select count(*) from cross_tenant_integrity()) <> 0 then
@@ -322,10 +349,15 @@ def stage_c():
     att  = load("attendance")
 
     prows = [{**{k: p.get(k) for k in ("amount","mode","on_date","months","kind",
-                                        "status","ref","note","proof_path","collected_by")},
+                                        "status","ref","note","proof_path","collected_by",
+                                        "breakdown","period_from")},
               "uu": u[p["member_ref"]]} for p in pays]
     arows = [{k: a.get(k) for k in ("name","phone","parent_name","parent_phone","dob",
-                                     "gender","school","sport","created_at")} for a in apps]
+                                     "gender","school","sport","created_at",
+                                     "address","city","age","emergency_contact_no","join_date",
+                                     "comments","filled_by","review_notes",
+                                     "source_channel","consent_accepted","terms_accepted",
+                                     "consent_accepted_at","status")} for a in apps]
     erows = [{k: e.get(k) for k in ("category","payee","detail","amount","mode","on_date")} for e in exps]
     trows = [{k: a.get(k) for k in ("date","person_id")} for a in att]
 
@@ -333,7 +365,7 @@ def stage_c():
 -- 2026-08-10c · GenAlpha merge, stage C: history
 -- scope: shared
 --
--- 130 payments, 102 applications, 48 expenses, 1,451 attendance rows.
+-- {len(prows)} payments, {len(arows)} applications, {len(erows)} expenses, {len(trows)} attendance rows.
 --
 -- Payments are inserted directly rather than through
 -- record_fee_payment(). That function also rolls renewal_on forward and
@@ -348,7 +380,8 @@ def stage_c():
 -- ============================================================
 
 insert into payments (tenant_id, member_id, centre_id, sport, name, type, amount, mode,
-                      on_date, months, kind, status, ref, note, proof_path, collected_by)
+                      on_date, months, kind, status, ref, note, proof_path, collected_by,
+                      breakdown, period_from)
 select '{T}', d.member_id,
        (select id from centres where tenant_id='{T}' and code='GA'),
        'cricket', m.name, 'Fee',
@@ -356,16 +389,28 @@ select '{T}', d.member_id,
        (x->>'months')::int, x->>'kind', x->>'status',
        -- payments_ref_unique is (tenant_id, ref). Several GenAlpha
        -- payments have an empty ref, and '' collides where NULL does not.
-       nullif(x->>'ref',''), x->>'note', x->>'proof_path', x->>'collected_by'
+       nullif(x->>'ref',''), x->>'note', x->>'proof_path', x->>'collected_by',
+       x->'breakdown', nullif(x->>'period_from','')::date
   from jsonb_array_elements({jsonb(prows)}) x
   join genalpha.student_details d on d.legacy_uuid = (x->>'uu')::uuid
   join members m on m.id = d.member_id;
 
 insert into applications (tenant_id, name, phone, parent_name, parent_phone, dob,
-                          gender, school, sport, created_at)
+                          gender, school, sport, created_at, address, city, age,
+                          emergency_contact_no, join_date, comments, filled_by,
+                          review_notes, source_channel, consent_accepted, terms_accepted,
+                          consent_accepted_at, status)
 select '{T}', x->>'name', x->>'phone', x->>'parent_name', x->>'parent_phone',
        (x->>'dob')::date, x->>'gender', x->>'school', 'cricket',
-       coalesce((x->>'created_at')::timestamptz, now())
+       coalesce((x->>'created_at')::timestamptz, now()),
+       x->>'address', x->>'city', nullif(x->>'age','')::int,
+       x->>'emergency_contact_no', nullif(x->>'join_date','')::date,
+       x->>'comments', x->>'filled_by', x->>'review_notes',
+       x->>'source_channel',
+       nullif(x->>'consent_accepted','')::boolean,
+       nullif(x->>'terms_accepted','')::boolean,
+       nullif(x->>'consent_accepted_at','')::timestamptz,
+       coalesce(nullif(x->>'status',''), 'pending')
   from jsonb_array_elements({jsonb(arows)}) x;
 
 insert into expenses (tenant_id, category, payee, detail, amount, mode, on_date)
@@ -382,19 +427,21 @@ do $$
 declare n int; s numeric;
 begin
   select count(*) into n from payments where tenant_id='{T}';
-  if n <> 130 then raise exception 'expected 130 payments, got %', n; end if;
+  if n <> {len(prows)} then raise exception 'expected {len(prows)} payments, got %', n; end if;
 
   select sum(amount) into s from payments where tenant_id='{T}';
-  if s <> 492551 then raise exception 'money mismatch: expected 492551, got %', s; end if;
+  if s <> {int(sum(int(x.get('amount') or 0) for x in prows))} then
+    raise exception 'money mismatch: expected {int(sum(int(x.get('amount') or 0) for x in prows))}, got %', s;
+  end if;
 
   select count(*) into n from applications where tenant_id='{T}';
-  if n <> 102 then raise exception 'expected 102 applications, got %', n; end if;
+  if n <> {len(arows)} then raise exception 'expected {len(arows)} applications, got %', n; end if;
 
   select count(*) into n from expenses where tenant_id='{T}';
-  if n <> 48 then raise exception 'expected 48 expenses, got %', n; end if;
+  if n <> {len(erows)} then raise exception 'expected {len(erows)} expenses, got %', n; end if;
 
   select count(*) into n from attendance where tenant_id='{T}';
-  if n < 1400 then raise exception 'expected ~1451 attendance rows, got %', n; end if;
+  if n <> {len(trows)} then raise exception 'expected {len(trows)} attendance rows, got %', n; end if;
 
   -- every payment reaches a real member of THIS tenant
   if exists (select 1 from payments p where p.tenant_id='{T}'
@@ -454,10 +501,10 @@ end $$;
 
 def main():
     print("  emitting migrations from", SRC)
-    write("2026-08-10a-genalpha-schema.sql", stage_a())
-    write("2026-08-10b-genalpha-core.sql", stage_b())
-    write("2026-08-10c-genalpha-history.sql", stage_c())
-    write("2026-08-10d-genalpha-timeline.sql", stage_d())
+    write("2026-08-11a-genalpha-schema.sql", stage_a())
+    write("2026-08-11b-genalpha-core.sql", stage_b())
+    write("2026-08-11c-genalpha-history.sql", stage_c())
+    write("2026-08-11d-genalpha-timeline.sql", stage_d())
 
 
 if __name__ == "__main__":
