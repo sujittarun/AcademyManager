@@ -161,7 +161,12 @@ async function sendRenewalParentConfirmation(
   confirmedBy: string,
 ) {
   const response = await fetch(
-    `${env("SUPABASE_URL").replace(/\/+$/, "")}/functions/v1/whatsapp-reminder`,
+    // genalpha-whatsapp, NOT whatsapp-reminder. This project hosts both:
+    // whatsapp-reminder is the platform's engine for raj/mpp/demo and has
+    // no 'agent_renewal_confirmed' action, so posting there returned an
+    // error and the parent's confirmation was silently skipped after the
+    // payment had already been recorded.
+    `${env("SUPABASE_URL").replace(/\/+$/, "")}/functions/v1/genalpha-whatsapp`,
     {
       method: "POST",
       headers: serviceHeaders(),
