@@ -19,3 +19,6 @@ node_modules/
 # ---------------------------------------------------------------
 supabase/migrations/*-genalpha-admission-reload.sql
 supabase/migrations/*-genalpha-merge-gaps.sql
+supabase/migrations/*-reminder-event-details-*.sql
+supabase/migrations/*-wa-flow-event-details-*.sql
+supabase/migrations/*-wa-flow-details-fix-*.sql
