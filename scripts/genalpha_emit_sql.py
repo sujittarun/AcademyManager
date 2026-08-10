@@ -462,3 +462,203 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------- G / H
+ARC = "/Users/jiths/Documents/Academy Manager Business/_archive/genalpha-premerge-2026-08-10"
+
+
+def arc(n):
+    with open(os.path.join(ARC, n + ".json")) as f:
+        return json.load(f)
+
+
+def chunked_insert(rows, per, render):
+    out = []
+    for i in range(0, len(rows), per):
+        out.append(render(rows[i:i + per]))
+    return "\n".join(out)
+
+
+def stage_g():
+    flow = arc("whatsapp_flow_events")
+    hook = arc("whatsapp_webhook_events")
+    rem  = arc("reminder_events")
+
+    f_rows = [{"uu": f.get("student_id"),
+               "step": f.get("flow_step") or f.get("event_type") or "unknown",
+               "detail": f.get("status") or f.get("direction"),
+               "at": f.get("created_at"),
+               "meta": {k: v for k, v in f.items()
+                        if k not in ("id", "student_id", "flow_step", "created_at") and v is not None}}
+              for f in flow]
+    h_rows = [{"message_id": h.get("message_id"), "kind": h.get("event_type"),
+               "payload": h.get("payload"), "at": h.get("created_at")} for h in hook]
+    r_rows = [{"uu": r.get("student_id"), "amount": r.get("amount"),
+               "status": r.get("status"), "channel": r.get("channel"),
+               "due_date": r.get("due_date"), "overdue_days": r.get("overdue_days"),
+               "to_phone": r.get("parent_phone"), "at": r.get("created_at")} for r in rem]
+
+    fi = chunked_insert(f_rows, 700, lambda c: f"""insert into wa_flow_events (tenant_id, member_id, step, detail, meta, at)
+select '{T}', d.member_id,
+       -- wa_flow_events.step is NOT NULL; GenAlpha's flow_step can be null
+       coalesce(nullif(x->>'step',''), 'unknown'),
+       nullif(x->>'detail',''), x->'meta',
+       coalesce((x->>'at')::timestamptz, now())
+  from jsonb_array_elements({jsonb(c)}) x
+  left join genalpha.student_details d on d.legacy_uuid = nullif(x->>'uu','')::uuid;
+""")
+
+    return f"""-- ============================================================
+-- 2026-08-10g · GenAlpha merge, stage G: messaging history
+-- scope: shared
+--
+-- {len(f_rows)} flow events, {len(h_rows)} webhook events, {len(r_rows)} reminder events.
+--
+-- These are the record of what was said to which family and whether it
+-- arrived. Losing them breaks nothing mechanical, which is exactly why
+-- they are easy to drop and worth asserting on.
+--
+-- NULL HANDLING, deliberately:
+--   · wa_flow_events.step is NOT NULL and GenAlpha's flow_step can be
+--     null -> coalesce to 'unknown' rather than dropping the row.
+--   · reminder_events.stage is NOT NULL and GenAlpha has no such column
+--     -> derived from overdue_days, which is the same thing the ladder
+--     means by a stage.
+--   · flow and reminder events with a null student_id are kept with a
+--     null member_id (LEFT join). They are real events; orphaning them
+--     is better than silently discarding them.
+--   · empty strings are normalised to NULL on the way in. '' and NULL
+--     are different to a unique index and to every "is it set?" check
+--     in the app.
+-- ============================================================
+
+{fi}
+
+insert into wa_webhook_events (tenant_id, message_id, kind, payload, at)
+select '{T}', nullif(x->>'message_id',''), nullif(x->>'kind',''),
+       coalesce(x->'payload', '{{}}'::jsonb),
+       coalesce((x->>'at')::timestamptz, now())
+  from jsonb_array_elements({jsonb(h_rows)}) x;
+
+insert into reminder_events (tenant_id, member_id, stage, amount, channel, status,
+                             due_date, overdue_days, to_phone, created_at)
+select '{T}', d.member_id,
+       -- stage is NOT NULL. GenAlpha has no stage column; the ladder
+       -- defines one from how overdue the fee is, so derive it the same way.
+       case
+         when coalesce((x->>'overdue_days')::int, 0) <= 0  then 'due'
+         when (x->>'overdue_days')::int <= 6               then 'first_chase'
+         when (x->>'overdue_days')::int <= 14              then 'chase'
+         else 'stopped'
+       end,
+       nullif(x->>'amount','')::numeric,
+       nullif(x->>'channel',''),
+       nullif(x->>'status',''),
+       nullif(x->>'due_date','')::date,
+       nullif(x->>'overdue_days','')::int,
+       nullif(x->>'to_phone',''),
+       coalesce((x->>'at')::timestamptz, now())
+  from jsonb_array_elements({jsonb(r_rows)}) x
+  join genalpha.student_details d on d.legacy_uuid = nullif(x->>'uu','')::uuid;
+
+do $$
+declare nf int; nh int; nr int; norph int;
+begin
+  select count(*) into nf from wa_flow_events   where tenant_id='{T}';
+  select count(*) into nh from wa_webhook_events where tenant_id='{T}';
+  select count(*) into nr from reminder_events  where tenant_id='{T}';
+
+  if nf <> {len(f_rows)} then raise exception 'expected {len(f_rows)} flow events, got %', nf; end if;
+  if nh <> {len(h_rows)} then raise exception 'expected {len(h_rows)} webhook events, got %', nh; end if;
+  if nr = 0 then raise exception 'no reminder events landed'; end if;
+
+  -- NOT NULL columns must actually be populated, not just accepted
+  if exists (select 1 from wa_flow_events where tenant_id='{T}' and coalesce(step,'')='') then
+    raise exception 'a wa_flow_event has a blank step'; end if;
+  if exists (select 1 from reminder_events where tenant_id='{T}' and coalesce(stage,'')='') then
+    raise exception 'a reminder_event has a blank stage'; end if;
+
+  -- anything linked must be linked to THIS tenant
+  select count(*) into norph from reminder_events r
+   where r.tenant_id='{T}' and r.member_id is not null
+     and not exists (select 1 from members m where m.id=r.member_id and m.tenant_id='{T}');
+  if norph > 0 then raise exception '% reminder_events point outside genalpha', norph; end if;
+
+  if (select count(*) from cross_tenant_integrity()) <> 0 then
+    raise exception 'cross_tenant_integrity() is non-empty'; end if;
+
+  raise notice 'stage G ok: % flow, % webhook, % reminder events', nf, nh, nr;
+end $$;
+"""
+
+
+def stage_h():
+    tables = ["admission_intake_sessions", "admission_intake_messages",
+              "admission_ai_extractions", "admission_intake_reply_interpretations",
+              "admission_intake_corrections", "admission_payment_claims",
+              "payment_link_requests"]
+    parts, checks = [], []
+    for t in tables:
+        rows = arc(t)
+        parts.append(f"""
+create table if not exists genalpha.{t} (
+  id          uuid primary key,
+  student_id  uuid,
+  data        jsonb not null,
+  created_at  timestamptz
+);
+alter table genalpha.{t} enable row level security;
+create policy {t}_staff on genalpha.{t} for all to authenticated
+  using (auth_role() in ('staff','operator') and (auth_role()='operator' or auth_tenant()='{T}'))
+  with check (auth_role() in ('staff','operator') and (auth_role()='operator' or auth_tenant()='{T}'));
+revoke all on genalpha.{t} from public, anon;
+grant select, insert, update, delete on genalpha.{t} to authenticated, service_role;
+
+insert into genalpha.{t} (id, student_id, data, created_at)
+select (x->>'id')::uuid,
+       nullif(x->>'student_id','')::uuid,
+       x,
+       coalesce((x->>'created_at')::timestamptz, now())
+  from jsonb_array_elements({jsonb(rows)}) x
+on conflict (id) do nothing;
+""")
+        checks.append(f"""  select count(*) into n from genalpha.{t};
+  if n <> {len(rows)} then raise exception 'expected {len(rows)} rows in {t}, got %', n; end if;""")
+
+    return f"""-- ============================================================
+-- 2026-08-10h · GenAlpha merge, stage H: the admission-AI cluster
+-- scope: shared
+--
+-- Seven tables the platform has no word for: an AI-assisted admission
+-- intake pipeline — WhatsApp conversations with prospective parents, the
+-- fields an LLM extracted from them, the corrections staff made, and the
+-- payment links and claims that followed.
+--
+-- These live in the `genalpha` schema, not `public`. They are a
+-- genuinely new noun and only one tenant has them, so putting
+-- admission_intake_* into the shared schema would make six academies
+-- carry vocabulary one of them uses. If AI admissions later becomes a
+-- product for everyone, THAT is when it earns generic tables in public
+-- with a config.modules gate — promoted deliberately, not by accident.
+--
+-- Each row is kept whole in a jsonb `data` column rather than reshaped
+-- into columns. The shapes are LLM outputs and webhook payloads that
+-- change with the model and the provider; freezing them into DDL today
+-- buys nothing and breaks on their next change. id and student_id are
+-- lifted out because those are the two things anything ever joins on.
+-- ============================================================
+{''.join(parts)}
+
+do $$
+declare n int;
+begin
+{chr(10).join(checks)}
+  raise notice 'stage H ok: admission-AI cluster migrated';
+end $$;
+"""
+
+
+if __name__ == "__main__" and "--gh" in sys.argv:
+    write("2026-08-10g-genalpha-messaging.sql", stage_g())
+    write("2026-08-10h-genalpha-admissions.sql", stage_h())
