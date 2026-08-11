@@ -60,6 +60,13 @@ const PAYMENT_PAGE_URL = "https://genalphaacademy.in/pay.html";
 // payment alerts does not need a redeploy.
 const managerAlertPhone = async () => (await whatsappSender()).managerAlertPhone;
 const MANAGER_PAYMENT_ALERT_DELAY_MINUTES = 5;
+
+// Two minutes, not thirty. Someone who has paid does it within moments of
+// tapping; someone who opened the page to look at prices never will. A
+// long wait only delays the nudge for the people who need it and gives the
+// people who already sent a screenshot time to be nudged anyway.
+const PARENT_PROOF_NUDGE_DELAY_MINUTES = 2;
+const PARENT_PROOF_NUDGE_TEMPLATE_NAME = "gen_alpha_payment_proof_nudge";
 const MANAGER_PAYMENT_ATTEMPT_TEMPLATE_NAME = "manager_payment_attempt_no_proof";
 const MANAGER_PAYMENT_CLAIM_TEMPLATE_NAME = "manager_payment_claim_no_proof";
 
@@ -3162,6 +3169,165 @@ async function handleSamplePaymentAttempted(
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Did a UPI app open, and for how long                                */
+/* ------------------------------------------------------------------ */
+async function handleUpiAppSignal(payload: any, kind: "opened" | "returned" | "not_opened") {
+  const eventId = String(payload.eventId || payload.event_id || "");
+  if (!eventId) return jsonResponse({ error: "eventId is required." }, 400);
+  if (eventId.startsWith(SAMPLE_REMINDER_EVENT_PREFIX)) {
+    return jsonResponse({ success: true, sample: true });
+  }
+  const reminderEvent = await findReminderEvent(eventId);
+  if (!reminderEvent) return jsonResponse({ error: "Reminder event not found." }, 404);
+
+  const patch: Record<string, unknown> = {};
+  if (kind === "opened") {
+    patch.upi_app_opened_at = String(payload.openedAt || new Date().toISOString());
+  } else if (kind === "returned") {
+    patch.upi_seconds_away = Number(payload.secondsAway) || 0;
+  } else {
+    // Nothing opened. Cancel the proof nudge — asking for a screenshot of
+    // a payment that was never started is worse than saying nothing.
+    patch.parent_proof_nudge_status = "cancelled";
+  }
+  await updateReminderEvent(eventId, patch);
+
+  await insertWhatsappFlowEvent({
+    student_id: reminderEvent.student_id,
+    reminder_event_id: reminderEvent.id,
+    event_type: kind === "opened"
+      ? "upi_app_opened"
+      : kind === "returned"
+      ? "upi_app_returned"
+      : "upi_app_not_opened",
+    direction: "inbound",
+    parent_phone: String(reminderEvent.parent_phone || ""),
+    message_kind: "signal",
+    status: kind,
+    status_at: new Date().toISOString(),
+    message_body: kind === "returned"
+      ? `Parent returned after ${Number(payload.secondsAway) || 0}s`
+      : kind === "opened"
+      ? "A UPI app opened"
+      : "No UPI app opened",
+    created_by: "pay.html",
+  });
+
+  return jsonResponse({ success: true });
+}
+
+/* ------------------------------------------------------------------ */
+/* The proof nudge: due, still unpaid, and they really did open an app  */
+/* ------------------------------------------------------------------ */
+async function processDueParentProofNudges(limit = 20) {
+  const now = new Date().toISOString();
+  const due: any[] = await rest(
+    `reminder_events?select=*&parent_proof_nudge_status=eq.scheduled` +
+      `&parent_proof_nudge_due_at=lte.${encodeURIComponent(now)}` +
+      `&order=parent_proof_nudge_due_at.asc&limit=${limit}`,
+  );
+  const results: any[] = [];
+
+  for (const event of due || []) {
+    // The screenshot arrived, or staff already confirmed it: nothing to ask for.
+    if (["payment_pending_verification", "payment_confirmed"].includes(String(event.status || ""))) {
+      await updateReminderEvent(event.id, { parent_proof_nudge_status: "cancelled" });
+      results.push({ student: event.student_id, skipped: "already_resolved" });
+      continue;
+    }
+    // No UPI app ever opened — they looked at the price and left. Nudging
+    // for a screenshot would be asking about a payment that never started.
+    if (!event.upi_app_opened_at) {
+      await updateReminderEvent(event.id, { parent_proof_nudge_status: "skipped" });
+      results.push({ student: event.student_id, skipped: "no_upi_app_opened" });
+      continue;
+    }
+
+    const to = normalizePhone(String(event.parent_phone || ""));
+    if (!to) {
+      await updateReminderEvent(event.id, { parent_proof_nudge_status: "skipped" });
+      results.push({ student: event.student_id, skipped: "no_phone" });
+      continue;
+    }
+
+    try {
+      const student = await fetchStudent(event.student_id);
+      const meta = await sendProofNudgeTemplate(to, event.id, student);
+      await updateReminderEvent(event.id, { parent_proof_nudge_status: "sent" });
+      await insertWhatsappFlowEvent({
+        student_id: event.student_id,
+        reminder_event_id: event.id,
+        event_type: "payment_proof_nudge_sent",
+        direction: "outbound",
+        parent_phone: to,
+        message_kind: "template",
+        message_id: String(meta?.messages?.[0]?.id || ""),
+        status: "accepted",
+        status_at: new Date().toISOString(),
+        sent_at: new Date().toISOString(),
+        provider_payload: meta,
+        created_by: "system_auto",
+      });
+      results.push({ student: student?.name || event.student_id, sent: true });
+    } catch (error) {
+      const payload = parseProviderError(error);
+      await updateReminderEvent(event.id, { parent_proof_nudge_status: "failed" });
+      await insertWhatsappFlowEvent({
+        student_id: event.student_id,
+        reminder_event_id: event.id,
+        event_type: "payment_proof_nudge_failed",
+        direction: "outbound",
+        parent_phone: to,
+        message_kind: "template",
+        status: "failed",
+        status_at: new Date().toISOString(),
+        error_code: providerErrorCode(payload),
+        error_message: providerErrorMessage(payload),
+        provider_payload: payload,
+        created_by: "system_auto",
+      });
+      results.push({ student: event.student_id, error: providerErrorMessage(payload) });
+    }
+  }
+  return results;
+}
+
+async function sendProofNudgeTemplate(to: string, eventId: string, student: any) {
+  const sender = await whatsappSender();
+  const response = await fetch(
+    `https://graph.facebook.com/v20.0/${sender.phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sender.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: env("META_PROOF_NUDGE_TEMPLATE_NAME") || PARENT_PROOF_NUDGE_TEMPLATE_NAME,
+          language: { code: env("META_WHATSAPP_TEMPLATE_LANGUAGE") || "en" },
+          components: [
+            { type: "body", parameters: [{ type: "text", text: student?.name || "there" }] },
+            {
+              type: "button",
+              sub_type: "url",
+              index: "0",
+              parameters: [{ type: "text", text: eventId }],
+            },
+          ],
+        },
+      }),
+    },
+  );
+  const body = await response.json();
+  if (!response.ok) throw new Error(JSON.stringify(body?.error || body));
+  return body;
+}
+
 async function handlePaymentAttempted(payload: any) {
   const eventId = String(
     payload.eventId || payload.event_id || payload.reminderEventId || "",
@@ -3208,6 +3374,10 @@ async function handlePaymentAttempted(payload: any) {
   await updateReminderEvent(eventId, {
     status: "payment_attempted",
     payment_attempted_at: new Date().toISOString(),
+    parent_proof_nudge_due_at: new Date(
+      Date.now() + PARENT_PROOF_NUDGE_DELAY_MINUTES * 60_000,
+    ).toISOString(),
+    parent_proof_nudge_status: "scheduled",
     manager_payment_alert_status: shouldScheduleManagerAlert
       ? "scheduled"
       : managerAlertStatus,
@@ -4984,6 +5154,15 @@ Deno.serve(async (request) => {
     }
     if (payload?.action === "payment_options") {
       return await handlePaymentOptions(payload);
+    }
+    if (payload?.action === "upi_app_opened") {
+      return await handleUpiAppSignal(payload, "opened");
+    }
+    if (payload?.action === "upi_app_returned") {
+      return await handleUpiAppSignal(payload, "returned");
+    }
+    if (payload?.action === "upi_app_not_opened") {
+      return await handleUpiAppSignal(payload, "not_opened");
     }
     if (payload?.action === "payment_attempted") {
       return await handlePaymentAttempted(payload);
