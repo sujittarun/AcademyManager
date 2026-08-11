@@ -857,6 +857,25 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+// The platform owns what a family owes: resolve_fee() through
+// genalpha.quote_fee(). Falls back to the student's own coaching_fee if
+// the call fails, and to null rather than a wrong number.
+async function quoteFeeFor(student: any): Promise<number | null> {
+  try {
+    const rows = await rest("rpc/quote_fee", {
+      method: "POST",
+      body: JSON.stringify({ p_student_id: student?.id, p_months: 1 }),
+    });
+    const quote = Array.isArray(rows) ? rows[0] : rows;
+    const amount = Number(quote?.amount);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  } catch (_error) {
+    // fall through
+  }
+  const fallback = Number(student?.coaching_fee);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+
 async function loadSettings(): Promise<ReminderSettings> {
   const rows = await rest(
     "system_settings?select=setting_key,setting_value&setting_key=in.(whatsapp_reminders_enabled,payment_links_enabled,dry_run_mode)",
@@ -2740,6 +2759,22 @@ async function sendManagerPaymentAlert(
   if (!proofWasSubmitted && currentAlertStatus === "sent_without_proof") {
     return { sent: false, reason: "manager already alerted without proof" };
   }
+  // Do not alert for a parent who opened the payment page and never left
+  // it. No UPI app opened, so nothing was attempted — they looked at the
+  // price. Telling the manager about that is noise, and noise is what
+  // makes a manager stop reading the alerts that matter.
+  if (
+    !proofWasSubmitted &&
+    !paymentClaimed &&
+    reminderEvent.payment_attempted_at &&
+    !reminderEvent.upi_app_opened_at
+  ) {
+    await updateReminderEvent(reminderEvent.id, {
+      manager_payment_alert_status: "skipped_no_upi_app",
+    });
+    return { sent: false, reason: "no UPI app opened — price check, not a payment attempt" };
+  }
+
   if (!proofWasSubmitted && !options.forceWithoutProof && currentAlertStatus !== "scheduled") {
     return { sent: false, reason: "manager alert not due" };
   }
@@ -2779,8 +2814,6 @@ async function sendManagerPaymentAlert(
     ? (secondsAway > 0
       ? `Opened a UPI app for ${secondsAway} seconds`
       : "Opened a UPI app")
-    : reminderEvent.payment_attempted_at
-    ? "Opened the payment page, no UPI app"
     : "Tapped Pay Now";
 
   const proofBodyV2 = {
@@ -3750,6 +3783,12 @@ async function handleSendReminder(request: Request, payload: any) {
     due_date: dueDate,
     overdue_days: overdueDays,
     plan_options: PLAN_OPTIONS,
+    // What this family owes, resolved by the platform's fee chain at send
+    // time. It used to be left null and only stamped once a parent picked
+    // a plan, so 527 of 581 reminders had no amount on them and the
+    // tracking table could not answer "chased for how much" — the obvious
+    // question next to a name.
+    amount: await quoteFeeFor(student),
     parent_phone: parentPhone,
     manager_phone: settings.managerPhone,
     message_preview: buildReminderPreview(
