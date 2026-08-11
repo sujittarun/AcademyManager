@@ -59,9 +59,16 @@ under pg_cron, holding the secrets. Inbound never touches an app at all:
 
 ## One database, six-plus tenants
 
-Supabase project **`ugsklcipzyiogxynshnh`**, org *Academy Manager*.
-Live tenants: `leo`, `machaxi`, `matchpoint`, `raj`, `genalpha`,
-`demo-courts`. Every row carries `tenant_id text`.
+Supabase project **`ugsklcipzyiogxynshnh`** ("PLATFORM - All Tenants"),
+org **`hudpirjhvxqbkhcefabj`** (*AcademyManager*), Pro, region
+ap-northeast-1. `ozjhyhhnmixvjlfnrree` (*Academy Manager — staging*) is
+the empty second org, kept for a staging project.
+
+Live tenants, as `tenants.id`: `leo`, `matchpoint`, `mpp`, `raj`,
+`genalpha`, `demo`. Every row carries `tenant_id text`.
+
+`machaxi` was retired; do not add it back to a list from memory. The id
+is `demo`, not `demo-courts`.
 
 **Blast radius.** A change to a shared table or function reaches every
 live tenant, including client-facing apps in daily use. Dry-run first,
@@ -238,12 +245,25 @@ this platform has had. It also checks the paths that must KEEP working,
 because a probe that only hunts leaks reports a healthy system on the
 morning you have locked every real user out.
 
-**Not watched, and you should know it:** the project is on the free
-plan, so there is no PITR and no restorable daily backup.
-`backup.take_snapshot()` copies the tenant tables into the same database
-every night and keeps 14 days. That covers a migration doing more than
-intended — which has happened — and covers nothing at all if the project
-itself is lost. The fix is Pro plus the PITR add-on.
+**Backups, and what they do not cover.** Since 2026-08-11 the project is
+on **Pro**, in org `hudpirjhvxqbkhcefabj` (*AcademyManager*), so there
+are real daily physical backups — 8 of them at the time of writing.
+Before that there were none at all, which is worth remembering the next
+time a migration is about to run.
+
+Two layers, and they fail differently:
+
+| | |
+|---|---|
+| `backup.take_snapshot()` | nightly 22:10 UTC / 03:40 IST, copies the tenant tables **into the same database**, keeps 14 days. Covers a migration doing more than intended — which has happened. Covers nothing if the project is lost. |
+| Supabase daily physical backup | a real off-box restore point, one per day. Covers losing the project. |
+
+**PITR is deliberately NOT enabled.** It is $100/month for 7 days — four
+times the entire Pro bill — and the gap it closes is now "up to 24 hours
+of loss" rather than "everything", which at this traffic is a handful of
+payments recoverable from WhatsApp records. Declined on 2026-08-11 with
+that arithmetic on the table, not overlooked. Revisit when a tenant
+takes money at a volume where a lost day cannot be re-entered by hand.
 
 ## Security
 
@@ -385,12 +405,12 @@ staff cannot mark themselves paid.
 ## Federated tenants
 
 A tenant does not have to live in this database to appear in the
-console. GenAlpha predates the platform, is live with real families, and
-keeps its own Supabase project and its own nineteen-table schema.
-Merging it would mean migrating live data and rewriting a working app
-for nothing its owner would ever see.
+console. The mechanism exists and works — but **nothing uses it today**,
+and this section used to describe GenAlpha, which is now a native
+tenant. Read it as the design for the next outside client, not as a
+description of anything currently running.
 
-So it reports instead. Its app posts `page_view`, `client_error` and a
+How it works: the outside app posts `page_view`, `client_error` and a
 daily `tenant_rollup` to this project's `events` table with the public
 anon key — no new secret, no new endpoint, no new table.
 `operator_portfolio()` falls back to the newest rollup when a tenant's
@@ -400,8 +420,21 @@ Counts only, never a name or a phone number. Forgeable by anyone holding
 the public key, which is acceptable for aggregate numbers on a dashboard
 and is exactly why nothing personal goes in one.
 
-`tenants.config.federated = true` marks them. Bill them or don't —
-GenAlpha is on `free` because it runs on its own infrastructure.
+`tenants.config.federated = true` marks them. Every live tenant is
+`false` as of 2026-08-12.
+
+**What happened to the GenAlpha exception.** It ran federated because
+merging meant migrating live data and rewriting a working app. That was
+right until it wasn't: reporting counts kept it visible but left its
+money outside `record_fee_payment`, its fees hardcoded in three clients,
+and 81 families on a project with `USING(true)` on every table. It was
+migrated on 2026-08-10/11 — nineteen tables onto the shared schema
+behind a `genalpha` compatibility layer of views. The old project was
+deleted on 2026-08-12.
+
+The lesson for the next one: federation is fine for a tenant you are
+only *watching*. The moment you need to fix its money, it has to come
+inside.
 
 ## Watching the teams: how one tenant is stopped from breaking another
 
@@ -520,8 +553,14 @@ and second-guessing a stranger's tables inside a client-facing system.
 AcademyManager/    platform. Schema, migrations, the runner, operator console.
 CourtSync/         optional booking module, per-tenant. Off unless
                    tenants.config.modules.booking is true.
+GenAlpha/          tenant 'genalpha' — cricket, manager web app
+                   (genalphaacademy.in). Moved in here 2026-08-11 from
+                   Documents/GitHub/cricket-academy-manager.
+GenAlphaApp/       Android client for 'genalpha', plus GenAlpha-era SQL.
+                   Moved in 2026-08-11 from Documents/New project.
 LeoTennis/         tenant 'leo'      — venue + members + bookings
-Machaxi/           tenant 'machaxi'  — venue + members + bookings
+Machaxi/           RETIRED tenant. Repo kept private: its git history
+                   holds real member names and phone numbers.
 MatchPoint/        tenant 'matchpoint' — badminton, player tracking
 MatchPointPride/   tenant 'mpp'      — separate app for the Pride venue owner
 Raj Sports/        tenant 'raj'      — coaching only, NO bookings
@@ -548,6 +587,51 @@ They carry the house rule, the migration ledger, the four security facts
 that are easy to get wrong, and the telemetry a tenant needs to stay
 visible in the console. Update them when a lesson is learned rather than
 re-teaching it in every chat.
+
+## Timestamps: say the zone, or you will get it wrong
+
+**Every timestamp you compare, print or reason about must carry its zone
+explicitly.** This has produced a wrong conclusion more than once in a
+single day, each time by comparing two numbers that looked comparable
+and were not.
+
+The traps, all real:
+
+| | |
+|---|---|
+| Two databases, two zones | the platform session renders UTC; GenAlpha's legacy project rendered `+05:30`. `16:29` in one is `10:59` in the other, and "the old project is receiving newer traffic" was concluded from exactly that. |
+| Cron is UTC | `30 9 * * *` is **15:00 IST**. `config.whatsapp.sendHourIST` is read into the sender's config object and never used to schedule anything — the cron line is the only thing that sets the hour. |
+| Meta sends epoch seconds | a webhook's `timestamp` is UTC epoch. Compare it to `created_at` only after converting one of them. |
+| `current_date` follows the session | so a "today" filter run from a UTC session drops the last 5½ hours of an IST day, and the reminder ladder is built on IST calendar days. |
+
+So:
+
+- **Print the zone.** `created_at at time zone 'Asia/Kolkata'` with the
+  column aliased `_ist`, or `::timestamptz` left in UTC and aliased
+  `_utc`. Never a bare `::text`.
+- **Compare epochs, not strings.** `extract(epoch from …)` on both sides
+  when the two values came from different systems.
+- **Convert once, at the edge.** IST is presentation. Storage and
+  comparison are UTC.
+- **State the zone in prose too.** "10:59 UTC (16:29 IST)" — writing both
+  is what catches the error before it becomes a conclusion.
+
+Reminders go out **15:00 IST = 09:30 UTC**. If those two ever stop
+agreeing in something you read, the reading is wrong, not the schedule.
+
+## Commit messages: 100 characters, all repos
+
+**A commit message is at most 100 characters.** One line. Every repo,
+every tenant, platform included.
+
+```
+v1.0.61 - the PIN is a real sign-in, so the roster loads
+```
+
+The reasoning does not vanish, it moves to where it is read: a migration
+header, a comment above the code it explains, or this file when it is a
+rule. A paragraph in `git log` is read once by nobody; the same paragraph
+at the top of the .sql file is read by whoever opens it next.
 
 ## Working in a session
 
