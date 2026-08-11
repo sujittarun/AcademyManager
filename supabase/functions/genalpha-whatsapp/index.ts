@@ -597,6 +597,60 @@ function parseBoolean(value: unknown, fallback: boolean): boolean {
 // POST to /rpc/ routes on Content-Profile, so both are always sent.
 // Individual calls override with Accept-Profile: public where they need a
 // platform table (see whatsappSender()).
+
+// ---------------------------------------------------------------------
+// Meta's delivery statuses are a ladder, and its callbacks do not always
+// arrive in order. The handler used to assign `status` from whatever
+// callback came last, which does two wrong things:
+//
+//   * a `delivered` webhook arriving after `read` moved the row BACKWARDS
+//     (one row in production is sitting at 'delivered' with read_at set);
+//   * a late delivery callback overwrote a CONVERSATION status —
+//     payment_confirmed, payment_link_sent, help_requested — and erased
+//     the record that a parent had already paid. 63 payment_confirmed
+//     rows carry a delivered_at, so this was one late webhook away.
+//
+// The timestamps were always written correctly; only `status` was wrong.
+// It now advances and never retreats.
+// ---------------------------------------------------------------------
+const DELIVERY_LADDER: Record<string, number> = {
+  dry_run: 0,
+  queued: 1,
+  accepted: 2,
+  sent: 3,
+  delivered: 4,
+  read: 5,
+};
+
+// Set by the conversation, not by Meta. These outrank every delivery rung.
+const CONVERSATION_STATUSES = new Set([
+  "payment_link_sent",
+  "payment_attempted",
+  "payment_pending_verification",
+  "payment_confirmed",
+  "help_requested",
+  "manual_followup",
+]);
+
+/** The status to store, or null to leave the existing one alone. */
+function advanceDeliveryStatus(
+  current: unknown,
+  incoming: string,
+): string | null {
+  // A failed delivery is worth knowing whatever else happened.
+  if (incoming === "failed") return "failed";
+
+  const cur = String(current || "");
+  if (CONVERSATION_STATUSES.has(cur)) return null;
+  if (cur === "failed" || cur === "send_failed") return null;
+
+  const from = DELIVERY_LADDER[cur];
+  const to = DELIVERY_LADDER[incoming];
+  if (to === undefined) return null;          // not a rung we recognise
+  if (from === undefined) return incoming;    // unknown current, take it
+  return to > from ? incoming : null;         // forward only
+}
+
 const DB_SCHEMA = "genalpha";
 
 async function rest(path: string, init: RequestInit = {}) {
@@ -4640,9 +4694,15 @@ async function handleWebhook(payload: any) {
             confirmation_meta_response: statusUpdate,
           }
           : {
-            status,
             meta_response: statusUpdate,
           };
+
+        // Forward-only. See advanceDeliveryStatus: assigning `status`
+        // unconditionally let a late callback undo a payment.
+        if (!isConfirmationMessage) {
+          const nextStatus = advanceDeliveryStatus(trackedReminder.status, status);
+          if (nextStatus !== null) updatePayload.status = nextStatus;
+        }
 
         if (status === "sent") {
           updatePayload[isConfirmationMessage ? "confirmation_sent_at" : "accepted_at"] = timestamp;

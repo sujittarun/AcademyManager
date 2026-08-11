@@ -137,6 +137,10 @@ rupee.
 
 ## Working rules
 
+- **Every timestamp carries its zone.** The database renders UTC; the
+  academy thinks in IST. Write "10:59 UTC (16:29 IST)", alias SQL
+  columns `_utc`/`_ist`, and remember cron is UTC — `30 9 * * *` is
+  15:00 IST.
 - **A commit message is one line, at most 100 characters.** The
   reasoning goes in the migration header or a comment above the code
   it explains — somewhere it will be read again.
