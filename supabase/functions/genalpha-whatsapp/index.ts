@@ -70,6 +70,13 @@ const PARENT_PROOF_NUDGE_TEMPLATE_NAME = "gen_alpha_payment_proof_nudge";
 const MANAGER_PAYMENT_ATTEMPT_TEMPLATE_NAME = "manager_payment_attempt_no_proof";
 const MANAGER_PAYMENT_CLAIM_TEMPLATE_NAME = "manager_payment_claim_no_proof";
 
+// The v2 manager templates carry the amount, the plan and — for a payment
+// with no proof — WHAT the parent actually did, instead of just a name.
+// They fall back to the single-variable v1 templates above until Meta
+// approves them, so this ships before approval lands.
+const MANAGER_PROOF_TEMPLATE_V2 = "manager_payment_proof_v2";
+const MANAGER_ACTIVITY_TEMPLATE_V2 = "manager_payment_activity_v2";
+
 const DEFAULT_DIRECT_PAY_TEMPLATE_NAME = "gen_alpha_fee_direct_pay_v2";
 const HEALTHY_ECOSYSTEM_ERROR_CODE = "131049";
 const HEALTHY_ECOSYSTEM_RETRY_MINUTES = [5, 30, 60];
@@ -2751,33 +2758,88 @@ async function sendManagerPaymentAlert(
     ],
   };
 
+  // ---- what the v2 templates add ----
+  const planLabelText = PLAN_LABELS[String(reminderEvent.selected_plan || "")] ||
+    (student?.fee_plan ? String(student.fee_plan) : "Monthly");
+  const amountText = String(
+    reminderEvent.amount ?? student?.coaching_fee ?? "",
+  ) || "—";
+  const paidThroughText = student?.paid_through
+    ? displayDate(String(student.paid_through).slice(0, 10))
+    : "—";
+
+  // The one genuinely new thing: the manager can now be told what the
+  // parent DID, not just that something happened. A parent who opened a
+  // UPI app for forty seconds is worth chasing; one who opened the page
+  // and never left it almost certainly just looked at the price.
+  const secondsAway = Number(reminderEvent.upi_seconds_away) || 0;
+  const whatHappened = paymentClaimed
+    ? "Said they paid, screenshot not sent"
+    : reminderEvent.upi_app_opened_at
+    ? (secondsAway > 0
+      ? `Opened a UPI app for ${secondsAway} seconds`
+      : "Opened a UPI app")
+    : reminderEvent.payment_attempted_at
+    ? "Opened the payment page, no UPI app"
+    : "Tapped Pay Now";
+
+  const proofBodyV2 = {
+    type: "body",
+    parameters: [
+      { type: "text", text: playerName },
+      { type: "text", text: amountText },
+      { type: "text", text: planLabelText },
+      { type: "text", text: paidThroughText },
+    ],
+  };
+  const activityBodyV2 = {
+    type: "body",
+    parameters: [
+      { type: "text", text: playerName },
+      { type: "text", text: amountText },
+      { type: "text", text: whatHappened },
+    ],
+  };
+
   if (proofWasSubmitted && hasProof) {
     proofSignedUrl = await createPaymentProofSignedUrl(proofBucket, proofPath);
   }
   const shouldUseProofTemplate = proofWasSubmitted && Boolean(proofSignedUrl);
-  const templateName = shouldUseProofTemplate
+  const headerComponent = {
+    type: "header",
+    parameters: [{ type: "image", image: { link: proofSignedUrl } }],
+  };
+
+  // v2 first, v1 as the fallback. Both are named so an env var can pin
+  // either without a deploy.
+  const primaryName = shouldUseProofTemplate
+    ? (env("META_MANAGER_PROOF_TEMPLATE_V2") || MANAGER_PROOF_TEMPLATE_V2)
+    : (env("META_MANAGER_ACTIVITY_TEMPLATE_V2") || MANAGER_ACTIVITY_TEMPLATE_V2);
+  const primaryComponents = shouldUseProofTemplate
+    ? [headerComponent, proofBodyV2]
+    : [activityBodyV2];
+
+  const legacyName = shouldUseProofTemplate
     ? (env("META_MANAGER_PAYMENT_ALERT_WITH_PROOF_TEMPLATE_NAME") || "manager_payment_alert_with_proof")
     : paymentClaimed
     ? (env("META_MANAGER_PAYMENT_CLAIM_TEMPLATE_NAME") || MANAGER_PAYMENT_CLAIM_TEMPLATE_NAME)
     : (env("META_MANAGER_PAYMENT_ATTEMPT_TEMPLATE_NAME") || MANAGER_PAYMENT_ATTEMPT_TEMPLATE_NAME);
-  const components = shouldUseProofTemplate
-    ? [
-      {
-        type: "header",
-        parameters: [
-          {
-            type: "image",
-            image: { link: proofSignedUrl },
-          },
-        ],
-      },
-      bodyComponent,
-    ]
+  const legacyComponents = shouldUseProofTemplate
+    ? [headerComponent, bodyComponent]
     : [bodyComponent];
 
+  let templateName = primaryName;
   let templateResponse: any;
   try {
-    templateResponse = await sendTemplatePayload(to, templateName, components);
+    try {
+      templateResponse = await sendTemplatePayload(to, primaryName, primaryComponents);
+    } catch (primaryError) {
+      // Only a template problem falls back. A wrong number or a dead token
+      // must surface, not be retried against an older template and hidden.
+      if (!isTemplateFallbackError(parseProviderError(primaryError))) throw primaryError;
+      templateName = legacyName;
+      templateResponse = await sendTemplatePayload(to, legacyName, legacyComponents);
+    }
   } catch (error) {
     if (!proofWasSubmitted) {
       const retryAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
