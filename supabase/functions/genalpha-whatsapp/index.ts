@@ -158,10 +158,31 @@ function addMonthsIso(dateValue: string, months: number): string {
 
 function getDaysSinceDate(dateValue: string): number {
   if (!dateValue) return 0;
-  const targetDate = new Date(`${dateValue}T00:00:00`);
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const diff = new Date().getTime() - targetDate.getTime();
-  return Math.floor(diff / msPerDay);
+
+  // Both sides must be IST CALENDAR DATES.
+  //
+  // The previous version did `new Date("2026-08-11T00:00:00")` — no
+  // timezone suffix, so it parses as midnight in the RUNTIME's zone,
+  // which is UTC on Supabase — and subtracted that from the current
+  // INSTANT. Between 00:00 and 05:30 IST those disagree by a day, and
+  // every rung of the ladder read one day early: a family due today
+  // scored -1 and matched no branch at all, so they were simply skipped.
+  //
+  // It hid because the daily job runs at 15:00 IST, where the UTC and IST
+  // dates agree. The 5-minutely retry job runs straight through the bad
+  // window every night, and any manual run before dawn sees it. A dry run
+  // at 05:01 IST fired 6 of the 12 families that were actually due:
+  // -2, 0, +5 and +7 all fell into the gap between rungs, and only the
+  // wide +7..+14 band was forgiving enough to absorb the error.
+  //
+  // localIsoDate() already resolves Asia/Kolkata correctly. Anchoring
+  // both dates at midnight UTC makes the subtraction a pure calendar-day
+  // difference with no clock in it.
+  const MS_PER_DAY = 86_400_000;
+  const todayIst = Date.parse(`${localIsoDate()}T00:00:00Z`);
+  const target = Date.parse(`${String(dateValue).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(target)) return 0;
+  return Math.round((todayIst - target) / MS_PER_DAY);
 }
 
 function getGenderTerms(studentName: string) {
