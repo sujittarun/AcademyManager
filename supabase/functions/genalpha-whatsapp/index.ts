@@ -3961,16 +3961,16 @@ async function handleSendReminder(request: Request, payload: any) {
 }
 
 async function handleSendSampleReminder(request: Request, payload: any) {
-  const sampleToken = env("SAMPLE_REMINDER_TOKEN");
-  const requestSampleToken = request.headers.get("x-sample-reminder-token") ||
-    "";
-  let createdBy = "sample-token";
-  if (sampleToken && requestSampleToken === sampleToken) {
-    // One-off operational sample sends can use this private token because the
-    // WhatsApp webhook itself must remain publicly reachable by Meta.
-  } else {
-    createdBy = await assertAuthenticated(request);
-  }
+  // No token bypass. This function runs with verify_jwt=false, because
+  // Meta has to be able to reach the webhook — which meant a shared
+  // header value was the ONLY thing standing between the open internet
+  // and "send a WhatsApp message from the academy's number to any phone
+  // you like". It was added for one-off operational sends and then left
+  // live, watched by nothing.
+  //
+  // Sending as a real signed-in staff member costs nothing extra and
+  // puts a name in created_by instead of the string "sample-token".
+  const createdBy = await assertAuthenticated(request);
 
   const to = normalizePhone(String(payload.phone || payload.to || ""));
   if (!to) return jsonResponse({ error: "Phone number is required." }, 400);
