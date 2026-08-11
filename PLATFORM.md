@@ -588,6 +588,12 @@ that are easy to get wrong, and the telemetry a tenant needs to stay
 visible in the console. Update them when a lesson is learned rather than
 re-teaching it in every chat.
 
+**Then paste the tenant's own brief** from `prompts/tenants/<id>.md`.
+Those hold what is true for ONE tenant this week — Leo being correctly
+`BLIND` to the attendance functions, GenAlpha's two `reminder_events`,
+MPP being React on purpose — the things a general prompt cannot carry and
+a fresh chat otherwise re-learns the hard way.
+
 ## Timestamps: say the zone, or you will get it wrong
 
 **Every timestamp you compare, print or reason about must carry its zone
