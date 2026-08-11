@@ -3239,8 +3239,35 @@ async function handlePaymentAttempted(payload: any) {
   });
 
   let metaResponse = null;
+  let followupSkippedReason = "";
   if (shouldSendFollowup) {
-    metaResponse = await sendTextMessage(to, AFTER_PAY_NOW_FOLLOWUP);
+    // WhatsApp only allows a free-form message inside the 24-hour customer
+    // service window, and that window opens when the CUSTOMER messages the
+    // business. Tapping a URL button sends nothing to WhatsApp, so a
+    // parent who taps Pay Now has no open window and Meta rejects this
+    // with 131047 "Re-engagement message" — every time, for everyone.
+    //
+    // It is not fatal: the reminder template's own body already tells the
+    // parent to send the screenshot ("After payment, send the payment
+    // screenshot here so the academy can verify and confirm your
+    // renewal."). This message is reinforcement, and it does land when the
+    // parent has messaged recently — after a quick-reply tap, or once they
+    // send the screenshot.
+    //
+    // What must NOT happen is the throw taking the whole handler with it,
+    // which loses the payment_attempted record and returns an error to
+    // pay.html for a tap that actually succeeded.
+    try {
+      metaResponse = await sendTextMessage(to, AFTER_PAY_NOW_FOLLOWUP);
+    } catch (error) {
+      const payload = parseProviderError(error);
+      const code = providerErrorCode(payload);
+      if (code !== "131047") throw error;
+      followupSkippedReason = "no_open_window";
+      metaResponse = null;
+    }
+  }
+  if (shouldSendFollowup && metaResponse) {
     await insertWhatsappFlowEvent({
       student_id: reminderEvent.student_id,
       reminder_event_id: reminderEvent.id,
@@ -3256,13 +3283,36 @@ async function handlePaymentAttempted(payload: any) {
       provider_payload: metaResponse,
       created_by: "pay.html",
     });
+  } else if (followupSkippedReason) {
+    // Record that it was skipped and why, rather than as a failure. The
+    // tap succeeded; it is the reinforcement message that could not be
+    // sent, and the tracking table is read by a person every morning.
+    await insertWhatsappFlowEvent({
+      student_id: reminderEvent.student_id,
+      reminder_event_id: reminderEvent.id,
+      event_type: "payment_followup_skipped",
+      direction: "system",
+      parent_phone: String(reminderEvent.parent_phone || ""),
+      message_kind: "text",
+      message_body: AFTER_PAY_NOW_FOLLOWUP,
+      status: followupSkippedReason,
+      status_at: new Date().toISOString(),
+      error_code: "131047",
+      error_message:
+        "No open 24-hour window: the parent has not messaged the academy since the reminder. " +
+        "The screenshot instruction is already in the reminder template body.",
+      created_by: "pay.html",
+    });
   }
 
   return jsonResponse({
     success: true,
-    message: shouldSendFollowup
-      ? "Payment follow-up sent."
-      : "Payment attempt already tracked.",
+    followupSkipped: followupSkippedReason || undefined,
+    message: !shouldSendFollowup
+      ? "Payment attempt already tracked."
+      : followupSkippedReason
+      ? "Payment attempt tracked. Follow-up not sent: no open WhatsApp window."
+      : "Payment follow-up sent.",
     metaResponse,
   });
 }
