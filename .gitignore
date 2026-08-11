@@ -22,3 +22,23 @@ supabase/migrations/*-genalpha-merge-gaps.sql
 supabase/migrations/*-reminder-event-details-*.sql
 supabase/migrations/*-wa-flow-event-details-*.sql
 supabase/migrations/*-wa-flow-details-fix-*.sql
+
+# Purged from git history 2026-08-12. These five migrations embed 112 real
+# family phone numbers, children's names and home addresses as SQL literals.
+# They stay ON DISK because schema_migrations records applied files by
+# basename + sha256 and PLATFORM.md forbids renaming or moving an applied
+# file — but they must never be committed again.
+supabase/migrations/2026-08-11b-genalpha-core.sql
+supabase/migrations/2026-08-11c-genalpha-history.sql
+supabase/migrations/2026-08-11d-genalpha-timeline.sql
+supabase/migrations/2026-08-11kz-genalpha-messaging.sql
+supabase/migrations/2026-08-11m-genalpha-admissions.sql
+
+# Playwright page snapshots captured 44 and 46 real member names.
+.playwright-cli/
+
+# Rendered media: 1.6 GB of mp4/webm/wav lived in history. Regenerable output.
+*.mp4
+*.webm
+*.wav
+*.mp3
