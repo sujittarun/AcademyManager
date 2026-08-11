@@ -137,6 +137,9 @@ rupee.
 
 ## Working rules
 
+- **A commit message is one line, at most 100 characters.** The
+  reasoning goes in the migration header or a comment above the code
+  it explains — somewhere it will be read again.
 - Tenant repos are handed to clients. Keep platform-wide material out.
 - Per-tenant behaviour in `tenants.config`; generic table names.
 - **Before proposing any new table**, work through "Which table does a

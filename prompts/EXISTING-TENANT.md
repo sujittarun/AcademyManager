@@ -120,6 +120,9 @@ four-key JSON object, so `len(response)` reports a hard failure as
   Metadata: `{"am_role":"staff","tenant_id":"<TENANT>"}` — a user can
   edit their own User Metadata, which is why the policies do not trust
   it.
+- **A commit message is one line, at most 100 characters.** The
+  reasoning goes in the migration header or a comment above the code
+  it explains — somewhere it will be read again.
 - Tenant repos are handed to clients. Keep platform-wide material out of
   them.
 - Tell me plainly when something you previously said turns out to be
