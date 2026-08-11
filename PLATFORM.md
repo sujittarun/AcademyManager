@@ -265,6 +265,41 @@ payments recoverable from WhatsApp records. Declined on 2026-08-11 with
 that arithmetic on the table, not overlooked. Revisit when a tenant
 takes money at a volume where a lost day cannot be re-entered by hand.
 
+## Latency, and why the project ref must not change casually
+
+The database is not slow. Measured 2026-08-12: the roster reads in 5 ms,
+finance in 4 ms, attendance over 1,477 rows in 5 ms, `reminder_queue` in
+20 ms. The largest table on the platform is `attendance_records` at
+5,117 rows and the whole database is a few megabytes.
+
+**A round-trip to the API takes ~180 ms**, because the project is in
+`ap-northeast-1` (Tokyo) and every user is in India. Network is ~97% of
+each request. So the only optimisation that matters is *fewer
+round-trips* — the Finance tab went roughly 4× faster purely by fetching
+its four independent reads in parallel instead of one after another.
+Nothing is gained by tuning SQL, and the performance advisor's 47
+unindexed foreign keys are advice for tables a hundred times larger;
+adding them here is write cost for no reader.
+
+**Moving to `ap-south-1` would fix the 180 ms** — and Supabase cannot
+change a region in place. It means a new project, so a new ref AND a new
+anon key, and:
+
+- **57 files across 13 repos** hardcode `ugsklcipzyiogxynshnh`.
+- **Four mobile clients cannot be force-updated** — GenAlphaApp,
+  RajSportsApp, MatchPointPride and RajSportsIOS. None has a minimum-
+  version check. RajSportsIOS needs App Store review, so it is days.
+- The Meta webhook, storage objects, edge functions, vault secrets and
+  every cron job move by hand.
+
+**So the prerequisite is a version gate in all four clients, shipped,
+before the ref changes.** Otherwise every installed copy writes to a
+project that is about to be deleted — exactly what GenAlpha's app spent
+2026-08-11 recovering from, times four, with Apple in the path.
+
+Deferred on 2026-08-12 with that arithmetic on the table. Do not start a
+ref change without the gates.
+
 ## Security
 
 - The **anon** key is public by design and committed in every tenant
