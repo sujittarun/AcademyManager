@@ -164,7 +164,11 @@
       }
 
       /* ============ state + data ============ */
-      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {} };
+      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
+        // sales pipeline — loaded lazily the first time the tab is opened,
+        // so the console's boot cost is unchanged for everyone not selling.
+        sales: { pipeline: null, leads: [], loaded: false, loading: false,
+                 from: "8297771212", f: { priority: "A", sport: "", stage: "", q: "", callable: true } } };
 
       // per-tenant raw activity — last 7 days of app events, fetched on demand
       function loadEvents(id) {
@@ -227,8 +231,14 @@
         var overdue = accts.filter(function (a) { return a.bill === "overdue"; }).length;
         var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
         var billBadge = (overdue + pendingC) || "";
+        // how many A-priority prospects are still untouched — the only sales
+        // number worth interrupting the operator for
+        var sp = state.sales.pipeline;
+        var salesBadge = (sp && sp.by_priority && sp.by_stage &&
+                          sp.by_stage.new && sp.by_priority.A)
+          ? Math.min(sp.by_priority.A, sp.by_stage.new) : "";
 
-        var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], settings: ["Settings", "Organization & console configuration"] };
+        var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], sales: ["Sales pipeline", "Coaching academies in Hyderabad we are selling to"], settings: ["Settings", "Organization & console configuration"] };
         var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
         var pageSub = isDetail ? (sel ? sel.sub : "") : titles[view][1];
 
@@ -248,6 +258,7 @@
             view === "academies" ? academiesView(accts) :
             view === "billing" ? billingView(accts) :
             view === "growth" ? growthView(accts) :
+            view === "sales" ? salesView() :
             settingsView());
 
         root.innerHTML =
@@ -264,6 +275,7 @@
                 navBtn("academies", "Academies", "apartment", "", view === "academies" && !isDetail) +
                 navBtn("billing", "Billing", "receipt_long", billBadge, view === "billing" && !isDetail) +
                 navBtn("growth", "Growth", "trending_up", "", view === "growth" && !isDetail) +
+                navBtn("sales", "Sales", "campaign", salesBadge, view === "sales" && !isDetail) +
                 navBtn("settings", "Settings", "settings", "", view === "settings" && !isDetail) +
               "</nav>" +
               '<div style="flex:1"></div>' +
@@ -447,6 +459,204 @@
         return '<div class="kpis" style="margin-bottom:22px">' + summary + "</div>" +
           '<div style="margin:4px 2px 12px"><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Subscriptions</h2><span style="font-size:12.5px;color:var(--tx3)">Recurring billing across all academy accounts</span></div>' +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div class="am-scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="border-bottom:1px solid var(--bd2)">' + th + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+      }
+
+      /* ============ sales pipeline ============
+         Prospects we are selling TO, not tenants. Reads the operator-only
+         sales_* RPCs; the tables live in a `sales` schema PostgREST does
+         not expose, so this console is the only way in.
+
+         The message templates are here rather than in Postgres because
+         they are copy, not a rule — nothing computes off them. If step 3
+         automates sending, they move to the database so the console and
+         the sender cannot quote different words. */
+      var SALES_TPL = {
+        Cricket:
+          "Hi, is this {name}?\n\nI'm from Academy Manager, based here in Hyderabad. I built the app that Gen Alpha Cricket Academy runs on — attendance, fees and the parent reminders.\n\nBefore I pitch you anything: how do you track which parents have paid this month and which haven't? Excel, or a register?",
+        Swimming:
+          "Hi, is this {name}?\n\nI'm from Academy Manager, in Hyderabad — I build the app Raj Sports uses to run their batches across 5 centres here.\n\nOne question before I pitch anything: with batches turning over every month, how do you keep track of who's paid and who's due?",
+        _multibranch:
+          "Hi, is this {name}?\n\nI'm from Academy Manager, in Hyderabad. I build the software Raj Sports runs on — 5 centres, ~100 students, all on one screen.\n\nYou run several centres. How do you see all of them in one place today — do your coaches send you the register on WhatsApp?",
+        "Multi-sport":
+          "Hi — is this the right number for {name}?\n\nI'm from Academy Manager, based in Hyderabad. I build the platform Raj Sports runs on: 5 centres, 14 batches, 5 sports, ~100 students, in one app with their own name on it.\n\nSince you run several sports at different fees — when a parent asks what they owe, how do you work it out today?",
+        _default:
+          "Hi, is this {name}?\n\nI'm from Academy Manager, from Hyderabad. I build the software Raj Sports runs on — about 100 kids across 5 centres here, including DPS Miyapur and Hill County.\n\nBefore I pitch you anything: how are you keeping track of who's paid their monthly fee and who's still due?"
+      };
+
+      /* The console's esc() escapes & < > but not the double quote, because
+         it round-trips through textContent, where there is no attribute
+         context. That is fine everywhere it is used for text — and not fine
+         here, because these rows are built from names and URLs scraped off
+         third-party web pages, and this view puts them inside href and value
+         attributes. A single quote character in an academy name would break
+         out of the attribute.
+
+         So: escAttr for anything landing in an attribute, and safeUrl for
+         the source link, which additionally refuses any scheme that is not
+         http(s) — a scraped "javascript:" URL must not become clickable. */
+      function escAttr(s) {
+        return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+      function safeUrl(u) {
+        return /^https?:\/\//i.test(String(u || "")) ? escAttr(u) : "";
+      }
+
+      function salesMsg(l) {
+        var t = SALES_TPL[l.sport] ||
+                ((l.branches || 1) >= 2 ? SALES_TPL._multibranch : null) ||
+                SALES_TPL._default;
+        return t.replace("{name}", l.name);
+      }
+
+      var CONF_BADGE = {
+        verified:  ["#047857", "#ecfdf5", "verified"],
+        directory: ["#b45309", "#fffbeb", "directory"],
+        malformed: ["#b91c1c", "#fef2f2", "check"],
+        none:      ["#6b7280", "#f3f4f6", "no number"]
+      };
+      var STAGE_BADGE = {
+        new: ["#4b5563", "#f3f4f6"], contacted: ["#1d4ed8", "#eff6ff"],
+        replied: ["#047857", "#ecfdf5"], call_booked: ["#7c3aed", "#f5f3ff"],
+        demo_done: ["#0e7490", "#ecfeff"], won: ["#047857", "#dcfce7"],
+        lost: ["#6b7280", "#f3f4f6"]
+      };
+
+      function loadSales() {
+        if (state.sales.loading) return;
+        state.sales.loading = true;
+        var f = state.sales.f;
+        Promise.all([
+          rpc("sales_pipeline"),
+          rpc("sales_leads", {
+            p_priority: f.priority || null,
+            p_sport: f.sport || null,
+            p_stage: f.stage || null,
+            p_search: f.q || null,
+            p_callable: f.callable ? true : null,
+            p_limit: 400
+          })
+        ]).then(function (r) {
+          state.sales.pipeline = r[0] || null;
+          state.sales.leads = r[1] || [];
+          state.sales.loading = false;
+          state.sales.loaded = true;
+          render();
+        });
+      }
+
+      function salesAct(id, channel, outcome, direction) {
+        rpc("sales_log_touch", {
+          p_lead: id, p_channel: channel, p_outcome: outcome,
+          p_direction: direction || "out",
+          p_sent_from: state.sales.from
+        }).then(function () { state.sales.loaded = false; loadSales(); });
+      }
+
+      function salesView() {
+        var p = state.sales.pipeline, f = state.sales.f;
+        var leads = state.sales.leads;
+
+        if (!state.sales.loaded) {
+          return '<div style="padding:48px;text-align:center;color:var(--tx4);font-size:13px">Loading pipeline…</div>';
+        }
+
+        var kpi = function (label, val, sub, tone) {
+          return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px">' +
+            '<div style="font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">' + label + "</div>" +
+            '<div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:6px;color:' + (tone || "inherit") + '">' + val + "</div>" +
+            '<div style="font-size:11.5px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>";
+        };
+        var pr = (p && p.by_priority) || {}, st = (p && p.by_stage) || {};
+        var kpis = '<div class="cardgrid" style="margin-bottom:18px">' +
+          kpi("PROSPECTS", (p && p.total) || 0, "coaching academies, Hyderabad") +
+          kpi("CALLABLE NOW", (p && p.callable) || 0, ((p && p.verified) || 0) + " own-site verified", "#047857") +
+          kpi("PRIORITY A", pr.A || 0, "score 8+ · call this week", "#b45309") +
+          kpi("REPLIED", st.replied || 0, ((p && p.replies_7d) || 0) + " replies in 7d") +
+          kpi("NO NUMBER", (p && p.no_phone) || 0, "reach by DM or web form") +
+          kpi("SUPPRESSED", (p && p.dnc) || 0, "asked us to stop") +
+          "</div>";
+
+        // sending number. Recorded on every touch so a restricted sender is
+        // traceable to exactly what it had messaged.
+        var sender = '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 15px;margin-bottom:16px">' +
+          '<span class="mi" style="color:#b45309;font-size:19px">smartphone</span>' +
+          '<div style="font-size:12.5px;color:#78350f;flex:1;min-width:220px"><b>Sending from ' + esc(state.sales.from) + '</b> — must NOT be the number that sends tenant fee reminders. If that sender gets restricted for cold outreach, reminders stop for every academy.</div>' +
+          '<input id="salesFrom" value="' + escAttr(state.sales.from) + '" style="border:1px solid #fcd34d;border-radius:8px;padding:6px 9px;font-size:12.5px;width:130px;background:#fff" />' +
+          "</div>";
+
+        var chip = function (key, val, label) {
+          var on = (f[key] || "") === val || (key === "callable" && !!f.callable === (val === "1"));
+          return '<button data-sf="' + key + '" data-sv="' + escAttr(val) + '" style="border:1px solid ' + (on ? "var(--act)" : "var(--bd2)") + ';background:' + (on ? "var(--acs)" : "var(--card)") + ';color:' + (on ? "var(--act)" : "var(--tx2)") + ';border-radius:20px;padding:5px 13px;font-size:12.5px;font-weight:' + (on ? "600" : "500") + ';cursor:pointer">' + label + "</button>";
+        };
+        var sports = {};
+        leads.forEach(function (l) { if (l.sport) sports[l.sport.split(" / ")[0]] = 1; });
+        var sportOpts = ['<option value="">All sports</option>'].concat(
+          Object.keys(sports).sort().map(function (s) {
+            return '<option value="' + escAttr(s) + '"' + (f.sport === s ? " selected" : "") + ">" + esc(s) + "</option>";
+          })).join("");
+
+        var filters = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">' +
+          chip("priority", "", "All") + chip("priority", "A", "A · call now") +
+          chip("priority", "B", "B") + chip("priority", "C", "C") +
+          '<span style="width:1px;height:22px;background:var(--bd2);margin:0 3px"></span>' +
+          chip("callable", "1", "Has a number") +
+          chip("stage", "new", "Not yet contacted") +
+          chip("stage", "replied", "Replied") +
+          '<span style="flex:1"></span>' +
+          '<select id="salesSport" style="border:1px solid var(--bd2);border-radius:8px;padding:6px 9px;font-size:12.5px;background:var(--card)">' + sportOpts + "</select>" +
+          '<input id="salesQ" placeholder="Search name, area, number" value="' + escAttr(f.q || "") + '" style="border:1px solid var(--bd2);border-radius:8px;padding:6px 10px;font-size:12.5px;width:210px;background:var(--card)" />' +
+          "</div>";
+
+        var rows = leads.map(function (l) {
+          var cb = CONF_BADGE[l.phone_confidence] || CONF_BADGE.none;
+          var sb = STAGE_BADGE[l.stage] || STAGE_BADGE.new;
+          var prTone = l.priority === "A" ? "#b45309" : l.priority === "B" ? "#1d4ed8" : "#6b7280";
+          var alts = (l.alt_phones || []);
+          var phoneCell = l.phone
+            ? '<span style="font-weight:600;font-variant-numeric:tabular-nums">' + esc(l.phone) + "</span>" +
+              (alts.length ? '<span style="font-size:11px;color:var(--tx4)"> +' + alts.length + " alt</span>" : "")
+            : '<span style="color:var(--tx4)">—</span>';
+
+          var acts = l.do_not_contact
+            ? '<span style="font-size:11.5px;color:#b91c1c;font-weight:600">suppressed</span>'
+            : (l.wa_link
+                ? '<button data-swa="' + l.id + '" title="Open WhatsApp with the opener, and log it" style="border:none;background:#059669;color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">chat</span> WhatsApp</button>'
+                : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>') +
+              ' <button data-sact="' + l.id + '|call|no_answer" title="Called, no answer" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No answer</button>' +
+              ' <button data-sact="' + l.id + '|whatsapp|replied|in" title="They replied" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
+              ' <button data-sact="' + l.id + '|whatsapp|not_interested" title="Not interested" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
+              ' <button data-sdnc="' + l.id + '" title="They asked us to stop — suppresses every lead on this number, permanently" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Stop</button>';
+
+          return '<tr style="border-top:1px solid var(--bd3)">' +
+            '<td style="padding:11px 10px"><div style="font-size:13px;font-weight:600">' + esc(l.name) + "</div>" +
+              '<div style="font-size:11.5px;color:var(--tx4)">' + esc(l.sport || "—") + (l.area ? " · " + esc(l.area) : "") +
+              ((l.branches || 1) >= 2 ? ' · <b>' + l.branches + " centres</b>" : "") + "</div>" +
+              (l.tech_signal ? '<div style="font-size:11px;color:var(--tx4);margin-top:2px;max-width:430px">' + esc(l.tech_signal.slice(0, 110)) + "</div>" : "") + "</td>" +
+            '<td style="padding:11px 10px;text-align:center"><span style="font-size:13px;font-weight:700;color:' + prTone + '">' + l.priority + "</span>" +
+              '<div style="font-size:11px;color:var(--tx4)">' + l.score + "/10</div></td>" +
+            '<td style="padding:11px 10px">' + phoneCell +
+              '<div><span style="font-size:10.5px;font-weight:600;color:' + cb[0] + ";background:" + cb[1] + ';padding:1px 6px;border-radius:10px">' + cb[2] + "</span>" +
+              (safeUrl(l.phone_source_url) ? ' <a href="' + safeUrl(l.phone_source_url) + '" target="_blank" rel="noopener noreferrer" style="font-size:10.5px;color:var(--tx4)">source</a>' : "") + "</div></td>" +
+            '<td style="padding:11px 10px;font-size:12px;color:var(--tx2);white-space:nowrap">' + esc(l.suggested_plan || "") + "</td>" +
+            '<td style="padding:11px 10px"><span style="font-size:11px;font-weight:600;color:' + sb[0] + ";background:" + sb[1] + ';padding:2px 8px;border-radius:10px">' + esc(l.stage) + "</span>" +
+              (l.touch_count ? '<div style="font-size:10.5px;color:var(--tx4);margin-top:2px">' + l.touch_count + " touch" + (l.touch_count === 1 ? "" : "es") + "</div>" : "") + "</td>" +
+            '<td style="padding:11px 10px;white-space:nowrap">' + acts + "</td></tr>";
+        }).join("");
+
+        var note = '<div style="font-size:11.5px;color:var(--tx4);margin-top:12px;line-height:1.6">' +
+          "The WhatsApp button opens a chat with the opener pre-filled and logs the touch. It cannot attach the flyer — " +
+          "<code>wa.me</code> carries text only, so attach <code>academy-manager-flyer-social.png</code> by hand in the Business app. " +
+          "<b>Stop</b> writes every one of that lead's numbers to the do-not-contact list, so a later re-import cannot bring them back.</div>";
+
+        return kpis + sender + filters +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
+          '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">' +
+          '<thead><tr style="background:var(--fill)">' +
+          ['Academy', 'Pri', 'Number', 'Suggested plan', 'Stage', 'Action'].map(function (h, i) {
+            return '<th style="padding:9px 10px;text-align:' + (i === 1 ? "center" : "left") + ';font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">' + h.toUpperCase() + "</th>";
+          }).join("") + "</tr></thead><tbody>" +
+          (rows || '<tr><td colspan="6" style="padding:36px;text-align:center;color:var(--tx4);font-size:13px">No leads match these filters.</td></tr>') +
+          "</tbody></table></div></div>" + note;
       }
 
       function growthView(accts) {
@@ -806,7 +1016,53 @@
 
         if (e.target.closest("[data-menu]")) { var app = document.querySelector(".app"); if (app) app.classList.toggle("nav-open"); return; }
         var nav = e.target.closest("[data-nav]");
-        if (nav) { state.view = nav.getAttribute("data-nav"); state.sel = null; render(); scrollTop(); return; }
+        // ---- sales pipeline (before nav; the buttons live inside the table) ----
+        var swa = e.target.closest("[data-swa]");
+        if (swa) {
+          var lid = swa.getAttribute("data-swa");
+          var lead = state.sales.leads.filter(function (x) { return x.id === lid; })[0];
+          if (lead && lead.wa_link) {
+            // open the chat with the opener pre-filled, then log it. wa.me
+            // carries text only — the flyer is attached by hand.
+            window.open(lead.wa_link + "?text=" + encodeURIComponent(salesMsg(lead)),
+                        "_blank", "noopener");
+            rpc("sales_log_touch", {
+              p_lead: lid, p_channel: "whatsapp", p_outcome: "sent",
+              p_direction: "out", p_template: "opener_" + (lead.sport || "default"),
+              p_body: salesMsg(lead), p_sent_from: state.sales.from
+            }).then(function () { state.sales.loaded = false; loadSales(); });
+          }
+          return;
+        }
+        var sact = e.target.closest("[data-sact]");
+        if (sact) {
+          var a = sact.getAttribute("data-sact").split("|");
+          salesAct(a[0], a[1], a[2], a[3]);
+          return;
+        }
+        var sdnc = e.target.closest("[data-sdnc]");
+        if (sdnc) {
+          // irreversible by design: it writes every one of the lead's numbers
+          // to the do-not-contact list, which a re-import cannot undo.
+          if (window.confirm("Mark do-not-contact?\n\nThis suppresses every lead reachable on any of this academy's numbers, and a future re-import will not bring them back.")) {
+            rpc("sales_set_dnc", { p_lead: sdnc.getAttribute("data-sdnc"), p_reason: "asked us to stop" })
+              .then(function () { state.sales.loaded = false; loadSales(); });
+          }
+          return;
+        }
+        var sf = e.target.closest("[data-sf]");
+        if (sf) {
+          var k = sf.getAttribute("data-sf"), v = sf.getAttribute("data-sv");
+          if (k === "callable") state.sales.f.callable = !state.sales.f.callable;
+          else state.sales.f[k] = (state.sales.f[k] === v) ? "" : v;
+          state.sales.loaded = false; loadSales(); return;
+        }
+
+        if (nav) {
+          state.view = nav.getAttribute("data-nav"); state.sel = null;
+          if (state.view === "sales" && !state.sales.loaded) loadSales();
+          render(); scrollTop(); return;
+        }
         var open = e.target.closest("[data-open]");
         if (open) { state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
         if (e.target.closest("[data-back]")) { state.sel = null; render(); scrollTop(); return; }
@@ -912,6 +1168,26 @@
           if (h) { state.health = Object.assign({}, state.health, h); render(); }
         });
       }
+
+      /* sales filters: the select applies at once, the search on Enter or
+         blur. Re-rendering on every keystroke would refetch 400 rows per
+         character over a 180 ms round-trip. */
+      document.addEventListener("change", function (e) {
+        if (e.target.id === "salesSport") {
+          state.sales.f.sport = e.target.value;
+          state.sales.loaded = false; loadSales();
+        }
+        if (e.target.id === "salesFrom") {
+          // recorded on every touch, so a restricted sender is traceable
+          state.sales.from = e.target.value.replace(/\D/g, "") || state.sales.from;
+        }
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.target.id === "salesQ" && e.key === "Enter") {
+          state.sales.f.q = e.target.value.trim();
+          state.sales.loaded = false; loadSales();
+        }
+      });
 
       /* ============ boot ============ */
       render(); // shell first (empty), then hydrate

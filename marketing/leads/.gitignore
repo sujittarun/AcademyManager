@@ -1,0 +1,15 @@
+# Lead CSVs hold third-party phone numbers for people who are not our
+# customers and have not opted in. They must never enter git history.
+#
+# Machaxi's repo is kept private forever because its history holds member
+# names and phone numbers, and purge-pii-history.sh exists because removing
+# them after the fact is a separate, painful job. The cheap version of that
+# lesson is this file.
+#
+# The leads live in Postgres (sales.leads, operator-only, in a schema
+# PostgREST does not expose). The CSVs are working files — keep them in a
+# scratch directory, not here.
+*.csv
+*.tsv
+*.xlsx
+master*
