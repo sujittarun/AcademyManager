@@ -471,16 +471,32 @@
          automates sending, they move to the database so the console and
          the sender cannot quote different words. */
       var SALES_TPL = {
-        Cricket:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give cricket academies their own branded app \u2014 batches, attendance, fees and the parent reminders in one place. Gen Alpha Cricket Academy runs on it.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
-        Swimming:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give swimming academies their own branded app \u2014 batches, attendance, fees and the parent reminders in one place.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
-        _multibranch:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give coaching academies their own branded app \u2014 one runs 5 centres and about 100 students on ours, all on one screen.\n\nYou run several centres. Are you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
-        "Multi-sport":
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give multi-sport academies their own branded app \u2014 one runs 5 centres, 14 batches and 5 sports on ours, with their own name on it.\n\nSince your fees differ per sport: are you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
+        /* One opener, every sport.
+           It used to branch per sport and carry a reference clause — "one
+           runs 5 centres and about 100 students on ours, all on one screen"
+           — plus a line asserting "You run several centres." Both were cut:
+
+           · "one runs …" is a pronoun with no antecedent, and "all on one
+             screen" is filler. It buried the only concrete fact behind the
+             vaguest word in the sentence.
+           · telling a prospect about their own business spends a line saying
+             nothing, and 57 of the 112 numbers on this list are
+             directory-sourced with scraped branch counts — so asserting
+             their centre count risks being wrong on line three. Asking is
+             safe; telling is not.
+           · the customer reference is gone from message 1 on purpose. Our
+             tenants are not names a cold prospect recognises, so naming one
+             buys little here while competing with the question. Proof belongs
+             in the REPLY, where "who are you?" is the most common thing they
+             send and the detail actually lands. Keep tenant specifics out of
+             this file either way — it is served on a public site.
+
+           What is left is the academy's own name, what we do, and one
+           question about the thing they do by hand every month. Do not edit
+           this while the A/B test is running — both arms must send identical
+           copy or the result means nothing. */
         _default:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give coaching academies their own branded app \u2014 one runs 5 centres and about 100 students on ours.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies \u2014 batches, attendance, fees and the parent reminders in one place.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
       };
 
       /* The A/B arm comes from the DATABASE, never from the client.
@@ -529,10 +545,7 @@
       }
 
       function salesMsg(l) {
-        var t = SALES_TPL[l.sport] ||
-                ((l.branches || 1) >= 2 ? SALES_TPL._multibranch : null) ||
-                SALES_TPL._default;
-        return t.replace("{name}", salesName(l.name));
+        return SALES_TPL._default.replace("{name}", salesName(l.name));
       }
 
       var CONF_BADGE = {
