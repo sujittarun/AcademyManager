@@ -58,10 +58,11 @@ Pages serves the orphan **`gh-pages`** branch, not `main` — it holds only
 deliberate: the Sales tab copies it to the clipboard so an arm-B opener can
 be pasted into WhatsApp with one keystroke, and the browser can only read a
 blob it is allowed to fetch. It is a marketing screenshot of the demo
-tenant — no names, no phone numbers — so it is safe on the open web. That
-is deliberate: `main` carries every migration, `PLATFORM.md`, `scripts/`
-and the tenant briefs, and none of that should be fetchable from the site
-even though the repo is browsable. Verified after going live: the console
+tenant — no names, no phone numbers — so it is safe on the open web.
+
+Everything else stays off the branch on purpose: `main` carries every
+migration, `PLATFORM.md`, `scripts/` and the tenant briefs, and none of
+that should be fetchable from the site even though the repo is browsable. Verified after going live: the console
 returns 200, `/PLATFORM.md` and `/scripts/migrate.sh` return 404.
 
 To ship a console change: commit it on `main`, then copy those files onto
