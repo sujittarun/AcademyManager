@@ -583,7 +583,17 @@ function normalizeSampleReminderFlow(value: unknown, action: unknown): string {
 
 function parseBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.toLowerCase() === "true";
+  if (typeof value === "string") {
+    // env() returns "" for a secret that was never set, and an empty string is not an
+    // answer — it must mean "use the default". Reading it as `"" === "true"` made every
+    // unset flag false and silently switched direct-pay reminders off when this function
+    // moved to the platform project, so every parent got the old plan-button template.
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return fallback;
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+    return fallback;
+  }
   return fallback;
 }
 
