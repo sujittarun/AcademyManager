@@ -629,6 +629,65 @@ Those hold what is true for ONE tenant this week — Leo being correctly
 MPP being React on purpose — the things a general prompt cannot carry and
 a fresh chat otherwise re-learns the hard way.
 
+## Say only what you have checked
+
+Six statements in one session on 2026-08-12 were confidently wrong. None
+was a coin flip; they fall into four repeatable shapes, and each has a
+cheap defence.
+
+| What was said | Why it was wrong |
+|---|---|
+| "The plan is to transfer the project between orgs" | Reconstructed from the live dashboard. The decision on record was the opposite — move the subscription, not the project. |
+| "Realtime publishes nothing and is unfixed" | It had been fixed earlier **in the same session**, by me. |
+| "MPP writes to zero shared tables" | `grep 'from("members")'` found nothing. MPP writes through RPC helpers — `record_fee_payment`, `void_payment`, `discontinue_member`. |
+| "Ask the owner if students were stranded in localStorage" | Built on the line above. 63 students were in Postgres, deleted deliberately for handover, with a backup asserted in the same transaction. |
+| "Meta is delivering callbacks to the dead project" | Compared `16:29` from a database rendering IST against `13:08` from one rendering UTC. The legacy row was two hours *older*. |
+| "The columns are missing from reminder_events" — five times | The owner was reading `public.reminder_events`; every answer described `genalpha.reminder_events`. |
+
+**The four shapes, and the rule for each.**
+
+1. **Reconstructing a decision from current state.** What a system looks
+   like now does not tell you what was agreed, or what you already did an
+   hour ago. Read the record — this file, the migration headers, the
+   ledger, `git log` — before describing a plan or calling work
+   outstanding.
+
+2. **A negative from a single search.** "X does not exist" and "nothing
+   does Y" are the least reliable things said here, because one narrow
+   grep feels like proof. A negative needs either a second search shaped
+   differently, or a behavioural test. Never ship one on its own.
+
+3. **Comparing values whose units were never established.** Two numbers
+   that look comparable and are not. See the timestamp section below; the
+   same trap applies to counts across schemas, and to sizes before and
+   after a `gc`.
+
+4. **Answering about the wrong object.** Schema-qualify everything.
+   `public.reminder_events` and `genalpha.reminder_events` are different
+   relations with different column counts, and "the table" is not an
+   answer to which one.
+
+**Distinguish verified from believed, out loud.** The real damage is not
+being wrong; it is being wrong in the same confident register as being
+right, so the reader cannot tell which they are getting. Say "I checked
+X and saw Y", or say "I think" — never state an unchecked inference in
+the voice of a measurement.
+
+**What actually catches this** is not more care. It is a check that runs:
+
+- `2026-08-12t` asserted, as anon over the real API, that `phone`, `name`
+  and `amount` were refused. The reasoning behind that migration was
+  wrong — anon held a blanket `arwdDxtm` grant, so the "fix" would have
+  published every parent's phone number. The check caught it; the
+  thinking did not.
+- The touch-trigger probe printed `UNCHANGED` rather than being assumed.
+- Behaviour was tested over HTTP with the real anon key, not simulated
+  in-database.
+
+So: assert on content, exercise the real path, and put the assertion in
+the migration where it runs again. A conclusion defended only by
+reasoning is the kind that has been wrong here.
+
 ## Timestamps: say the zone, or you will get it wrong
 
 **Every timestamp you compare, print or reason about must carry its zone
