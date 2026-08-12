@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f4f3ed" />
+  <link rel="icon" type="image/png" href="assets/branding/favicon.png" />
+  <title>Academy Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/console.css?v=16" />
+</head>
+<body>
+  <!-- operator sign-in.
+       NEVER put value= on these two inputs. This file has been served
+       from GitHub Pages, so a value here is a live operator credential
+       on the open web — and it stays in git history after removal.
+       On 2026-08-05 exactly that happened: the operator password was
+       public on both this console and CourtSync. -->
+  <div class="gate" id="gate">
+    <form class="gate-card" id="gateForm">
+      <img src="assets/branding/logo-full.jpg" alt="Academy Manager — Sports · Operations · Insight" style="width:250px;display:block;margin:0 auto 2px;border-radius:14px" />
+      <p>Operator console. Account-level metrics only — member data stays inside each academy.</p>
+      <label><span>Email</span><input type="email" name="email" required  placeholder="you@academymanager.in" /></label>
+      <label><span>Password</span><input type="password" name="password" required  placeholder="••••••••" /></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      /* ============ platform DB (anon key; RLS-gated) ============ */
+      var PROJECT = "https://ugsklcipzyiogxynshnh.supabase.co";
+      var BASE = PROJECT + "/rest/v1";
+      var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
+      var COURTSYNC_URL = "https://sujittarun.github.io/CourtSync/";
+
+      function amSession() { try { return JSON.parse(localStorage.getItem("am-session")); } catch (e) { return null; } }
+      function bearerTok() {
+        var s = amSession();
+        if (!s || !s.access_token) return Promise.resolve(KEY);
+        if (s.expires_at - Date.now() > 90 * 1000) return Promise.resolve(s.access_token);
+        return fetch(PROJECT + "/auth/v1/token?grant_type=refresh_token", {
+          method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: s.refresh_token }),
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.access_token) throw new Error("expired");
+          s.access_token = j.access_token; s.refresh_token = j.refresh_token;
+          s.expires_at = Date.now() + (j.expires_in || 3600) * 1000;
+          localStorage.setItem("am-session", JSON.stringify(s));
+          return s.access_token;
+        }).catch(function () { localStorage.removeItem("am-session"); return KEY; });
+      }
+      function get(path) {
+        return bearerTok().then(function (tok) { return fetch(BASE + path, { headers: { apikey: KEY, Authorization: "Bearer " + tok } }); })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(function () { return []; });
+      }
+      function rpc(name, args) {
+        return bearerTok().then(function (tok) {
+          return fetch(BASE + "/rpc/" + name, { method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
+        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(function () { return null; });
+      }
+
+      /* ============ sign-in gate ============ */
+      var gate = document.getElementById("gate");
+      var s0 = amSession();
+      if (s0 && !s0.access_token) { localStorage.removeItem("am-session"); s0 = null; }
+      if (s0) gate.classList.add("hide");
+      document.getElementById("gateForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(this);
+        fetch(PROJECT + "/auth/v1/token?grant_type=password", {
+          method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: fd.get("email"), password: fd.get("password") }),
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          var meta = (j.user && j.user.app_metadata) || {};
+          if (j.access_token && meta.am_role === "operator") {
+            localStorage.setItem("am-session", JSON.stringify({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: j.user.email, role: "operator" }));
+            gate.classList.add("hide"); location.reload(); return;
+          }
+          throw new Error(j.access_token ? "not an operator account" : (j.error_description || "wrong credentials"));
+        }).catch(function (err) { alert("Sign-in failed: " + err.message); });
+      });
+
+      /* ============ helpers ============ */
+      function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+      function daysAgo(n) { var d = new Date(); d.setDate(d.getDate() - n); return iso(d); }
+      function inr(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
+      function inrK(n) { n = Number(n || 0); if (n >= 1e5) { var l = n / 1e5; return "₹" + (l >= 10 ? l.toFixed(1) : l.toFixed(2)) + "L"; } if (n >= 1000) return "₹" + Math.round(n / 1000) + "k"; return "₹" + n; }
+      function num(n) { return Number(n || 0).toLocaleString("en-IN"); }
+      function fmtDate(s) { try { return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); } catch (e) { return "—"; } }
+      function agoH(h) { if (h == null) return "Never"; if (h < 1) return "Just now"; if (h < 24) return Math.round(h) + "h ago"; return Math.round(h / 24) + "d ago"; }
+      var esc = function (s) { var d = document.createElement("i"); d.textContent = String(s == null ? "" : s); return d.innerHTML; };
+
+      var CH = { Website: "#6366f1", Playo: "#10b981", Hudle: "#f59e0b", District: "#3b82f6", "Walk-in": "#94a3b8" };
+      function sportIcon(sport) { return ({ Tennis: "sports_tennis", Cricket: "sports_cricket", Football: "sports_soccer", Badminton: "sports_tennis", Swimming: "pool", "Multi-sport": "exercise" })[sport] || "exercise"; }
+      function tint(sport) { return ({ Tennis: ["#0f766e", "#f0fdfa"], Cricket: ["#b45309", "#fffbeb"], Badminton: ["#7c3aed", "#f5f3ff"], Football: ["#1d4ed8", "#eff6ff"], "Multi-sport": ["#be123c", "#fff1f2"], Swimming: ["#0369a1", "#f0f9ff"] })[sport] || ["#4b5563", "#f3f4f6"]; }
+      function healthStyle(h) { return ({ Active: ["#047857", "#ecfdf5"], Quiet: ["#b45309", "#fffbeb"], "At risk": ["#b91c1c", "#fef2f2"], Onboarding: ["#4338ca", "#eef2ff"] })[h] || ["#475569", "#f1f5f9"]; }
+      function billStyle(b) { return ({ paid: ["#047857", "#ecfdf5", "Paid"], pending: ["#b45309", "#fffbeb", "Pending"], overdue: ["#b91c1c", "#fef2f2", "Overdue"] })[b] || ["#b45309", "#fffbeb", "Pending"]; }
+
+      function bars(vals, h, gap) {
+        var max = Math.max.apply(null, vals.concat([1]));
+        return '<div style="display:flex;align-items:flex-end;gap:' + (gap || 2) + 'px;height:' + h + 'px;width:100%">' +
+          vals.map(function (v) { return '<div style="flex:1;min-height:2px;height:' + Math.max(6, Math.round(v / max * 100)) + '%;background:' + (v ? "var(--ac)" : "#eceef2") + ';border-radius:2px 2px 0 0"></div>'; }).join("") + "</div>";
+      }
+      // premium area+line sparkline (responsive width, crisp non-scaling stroke)
+      var _sgn = 0;
+      function spark(vals, h, color, draw) {
+        color = color || "var(--ac)";
+        vals = (vals || []).map(Number);
+        if (!vals.length) vals = [0, 0];
+        if (vals.length === 1) vals = [vals[0], vals[0]];
+        var allZero = vals.every(function (v) { return !v; });
+        var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+        var n = vals.length, W = 100, P = 3, ih = h - P * 2;
+        function y(v) { var t = max === min ? 0.5 : (v - min) / (max - min); return (P + (1 - t) * ih).toFixed(2); }
+        var pts = vals.map(function (v, i) { return (i / (n - 1) * W).toFixed(2) + " " + y(v); });
+        if (allZero) { // flat baseline so an idle academy still reads as a line, not empty
+          return '<svg class="spark" viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" style="height:' + h + 'px">' +
+            '<path d="M0 ' + (h - P) + " L" + W + " " + (h - P) + '" style="stroke:#e2e5ea;stroke-width:1.4" vector-effect="non-scaling-stroke" fill="none"/></svg>';
+        }
+        var line = "M" + pts.join(" L");
+        var area = "M0 " + h + " L" + pts.join(" L") + " L" + W + " " + h + " Z";
+        var gid = "sg" + (++_sgn);
+        return '<svg class="spark" viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" style="height:' + h + 'px;--len:210">' +
+          '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity=".24"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
+          '<path d="' + area + '" fill="url(#' + gid + ')"/>' +
+          '<path class="ln' + (draw ? " draw" : "") + '" d="' + line + '" style="stroke:' + color + '" vector-effect="non-scaling-stroke"/></svg>';
+      }
+      function mixBar(mix, h) {
+        var keys = Object.keys(mix).sort(function (x, y) { return mix[y] - mix[x]; });
+        var total = keys.reduce(function (s, k) { return s + mix[k]; }, 0) || 1;
+        if (!keys.length) return '<div style="height:' + h + 'px;border-radius:' + (h / 2) + 'px;background:#eceef2"></div>';
+        return '<div style="display:flex;height:' + h + 'px;border-radius:' + (h / 2) + 'px;overflow:hidden;gap:2px">' +
+          keys.map(function (k) { return '<div style="width:' + (mix[k] / total * 100) + '%;background:' + (CH[k] || "#b9b7ac") + '"></div>'; }).join("") + "</div>";
+      }
+      function pill(text, colors, small) {
+        var p = small ? "3px 8px 3px 7px" : "3px 10px 3px 8px", fs = small ? "11px" : "11.5px", dot = small ? 5 : 6;
+        return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:' + fs + ';font-weight:600;padding:' + p + ';border-radius:20px;background:' + colors[1] + ';color:' + colors[0] + ';white-space:nowrap"><span style="width:' + dot + 'px;height:' + dot + 'px;border-radius:50%;background:' + colors[0] + '"></span>' + esc(text) + "</span>";
+      }
+
+      /* ============ state + data ============ */
+      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {} };
+
+      // per-tenant raw activity — last 7 days of app events, fetched on demand
+      function loadEvents(id) {
+        if (state.ev[id] || state.evLoading[id]) return;
+        state.evLoading[id] = true;
+        get("/events?tenant_id=eq." + encodeURIComponent(id) + "&at=gte." + daysAgo(6) +
+          "&order=at.desc&limit=800&select=name,props,page,session_id,at")
+          .then(function (rows) {
+            state.ev[id] = rows || []; state.evLoading[id] = false;
+            if (state.sel === id) render();
+          });
+      }
+
+      function usageArray(byDay) { var out = []; for (var i = 13; i >= 0; i--) out.push((byDay || {})[daysAgo(i)] || 0); return out; }
+      function normWeekly(w) { w = (w || []).slice(-8); while (w.length < 8) w.unshift(0); return w; }
+      function mapAccount(r) {
+        var cfg = r.config || {}, lastAt = r.last_event_at || null;
+        var lastH = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : null;
+        var health = !lastAt ? "Onboarding" : lastH <= 48 ? "Active" : lastH <= 14 * 24 ? "Quiet" : "At risk";
+        var renewsPast = r.renews_on && new Date(r.renews_on) < new Date();
+        var st = r.sub_status || "";
+        var bill = (st === "overdue" || renewsPast) ? "overdue" : (st === "active" || st === "paid") ? "paid" : "pending";
+        return {
+          id: r.tenant_id, name: r.name, sport: cfg.sport || "Multi-sport", icon: sportIcon(cfg.sport), city: cfg.city || "",
+          owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, health: health,
+          gmv: r.gmv_30d || 0, prev: r.gmv_prev || 0, bookings: r.bookings_30d || 0, enq: r.apps_30d || 0,
+          players: r.active_players || 0, cap: r.player_cap || 0, sessions: r.sessions_30d || 0, activeDays: r.active_days_30d || 0,
+          lastH: lastH, bill: bill, renews: bill === "overdue" ? "Overdue" : (r.renews_on ? fmtDate(r.renews_on) : "—"),
+          method: cfg.billing ? "UPI · Autopay" : "—", msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
+          errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
+          wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
+          federated: !!r.federated, rollupAt: r.rollup_at || null,
+          subStatus: r.sub_status || "",
+          tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
+        };
+      }
+      function sortedData() {
+        var k = state.sortKey, dir = state.sortDir === "asc" ? 1 : -1, hr = { Active: 4, Quiet: 3, "At risk": 2, Onboarding: 1 };
+        return state.data.slice().sort(function (a, b) {
+          if (k === "name") return a.name < b.name ? -dir : a.name > b.name ? dir : 0;
+          var va, vb;
+          if (k === "health") { va = hr[a.health]; vb = hr[b.health]; }
+          else if (k === "ago") { va = a.lastH == null ? 1e9 : a.lastH; vb = b.lastH == null ? 1e9 : b.lastH; }
+          else { va = a[k] || 0; vb = b[k] || 0; }
+          return (va - vb) * dir;
+        });
+      }
+
+      /* ============ render ============ */
+      var root = document.getElementById("root");
+
+      function navBtn(key, label, icon, badge, active) {
+        return '<button class="nav-item' + (active ? " active" : "") + '" data-nav="' + key + '"><span class="mi" style="font-size:20px">' + icon + "</span><span>" + label + '</span><span style="flex:1"></span>' +
+          (badge ? '<span style="font-size:11px;font-weight:600;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px">' + badge + "</span>" : "") + "</button>";
+      }
+
+      function render() {
+        var accts = state.data, isDetail = !!state.sel, view = state.view;
+        var sel = isDetail ? accts.filter(function (a) { return a.id === state.sel; })[0] : null;
+        var overdue = accts.filter(function (a) { return a.bill === "overdue"; }).length;
+        var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
+        var billBadge = (overdue + pendingC) || "";
+
+        var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], settings: ["Settings", "Organization & console configuration"] };
+        var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
+        var pageSub = isDetail ? (sel ? sel.sub : "") : titles[view][1];
+
+        // sidebar sync-engine card from platform_health
+        var h = state.health || {};
+        var dead = (h.dead_letters || []).length, gaps = h.gap_count || 0, stale = (h.stale_integrations || []).length;
+        var pend = (h.jobs && h.jobs.pending) || 0, oldest = (h.jobs && h.jobs.oldest_pending_mins) || 0;
+        var engineBad = dead || gaps || (pend && oldest > 30);
+        var engineDot = engineBad ? "#d97706" : "#16a34a", engineRing = engineBad ? "#fef3c7" : "#dcfce7";
+        var engineLabel = engineBad ? "Degraded" : "Operational";
+        var engineStat = engineBad ? ((gaps || dead || pend) + " to clear") : "99.9%";
+
+        var body =
+          (state.loaded && !accts.length ? emptyPortfolio() :
+            isDetail ? detailView(sel) :
+            view === "overview" ? overviewView(accts, overdue, pendingC) :
+            view === "academies" ? academiesView(accts) :
+            view === "billing" ? billingView(accts) :
+            view === "growth" ? growthView(accts) :
+            settingsView());
+
+        root.innerHTML =
+          '<div class="app">' +
+            '<div class="am-backdrop" data-menu></div>' +
+            // sidebar
+            '<aside class="am-side">' +
+              '<div class="am-brand">' +
+                '<img src="assets/branding/logo-mark.jpg" alt="" style="width:54px;height:35px;object-fit:cover;border-radius:10px;flex:none;box-shadow:0 5px 14px -7px rgba(28,72,57,.45)" />' +
+                '<div style="min-width:0"><div class="am-wordmark">Academy Manager</div><div class="am-edition">OPERATOR SUITE</div></div>' +
+              "</div>" +
+              '<nav style="display:flex;flex-direction:column;gap:3px;margin-top:4px">' +
+                navBtn("overview", "Insight", "space_dashboard", "", view === "overview" && !isDetail) +
+                navBtn("academies", "Academies", "apartment", "", view === "academies" && !isDetail) +
+                navBtn("billing", "Billing", "receipt_long", billBadge, view === "billing" && !isDetail) +
+                navBtn("growth", "Growth", "trending_up", "", view === "growth" && !isDetail) +
+                navBtn("settings", "Settings", "settings", "", view === "settings" && !isDetail) +
+              "</nav>" +
+              '<div style="flex:1"></div>' +
+              '<div style="border:1px solid var(--bd2);border-radius:12px;padding:12px;background:var(--fill)">' +
+                '<div style="font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:0.03em">SYNC ENGINE</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:9px"><span style="width:8px;height:8px;border-radius:50%;background:' + engineDot + ';box-shadow:0 0 0 3px ' + engineRing + '"></span><span style="font-size:12.5px;font-weight:600">' + engineLabel + '</span><span style="flex:1"></span><span style="font-size:11.5px;color:var(--tx3)">' + engineStat + "</span></div>" +
+              "</div>" +
+              '<div style="display:flex;align-items:center;gap:10px;padding:12px 6px 2px;margin-top:8px;border-top:1px solid var(--bd2)">' +
+                '<div style="width:34px;height:34px;border-radius:50%;background:var(--acs);color:var(--act);display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none">RK</div>' +
+                '<div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Operator</div><div style="font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">operator@academymanager.in</div></div>' +
+                '<span class="mi" data-signout style="font-size:18px;color:var(--tx5);cursor:pointer" title="Sign out">logout</span>' +
+              "</div>" +
+            "</aside>" +
+            // main
+            '<main class="am-main">' +
+              '<header class="am-top">' +
+                '<button class="am-burger am-showm" data-menu aria-label="Menu"><span class="mi">menu</span></button>' +
+                (isDetail ? '<button class="btn-g" data-back style="display:flex;align-items:center;gap:5px;background:none;border:1px solid var(--bd-btn);border-radius:8px;padding:6px 11px 6px 8px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:500;color:#5b6470"><span class="mi" style="font-size:18px">arrow_back</span>Portfolio</button>' : "") +
+                '<div style="min-width:0"><h1 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageTitle) + '</h1><div style="font-size:12.5px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageSub) + "</div></div>" +
+                '<div style="flex:1"></div>' +
+                '<div class="am-search" style="display:flex;align-items:center;gap:8px;background:var(--page);border:1px solid var(--bd);border-radius:9px;padding:8px 12px;width:230px;color:var(--tx3)"><span class="mi" style="font-size:18px">search</span><span style="font-size:13px">Search academies…</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;border:1px solid #dde0e5;border-radius:5px;padding:0 5px;background:#fff">⌘K</span></div>' +
+                '<span class="am-prod" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
+                '<button class="notif" style="width:38px;height:38px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative"><span class="mi" style="font-size:20px;color:#5b6470">notifications</span>' + (engineBad || overdue ? '<span style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#f43f5e;border:1.5px solid #fff"></span>' : "") + "</button>" +
+              "</header>" +
+              '<div class="am-scroll" id="amScroll"><div class="view">' + body + "</div></div>" +
+            "</main>" +
+          "</div>" + waPopup();
+      }
+
+      function kpiCard(icon, value, label, sub, trend, trendColor, trendIcon) {
+        return '<div class="kpi">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between">' +
+            '<div class="kpi-ic"><span class="mi">' + icon + "</span></div>" +
+            (trend ? '<span class="trend" style="color:' + trendColor + '"><span class="mi">' + trendIcon + "</span>" + trend + "</span>" : "") +
+          "</div>" +
+          '<div class="kpi-num">' + value + "</div>" +
+          '<div class="kpi-label">' + label + "</div>" +
+          '<div class="kpi-sub">' + sub + "</div></div>";
+      }
+
+      function performanceChart(vals) {
+        vals = (vals || []).map(Number);
+        while (vals.length < 8) vals.unshift(0);
+        var W = 920, H = 220, L = 48, R = 18, T = 20, B = 34;
+        var max = Math.max.apply(null, vals.concat([1]));
+        var top = max * 1.18;
+        function x(i) { return L + i * ((W - L - R) / (vals.length - 1)); }
+        function y(v) { return T + (1 - v / top) * (H - T - B); }
+        var pts = vals.map(function (v, i) { return x(i).toFixed(1) + " " + y(v).toFixed(1); });
+        var line = "M" + pts.join(" L");
+        var area = line + " L" + x(vals.length - 1).toFixed(1) + " " + (H - B) + " L" + L + " " + (H - B) + " Z";
+        var grid = [0, .33, .66, 1].map(function (p) {
+          var gy = T + p * (H - T - B), value = top * (1 - p);
+          return '<line x1="' + L + '" y1="' + gy + '" x2="' + (W - R) + '" y2="' + gy + '" class="perf-grid"/>' +
+            '<text x="0" y="' + (gy + 4) + '" class="perf-axis">' + (value ? inrK(Math.round(value)) : "₹0") + "</text>";
+        }).join("");
+        var labels = ["8 wks", "7 wks", "6 wks", "5 wks", "4 wks", "3 wks", "2 wks", "This wk"];
+        var xlabels = labels.map(function (label, i) { return '<text x="' + x(i) + '" y="211" text-anchor="middle" class="perf-axis">' + label + "</text>"; }).join("");
+        var li = vals.length - 1, lx = x(li), ly = y(vals[li]);
+        return '<svg class="performance-svg" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Gross volume performance over eight weeks">' +
+          '<defs><linearGradient id="performanceArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5f7f70" stop-opacity=".22"/><stop offset="1" stop-color="#5f7f70" stop-opacity="0"/></linearGradient></defs>' +
+          grid + xlabels + '<path d="' + area + '" class="perf-area"/><path d="' + line + '" class="perf-line"/>' +
+          '<line x1="' + lx + '" y1="' + T + '" x2="' + lx + '" y2="' + (H - B) + '" class="perf-guide"/>' +
+          '<circle cx="' + lx + '" cy="' + ly + '" r="5" class="perf-dot"/>' +
+          '<g class="perf-tip" transform="translate(' + Math.max(L, lx - 78) + " " + Math.max(4, ly - 46) + ')"><rect width="76" height="34" rx="8"/><text x="38" y="14" text-anchor="middle">This week</text><text x="38" y="27" text-anchor="middle">' + inrK(vals[li]) + "</text></g></svg>";
+      }
+
+      function insightMetric(icon, label, value, delta, tone) {
+        return '<div class="insight-metric"><div class="metric-label"><span class="mi">' + icon + "</span>" + label + '</div><div class="metric-value">' + value + '</div><div class="metric-delta ' + (tone || "") + '">' + delta + "</div></div>";
+      }
+
+      function overviewView(accts, overdue, pendingC) {
+        var totMrr = 0, totGmv = 0, totPrev = 0, totEnq = 0, active = 0, onboarding = 0, sessions = 0, bookings = 0;
+        var weekly = [0, 0, 0, 0, 0, 0, 0, 0], counts = { Active: 0, Quiet: 0, "At risk": 0, Onboarding: 0 };
+        accts.forEach(function (a) {
+          totMrr += a.mrr; totGmv += a.gmv; totPrev += a.prev; totEnq += a.enq; sessions += a.sessions; bookings += a.bookings;
+          if (a.health === "Active") active++; if (a.health === "Onboarding") onboarding++;
+          counts[a.health] = (counts[a.health] || 0) + 1;
+          a.weekly.forEach(function (v, i) { weekly[i] += Number(v || 0); });
+        });
+        var gmvPct = totPrev ? Math.round((totGmv - totPrev) / totPrev * 100) : 0, gmvUp = gmvPct >= 0;
+        var activePct = accts.length ? Math.round(active / accts.length * 100) : 0;
+        var avgBooking = bookings ? Math.round(totGmv / bookings) : 0;
+
+        var h = state.health || {}, parts = [];
+        if ((h.stale_integrations || []).length) parts.push((h.stale_integrations || []).length + " integrations stale");
+        if (overdue) parts.push(overdue + " overdue subscription" + (overdue > 1 ? "s" : ""));
+        if (h.gap_count) parts.push(h.gap_count + " data gaps");
+        if (h.jobs && h.jobs.pending) parts.push(h.jobs.pending + " sync jobs queued");
+        // client-side errors thrown inside a tenant's app in the last 24h.
+        // Grouped in SQL by platform_errors(); this shows the count and who,
+        // never a log wall — the detail stays in the database.
+        var ce = h.client_errors_24h || [];
+        if (ce.length) {
+          var byTenant = {};
+          ce.forEach(function (e) { byTenant[e.tenant_id] = true; });
+          parts.push(ce.length + " app error" + (ce.length > 1 ? "s" : "") +
+                     " (" + Object.keys(byTenant).join(", ") + ")");
+        }
+        // an anon RLS policy with no tenant filter is a cross-tenant leak
+        if ((h.rls_unscoped || []).length) parts.push("RLS: " + h.rls_unscoped.length + " unscoped policy");
+        if ((h.rpc_anon_callable || []).length) parts.push("RPC: " + h.rpc_anon_callable.length + " anon-callable");
+
+        var banner = parts.length ? '<div class="attention-strip"><span class="attention-icon"><span class="mi fill">priority_high</span></span><div><b>Needs attention</b><span>' + esc(parts.join(" · ")) + '</span></div><button data-issues="1">Review issues<span class="mi">arrow_forward</span></button></div>' : '<div class="attention-strip is-clear"><span class="attention-icon"><span class="mi fill">check</span></span><div><b>Everything looks healthy</b><span>All academy feeds and subscriptions are up to date.</span></div></div>';
+
+        var metricRail = insightMetric("payments", "Gross volume", inrK(totGmv), (totPrev ? (gmvUp ? "+" : "") + gmvPct + "% vs prior period" : "First reporting period"), gmvUp ? "positive" : "negative") +
+          insightMetric("account_balance_wallet", "Recurring revenue", inr(totMrr), accts.length + " subscriptions", "") +
+          insightMetric("monitoring", "Active portfolio", activePct + "%", active + " of " + accts.length + " academies", activePct >= 70 ? "positive" : "caution") +
+          insightMetric("event_available", "Avg. booking value", avgBooking ? inr(avgBooking) : "—", bookings ? num(bookings) + " bookings" : "No bookings yet", "");
+
+        var healthTotal = accts.length || 1;
+        var workflow = [
+          ["Active", counts.Active, "#557566"], ["Onboarding", counts.Onboarding, "#8f86c9"], ["Quiet", counts.Quiet, "#d8a54d"], ["At risk", counts["At risk"], "#c86f63"]
+        ].map(function (x) { return '<div class="workflow-row"><div class="workflow-label"><span class="workflow-dot" style="background:' + x[2] + '"></span><span>' + x[0] + '</span><b>' + x[1] + '</b></div><div class="workflow-track"><span style="--workflow:' + Math.round(x[1] / healthTotal * 100) + '%;background:' + x[2] + '"></span></div></div>'; }).join("");
+
+        var stale = (h.stale_integrations || []).length, gaps = h.gap_count || 0, pendingJobs = (h.jobs && h.jobs.pending) || 0;
+        var healthScore = Math.max(0, 100 - stale * 6 - gaps * 8 - pendingJobs * 2);
+        var systemBars = [100, 100, 98, Math.max(40, healthScore - 4), healthScore, healthScore].map(function (v, i) { return '<span style="--system:' + v + '%;--delay:' + (i * 55) + 'ms"></span>'; }).join("");
+
+        var cols = [["name", "Academy", "11px 18px"], ["plan", "Plan", 0, false], ["mrr", "MRR"], ["gmv", "GMV · 30d"], ["bookings", "Bookings"], ["enq", "Enquiries"], ["usage", "Usage · 14d", 0, false], ["health", "Status"], ["ago", "Last active"]];
+        var thead = cols.map(function (c) {
+          var key = c[0], label = c[1], pad = c[2] || "11px 12px", sortable = c[3] !== false, actv = state.sortKey === key;
+          var arrow = actv ? (state.sortDir === "asc" ? "arrow_upward" : "arrow_downward") : "";
+          return '<th ' + (sortable ? 'class="thsort" data-sort="' + key + '"' : "") + ' style="text-align:left;padding:' + pad + ';font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:' + (actv ? "#1a1d21" : "var(--tx4)") + ';white-space:nowrap;user-select:none"><span style="display:inline-flex;align-items:center;gap:3px">' + label + (arrow ? '<span class="mi" style="font-size:15px;color:var(--ac)">' + arrow + "</span>" : "") + "</span></th>";
+        }).join("");
+        var rows = sortedData().map(function (a) {
+          var t = tint(a.sport), pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+          return '<tr class="row" data-open="' + a.id + '" style="border-bottom:1px solid var(--bd3);cursor:pointer">' +
+            '<td style="padding:13px 18px"><div style="display:flex;align-items:center;gap:12px"><div style="width:38px;height:38px;border-radius:10px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:20px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:11.5px;color:var(--tx4)">' + esc(a.sub) + "</div></div></div></td>" +
+            '<td style="padding:13px 12px"><span style="border:1px solid var(--bd-btn);border-radius:6px;padding:2px 8px;font-weight:600;font-size:11.5px;white-space:nowrap;color:var(--tx2)">' + esc(a.plan) + "</span></td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">' + inr(a.mrr) + "</td>" +
+            '<td style="padding:13px 12px;white-space:nowrap"><span style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + "</span>" + (a.prev ? '<span style="font-size:11.5px;font-weight:600;margin-left:6px;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.bookings || "—") + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--tx2)">' + (a.enq || "—") + "</td>" +
+            '<td style="padding:13px 12px;min-width:120px"><div style="width:112px;height:28px">' + spark(a.usage.slice(-14), 28, "var(--ac)") + "</div></td>" +
+            '<td style="padding:13px 12px">' + pill(a.health, healthStyle(a.health)) +
+              (a.federated ? ' <span style="font-size:10.5px;color:var(--tx4);white-space:nowrap">own project</span>' : "") + "</td>" +
+            '<td style="padding:13px 18px 13px 12px;font-size:12.5px;color:var(--tx3);white-space:nowrap">' + agoH(a.lastH) + "</td></tr>";
+        }).join("");
+
+        return '<div class="insight-toolbar"><div class="filter-group"><button><span class="mi">calendar_today</span><span><small>Date range</small>Last 8 weeks</span><span class="mi chevron">expand_more</span></button><button><span class="mi">compare_arrows</span><span><small>Compare to</small>Previous period</span><span class="mi chevron">expand_more</span></button></div><div class="toolbar-actions"><button>All academies<span class="mi chevron">expand_more</span></button><button class="export-btn"><span class="mi">ios_share</span>Export</button></div></div>' +
+          banner +
+          '<section class="insight-card performance-card"><div class="panel-head"><div><span class="eyebrow">PORTFOLIO PERFORMANCE</span><h2>Gross volume trend</h2><p>Processed revenue across every academy account</p></div><button class="panel-menu"><span class="mi">tune</span>View: weekly<span class="mi chevron">expand_more</span></button></div><div class="performance-chart">' + performanceChart(weekly) + '</div><div class="metric-rail">' + metricRail + "</div></section>" +
+          '<div class="insight-grid"><section class="insight-card workflow-card"><div class="panel-head"><div><span class="eyebrow">ACCOUNT MIX</span><h2>Portfolio workflow</h2><p>Lifecycle stage across client academies</p></div><span class="panel-badge">' + accts.length + ' total</span></div><div class="workflow-list">' + workflow + '</div><div class="panel-foot"><span><span class="pulse-dot"></span>' + active + ' ' + (active === 1 ? "academy" : "academies") + ' active now</span><button data-nav="academies">View portfolio<span class="mi">arrow_forward</span></button></div></section>' +
+          '<section class="insight-card system-card"><div class="panel-head"><div><span class="eyebrow">PLATFORM SIGNAL</span><h2>System health</h2><p>Data delivery and channel reliability</p></div><span class="health-score ' + (healthScore >= 90 ? "good" : "warn") + '">' + healthScore + '%</span></div><div class="system-viz"><div class="system-bars">' + systemBars + '</div><div class="system-baseline"><span>6 checks ago</span><span>Latest</span></div></div><div class="system-stats"><span><b>' + stale + '</b> stale feeds</span><span><b>' + gaps + '</b> data gaps</span><span><b>' + pendingJobs + '</b> jobs queued</span></div></section></div>' +
+          '<div class="section-title"><div><span class="eyebrow">ACCOUNTS</span><h2>Academy portfolio</h2><p>' + accts.length + ' academies · select a row for account detail</p></div><button class="btn-p"><span class="mi">add</span>Add academy</button></div>' +
+          '<div class="portfolio-table"><div class="table-scroll"><table><thead><tr>' + thead + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+      }
+
+      function academiesView(accts) {
+        return '<div class="cardgrid">' + accts.map(function (a) {
+          var t = tint(a.sport), pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+          return '<div class="acad" data-open="' + a.id + '" style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .18s,transform .18s">' +
+            '<div style="display:flex;align-items:flex-start;gap:13px"><div style="width:44px;height:44px;border-radius:12px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:24px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:12px;color:var(--tx4)">' + esc(a.sub) + "</div></div>" + pill(a.health, healthStyle(a.health), true) + "</div>" +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--bd3)">' +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">MRR</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + inr(a.mrr) + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">GMV · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + (a.prev ? ' <span style="font-size:11.5px;font-weight:600;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Bookings · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.bookings || "—") + "</div></div>" +
+              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Players</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + a.players + "/" + a.cap + "</div></div>" +
+            "</div><div style=\"margin-top:16px\">" + bars(a.usage, 34, 3) + "</div></div>";
+        }).join("") + "</div>";
+      }
+
+      function billingView(accts) {
+        var collected = 0, pending = 0, overdue = 0;
+        accts.forEach(function (a) { if (a.bill === "paid") collected += a.mrr; else if (a.bill === "pending") pending += a.mrr; else overdue += a.mrr; });
+        var od = accts.filter(function (a) { return a.bill === "overdue"; }).length;
+        function sum(label, value, sub, color) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12.5px;font-weight:600;color:#6b7280">' + label + '</div><div style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin-top:10px;font-variant-numeric:tabular-nums;color:' + color + '">' + value + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
+        var summary = sum("Collected · MRR", inr(collected), "auto-billed this cycle", "#16a34a") + sum("Pending", inr(pending), "awaiting payment", "#d97706") + sum("Overdue", inr(overdue), od + " account" + (od === 1 ? "" : "s") + " past due", "#dc2626") + sum("Total MRR", inr(collected + pending + overdue), accts.length + " subscriptions", "#1a1d21");
+        var th = ["Academy", "Plan", "Amount", "Method", "Next invoice", "Status"].map(function (t) { return '<th style="text-align:left;padding:11px ' + (t === "Academy" ? "18px" : "12px") + ';font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--tx4)">' + t + "</th>"; }).join("");
+        var rows = accts.map(function (a) {
+          var t = tint(a.sport), bs = billStyle(a.bill);
+          return '<tr class="row" data-open="' + a.id + '" style="border-bottom:1px solid var(--bd3);cursor:pointer">' +
+            '<td style="padding:13px 18px"><div style="display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:9px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:18px;color:' + t[0] + '">' + a.icon + '</span></div><span style="font-size:13.5px;font-weight:600">' + esc(a.name) + "</span></div></td>" +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2)">' + esc(a.plan) + "</td>" +
+            '<td style="padding:13px 12px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + inr(a.mrr) + '<span style="font-weight:400;color:var(--tx4)">/mo</span></td>' +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2)">' + esc(a.method) + "</td>" +
+            '<td style="padding:13px 12px;font-size:12.5px;color:var(--tx2);font-variant-numeric:tabular-nums">' + esc(a.renews) + "</td>" +
+            '<td style="padding:13px 12px">' + pill(bs[2], bs) + "</td></tr>";
+        }).join("");
+        return '<div class="kpis" style="margin-bottom:22px">' + summary + "</div>" +
+          '<div style="margin:4px 2px 12px"><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Subscriptions</h2><span style="font-size:12.5px;color:var(--tx3)">Recurring billing across all academy accounts</span></div>' +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div class="am-scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="border-bottom:1px solid var(--bd2)">' + th + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
+      }
+
+      function growthView(accts) {
+        var byEnq = accts.slice().sort(function (a, b) { return b.enq - a.enq; });
+        var maxEnq = Math.max.apply(null, byEnq.map(function (a) { return a.enq; }).concat([1]));
+        var leaders = byEnq.map(function (a) {
+          return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;font-weight:500">' + esc(a.name) + '</span><span style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">' + a.enq + '</span></div><div style="height:8px;border-radius:6px;background:#f1f3f6;overflow:hidden"><div style="height:100%;border-radius:6px;background:var(--ac);width:' + Math.round(a.enq / maxEnq * 100) + '%"></div></div></div>';
+        }).join("");
+        var agg = {}; accts.forEach(function (a) { Object.keys(a.mix).forEach(function (k) { agg[k] = (agg[k] || 0) + a.mix[k]; }); });
+        var aggKeys = Object.keys(agg).sort(function (x, y) { return agg[y] - agg[x]; });
+        var aggTot = aggKeys.reduce(function (s, k) { return s + agg[k]; }, 0) || 1;
+        var legend = aggKeys.map(function (k) { return '<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--bd3)"><span style="width:9px;height:9px;border-radius:3px;background:' + (CH[k] || "#b9b7ac") + '"></span><span style="font-size:12.5px;font-weight:500;flex:1">' + esc(k) + '</span><span style="font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums">' + Math.round(agg[k] / aggTot * 100) + "%</span></div>"; }).join("");
+        var momentum = accts.filter(function (a) { return a.bookings; }).slice(0, 6).map(function (a) {
+          var d = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, u = d >= 0;
+          return '<div style="border:1px solid var(--bd2);border-radius:12px;padding:15px 16px"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:8px"><span style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + a.bookings + '</span><span style="font-size:12.5px;font-weight:600;color:' + (u ? "#16a34a" : "#dc2626") + '"><span class="mi" style="font-size:14px;vertical-align:-2px">' + (u ? "north_east" : "south_east") + "</span>" + (u ? "+" : "") + d + "%</span></div></div>";
+        }).join("") || '<div style="color:var(--tx4);font-size:13px;padding:8px">No booking activity yet.</div>';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 2px 16px">' +
+            '<div><h2 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Channel &amp; reminder performance</h2>' +
+            '<span style="font-size:12.5px;color:var(--tx3)">Where bookings come from, and whether fee reminders are converting</span></div>' +
+            '<button class="wa-trigger" data-wa-open><span class="mi">forum</span>WhatsApp stats</button></div>' +
+          '<div class="grid2">' +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Coaching enquiries · 30d</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">New leads captured across the portfolio</p><div style="display:flex;flex-direction:column;gap:16px;margin-top:20px">' + leaders + "</div></div>" +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Booking channels</h3><p style="font-size:12.5px;color:var(--tx4);margin-top:2px">Where portfolio bookings originate · 30d</p><div style="margin-top:20px">' + mixBar(agg, 14) + '</div><div style="display:flex;flex-direction:column;gap:2px;margin-top:18px">' + legend + "</div></div></div>" +
+          '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04);margin-top:20px"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em;margin-bottom:16px">Booking momentum · 30d vs prior</h3><div class="cardgrid">' + momentum + "</div></div>";
+      }
+
+      function settingsView() {
+        var rows = [["Organization", "Legal entity on record", "Academy Manager"], ["Console operator", "Signed-in account", "operator@academymanager.in"], ["Environment", "Data source", "Production · Supabase"], ["Default currency", "Displayed across accounts", "₹ INR"], ["Data privacy", "Member PII visibility", "Account-level only"]].map(function (s) {
+          return '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--bd3)"><div><div style="font-size:13px;font-weight:600">' + s[0] + '</div><div style="font-size:12px;color:var(--tx4);margin-top:1px">' + s[1] + '</div></div><span style="font-size:12.5px;font-weight:500;color:var(--tx2);white-space:nowrap">' + s[2] + "</span></div>";
+        }).join("");
+        return '<div style="max-width:720px;margin:0 auto"><div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:26px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><h3 style="font-size:15px;font-weight:700;letter-spacing:-0.01em">Organization</h3><div style="margin-top:14px">' + rows + "</div></div></div>";
+      }
+
+      function emptyPortfolio() {
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">apartment</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px">No academies yet</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">Onboard your first client academy and its account metrics will appear here.</p></div>';
+      }
+
+      /* real per-tenant activity feed — reads the events table (operator RLS) */
+      var EVMETA = {
+        page_view: ["visibility", "#4b5563", "#f3f4f6", "Page views"],
+        booking_submitted: ["event_available", "#1d4ed8", "#eff6ff", "Booking submitted"],
+        staff_booking_added: ["edit_calendar", "var(--act)", "var(--acs)", "Booking added by staff"],
+        payment_recorded: ["payments", "#047857", "#ecfdf5", "Payment recorded"],
+        expense_recorded: ["receipt_long", "#b45309", "#fffbeb", "Expense recorded"],
+        admission_submitted: ["person_add", "#7c3aed", "#f5f3ff", "Admission enquiry"],
+        reminder_sent: ["notifications_active", "#b45309", "#fffbeb", "Fee reminder sent"],
+        client_error: ["error", "#b91c1c", "#fef2f2", "App error"],
+        student_added: ["person_add", "#1d4ed8", "#eff6ff", "Student added"],
+        student_updated: ["edit", "#4b5563", "#f3f4f6", "Student updated"],
+        student_discontinued: ["person_remove", "#b45309", "#fffbeb", "Student left"],
+        attendance_marked: ["fact_check", "#047857", "#ecfdf5", "Attendance marked"],
+      };
+      function evMeta(n) { return EVMETA[n] || ["bolt", "#4b5563", "#f3f4f6", String(n || "").replace(/_/g, " ")]; }
+      function evDetail(e) {
+        var p = e.props || {};
+        switch (e.name) {
+          case "payment_recorded": return inr(p.amount) + (p.mode ? " · " + p.mode : "");
+          case "expense_recorded": return (p.category ? p.category + " · " : "") + inr(p.amount);
+          case "booking_submitted": return [p.venue, p.hours ? p.hours + "h" : "", p.amount ? inr(p.amount) : ""].filter(Boolean).join(" · ");
+          case "staff_booking_added": return [p.source, p.venue].filter(Boolean).join(" · ");
+          case "admission_submitted": return [p.program, p.venue].filter(Boolean).join(" · ");
+          case "reminder_sent": return p.daysTo != null ? "fee due in " + p.daysTo + "d" : "";
+          case "client_error": return String(p.msg || "").slice(0, 64);
+          default: return e.page || "";
+        }
+      }
+      function evTime(s) { try { return new Date(s).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } }
+
+      /* Errors for ONE academy, beside its activity feed — which is where
+         you already come to ask "what is this tenant doing?". Resolving
+         here is what clears the count on Insight: the two read the same
+         server-side list, so there is no second source of truth. */
+      function tenantErrorsCard(a) {
+        var all = (state.health && state.health.client_errors_24h) || [];
+        var mine = all.filter(function (e) { return e.tenant_id === a.id; });
+        if (!mine.length) return "";
+        return '<section class="insight-card" style="margin-top:20px"><div class="panel-head"><div><span class="eyebrow">APP ERRORS</span>' +
+          '<h2>Reported in the last 24 hours</h2><p>Grouped by message and app version. Resolving clears it from Insight until it happens again.</p></div>' +
+          '<span class="panel-badge">' + mine.length + ' open</span></div>' +
+          '<div class="err-list">' + mine.map(function (x) {
+            return '<div class="err-row">' +
+              '<div class="err-main">' +
+                '<div class="err-msg">' + esc(x.msg || "(no message)") + '</div>' +
+                '<div class="err-meta">v' + esc(x.ver || "?") +
+                  ' \u00b7 ' + (x.occurrences || 1) + '\u00d7 across ' + (x.sessions || 1) + ' session' + ((x.sessions || 1) === 1 ? "" : "s") +
+                  (x.page ? ' \u00b7 ' + esc(x.page) : "") +
+                  ' \u00b7 ' + agoH(x.last_seen ? (Date.now() - new Date(x.last_seen).getTime()) / 36e5 : null) +
+                '</div>' +
+              '</div>' +
+              '<button class="btn-g err-resolve" data-resolve="1"' +
+                ' data-tenant="' + esc(x.tenant_id) + '"' +
+                ' data-msg="' + esc(x.msg || "") + '"' +
+                ' data-ver="' + esc(x.ver || "?") + '">' +
+                '<span class="mi">check_circle</span>Resolve</button>' +
+            '</div>';
+          }).join("") + '</div></section>';
+      }
+
+      function activityCard(a) {
+        loadEvents(a.id);
+        var rows = state.ev[a.id], inner, meta = "";
+        if (!rows) {
+          inner = '<div style="padding:20px 0;color:var(--tx4);font-size:13px">Loading activity…</div>';
+        } else {
+          var byDay = {}, sess = {};
+          rows.forEach(function (e) {
+            var d = iso(new Date(e.at)); (byDay[d] = byDay[d] || []).push(e);
+            if (e.session_id) sess[iso(new Date(e.at)) + "|" + e.session_id] = 1;
+          });
+          var activeDays = Object.keys(byDay).length;
+          meta = rows.length ? num(rows.length) + " events · active " + activeDays + " of 7 days" : "";
+          if (!rows.length) {
+            inner = '<div style="display:flex;align-items:center;gap:11px;padding:20px 0"><span class="mi" style="font-size:22px;color:var(--tx5)">bedtime</span><div><div style="font-size:13px;font-weight:600;color:var(--tx2)">No activity in the last 7 days</div><div style="font-size:12px;color:var(--tx4);margin-top:1px">Nobody from this academy has opened the app.</div></div></div>';
+          } else {
+            var days = [];
+            for (var i = 0; i < 7; i++) {
+              var dstr = daysAgo(i), evs = byDay[dstr] || [];
+              var label = i === 0 ? "Today" : i === 1 ? "Yesterday" : new Date(dstr + "T12:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+              var daySess = Object.keys(sess).filter(function (k) { return k.indexOf(dstr + "|") === 0; }).length;
+              var head = '<div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px"><span style="font-size:12px;font-weight:700;letter-spacing:0.02em;color:' + (evs.length ? "var(--tx2)" : "var(--tx5)") + '">' + label + '</span><span style="flex:1;border-top:1px solid var(--bd3)"></span>' +
+                (evs.length ? '<span style="font-size:11.5px;color:var(--tx4);font-variant-numeric:tabular-nums">' + evs.length + " event" + (evs.length > 1 ? "s" : "") + (daySess ? " · " + daySess + " session" + (daySess > 1 ? "s" : "") : "") + "</span>" : '<span style="font-size:11.5px;color:var(--tx5)">No activity</span>') + "</div>";
+              var pv = evs.filter(function (e) { return e.name === "page_view"; });
+              var acts = evs.filter(function (e) { return e.name !== "page_view"; });
+              var items = acts.slice(0, 6).map(function (e) {
+                var m = evMeta(e.name), d = evDetail(e);
+                return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0">' +
+                  '<div style="width:28px;height:28px;border-radius:8px;background:' + m[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:' + m[1] + '">' + m[0] + '</span></div>' +
+                  '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + "</div>" +
+                  /* An error in the feed is the one row you want to act on
+                     without going anywhere. Icon only: the row is already
+                     tight, and a word here would crowd the timestamp. */
+                  (e.name === "client_error"
+                    ? '<button class="act-resolve" title="Mark resolved" aria-label="Mark resolved"' +
+                        ' data-resolve="1"' +
+                        ' data-tenant="' + esc(e.tenant_id || a.id) + '"' +
+                        ' data-msg="' + esc(String((e.props || {}).msg || "").slice(0, 90)) + '"' +
+                        ' data-ver="' + esc(String((e.props || {}).ver || "?")) + '">' +
+                        '<span class="mi">check</span></button>'
+                    : "") +
+                  '<span style="font-size:11px;color:var(--tx5);white-space:nowrap;font-variant-numeric:tabular-nums">' + evTime(e.at) + "</span></div>";
+              }).join("");
+              if (acts.length > 6) items += '<div style="font-size:11.5px;color:var(--tx4);padding:4px 0 2px 39px">+' + (acts.length - 6) + " more actions</div>";
+              if (pv.length) {
+                var pages = {};
+                pv.forEach(function (e) { var pg = (e.page || "").replace(".html", ""); if (pg) pages[pg] = (pages[pg] || 0) + 1; });
+                var pgKeys = Object.keys(pages).sort(function (x, y) { return pages[y] - pages[x]; }).slice(0, 4);
+                items += '<div style="display:flex;align-items:center;gap:11px;padding:7px 0"><div style="width:28px;height:28px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:#4b5563">visibility</span></div><div style="flex:1;min-width:0;font-size:12px;color:var(--tx3)">' + pv.length + " page view" + (pv.length > 1 ? "s" : "") + (pgKeys.length ? " · " + esc(pgKeys.join(", ")) : "") + "</div></div>";
+              }
+              days.push(head + items);
+            }
+            inner = days.join("");
+          }
+        }
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Activity · last 7 days</h3>' + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + '</div><div style="margin-top:4px">' + inner + "</div></div>";
+      }
+
+      function detailView(a) {
+        if (!a) return "";
+        var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
+        var pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+        var over = a.cap && a.players > a.cap, nearCap = a.cap && a.players >= a.cap * 0.9;
+        var header = '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px"><div style="width:56px;height:56px;border-radius:15px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:30px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap"><h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em">' + esc(a.name) + "</h2>" + pill(a.health, hs) + '</div><div style="font-size:13px;color:var(--tx3);margin-top:3px">' + esc(a.sub) + (a.owner ? " · Owner " + esc(a.owner) : "") +
+          (a.federated ? ' · <span title="Runs on its own Supabase project and reports in. Figures come from its latest rollup, not from tables here.">own project</span>' : "") + "</div></div>" +
+          (a.tenant ? '<a class="btn-g" href="' + esc(a.tenantUrl) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--bd-btn);border-radius:9px;padding:9px 14px;font:inherit;font-size:13px;font-weight:600;color:var(--tx2);cursor:pointer;flex:none;text-decoration:none">Open tenant console<span class="mi" style="font-size:17px">open_in_new</span></a>' : "") + "</div>";
+
+        if (a.health === "Onboarding") {
+          var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + tenantErrorsCard(a);
+        }
+
+        function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
+        var kpis = mini("MRR", inr(a.mrr), a.plan + " plan") +
+          mini("GMV · 30d", inrK(a.gmv), "vs prior month", a.prev ? (up ? "+" : "") + pct + "%" : "", up ? "#16a34a" : "#dc2626") +
+          mini("Active players", a.players + "/" + a.cap, over ? "over cap" : nearCap ? "near cap" : (a.cap ? Math.round(a.players / a.cap * 100) + "% of cap" : "—")) +
+          mini("Adoption", a.activeDays + "/30", "active days");
+
+        var mixKeys = Object.keys(a.mix).sort(function (x, y) { return a.mix[y] - a.mix[x]; });
+        var mixTot = mixKeys.reduce(function (s, k) { return s + a.mix[k]; }, 0) || 1;
+        var mixLegend = mixKeys.map(function (k) { return '<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx2)"><span style="width:9px;height:9px;border-radius:3px;background:' + (CH[k] || "#b9b7ac") + '"></span>' + esc(k) + ' <b style="font-weight:600">' + Math.round(a.mix[k] / mixTot * 100) + "%</b></span>"; }).join("") || '<span style="font-size:12.5px;color:var(--tx4)">No channel bookings yet</span>';
+
+        function facts(list) { return list.map(function (f) { return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--bd3)"><span style="font-size:12.5px;color:var(--tx3)">' + f[0] + '</span><span style="font-size:12.5px;font-weight:600;color:' + (f[2] || "#1a1d21") + ';text-align:right">' + f[1] + "</span></div>"; }).join(""); }
+        var planFacts = facts([["Tier", esc(a.plan), ac], ["Subscription", inr(a.mrr) + " / mo"], ["Billing status", bs[2], bs[0]], ["Payment method", esc(a.method)], ["Next renewal", esc(a.renews), a.bill === "overdue" ? "#dc2626" : "#1a1d21"], ["Messaging · 30d", num(a.msgs) + " · " + inr(a.msgCost)]]);
+        var adoptFacts = facts([["Active days", a.activeDays + " / 30"], ["Sessions · 30d", num(a.sessions)], ["Last activity", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
+        var bookFacts = facts([["Bookings · all time", num(a.totalBk)], ["Weekday / weekend", num(a.wkday) + " / " + num(a.wkend)], ["Court revenue · 90d", inr(a.courtRev)], ["Unique bookers", num(a.bookers)]]);
+
+        /* Moving an academy from trial to paying used to mean opening a
+           SQL editor against production. The console read subscriptions
+           and could not write them, which is a poor reason to be typing
+           `update ... where` by hand on a live database. */
+        function billingControl(a) {
+          var statuses = ["trial", "active", "overdue", "pilot", "cancelled"];
+          return '<div class="billing-edit">' +
+            '<div class="billing-edit__label">Change billing</div>' +
+            '<div class="billing-edit__row">' +
+              '<select id="subStatus">' +
+                statuses.map(function (st) {
+                  return '<option value="' + st + '"' + (st === (a.subStatus || "") ? " selected" : "") + ">" + st + "</option>";
+                }).join("") +
+              "</select>" +
+              '<span class="billing-edit__money"><input id="subMrr" type="number" min="0" step="1" ' +
+                'aria-label="Monthly amount" value="' + Number(a.mrr || 0) + '" /></span>' +
+            "</div>" +
+            '<button class="billing-edit__save" data-setsub="' + esc(a.id) + '">Save</button>' +
+            '<div class="billing-edit__hint">' +
+              "<b>active</b> shows as Paid. A renewal already past reads Overdue whatever the status, so marking someone paid moves it on a month." +
+            "</div></div>";
+        }
+
+        function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
+        return header +
+          '<div class="kpis" style="margin-bottom:20px">' + kpis + "</div>" +
+          '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
+            card("Gross volume", "weekly · last 8 weeks", '<div style="margin-top:18px">' + bars(a.weekly, 92, 8) + '</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--tx5)"><span>8 wks ago</span><span>this week</span></div>') +
+            card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
+            activityCard(a) +
+          "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
+            card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
+            card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
+            card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
+          "</div></div>" + tenantErrorsCard(a);
+      }
+
+      /* ============ WhatsApp reminder performance ============
+         One RPC returns the whole dashboard already aggregated, so no
+         raw event ever reaches this browser — which is both the privacy
+         position (parents' numbers stay in the database) and the reason
+         it stays fast at >1000 events. */
+      var wa = { open: false, tenant: "all", months: 4, sort: "remindersSent", data: null, loading: false, error: null };
+
+      function waLoad() {
+        wa.loading = true; wa.error = null; render();
+        rpc("whatsapp_reminder_stats", { p_tenant: wa.tenant, p_months: wa.months })
+          .then(function (r) {
+            wa.loading = false;
+            if (!r || r.success !== true) { wa.error = "The statistics service did not answer."; }
+            else { wa.data = r; }
+            render();
+          })
+          .catch(function () { wa.loading = false; wa.error = "Could not reach the statistics service."; render(); });
+      }
+      function waOpen() { wa.open = true; wa.tenant = "all"; wa.data = null; waLoad(); }
+      function waClose() { wa.open = false; wa.data = null; wa.error = null; render(); }
+
+      function waPct(v) { return v == null ? "—" : v + "%"; }
+      function waMoney(n) { return inrK(Number(n || 0)); }
+
+      function waTiles(t) {
+        var noDelivery = !t.hasDeliveryData;
+        return '<div class="wa-tiles">' +
+          '<div class="wa-tile"><span>Reminders sent</span><strong>' + num(t.remindersSent) + '</strong><small>' + num(t.uniquePlayers) + ' unique players</small></div>' +
+          '<div class="wa-tile"><span>Academies using</span><strong>' + num(t.academiesUsing) + '</strong><small>with at least one reminder</small></div>' +
+          '<div class="wa-tile"><span>Payments via reminder</span><strong>' + num(t.paymentsViaReminder) + '</strong><small>' + num(t.proofs) + ' proofs received</small></div>' +
+          '<div class="wa-tile"><span>Revenue via reminder</span><strong>' + waMoney(t.revenueViaReminder) + '</strong><small>confirmed payments only</small></div>' +
+          '<div class="wa-tile"><span>Delivery rate</span><strong>' + (noDelivery ? "—" : waPct(t.deliveryRate)) + '</strong><small>' + (noDelivery ? "no callbacks yet" : "of reminders sent") + '</small></div>' +
+          '<div class="wa-tile"><span>Read rate</span><strong>' + (noDelivery ? "—" : waPct(t.readRate)) + '</strong><small>' + (noDelivery ? "no callbacks yet" : "read implies delivered") + '</small></div>' +
+          '<div class="wa-tile"><span>Conversion</span><strong>' + waPct(t.conversionRate) + '</strong><small>reminders that led to payment</small></div>' +
+          '<div class="wa-tile"><span>Proofs received</span><strong>' + num(t.proofs) + '</strong><small>payment screenshots</small></div>' +
+          "</div>";
+      }
+
+      function waMonths(ms, noDelivery) {
+        var max = Math.max.apply(null, ms.map(function (m) { return Number(m.remindersSent || 0); }).concat([1]));
+        return '<div class="wa-months">' + ms.map(function (m) {
+          var w = Math.max(4, Math.round((Number(m.remindersSent || 0) / max) * 100));
+          return '<div class="wa-m' + (m.isMTD ? " mtd" : "") + '">' +
+            '<h4>' + esc(m.label) + (m.isMTD ? '<span class="wa-mtd">MTD</span>' : "") + "</h4>" +
+            '<div class="wa-big">' + num(m.remindersSent) + '<em>reminders</em></div>' +
+            '<div class="wa-bar"><i style="width:' + w + '%"></i></div>' +
+            '<div class="wa-kv"><span>Players reached</span><b>' + num(m.playersReached) + "</b></div>" +
+            '<div class="wa-kv"><span>Delivered / read</span><b>' + (noDelivery ? "—" : waPct(m.deliveryRate) + " / " + waPct(m.readRate)) + "</b></div>" +
+            '<div class="wa-kv"><span>Proofs</span><b>' + num(m.proofs) + "</b></div>" +
+            '<div class="wa-kv"><span>Payments</span><b>' + num(m.paymentsViaReminder) + "</b></div>" +
+            '<div class="wa-kv"><span>Revenue</span><b>' + waMoney(m.revenueViaReminder) + "</b></div>" +
+            '<div class="wa-kv"><span>Conversion</span><b>' + waPct(m.conversionRate) + "</b></div>" +
+            "</div>";
+        }).join("") + "</div>";
+      }
+
+      function waTable(rows, noDelivery) {
+        var cols = [["academyName", "Academy"], ["remindersSent", "Reminders"], ["playersReached", "Players"],
+                    ["paymentsViaReminder", "Payments"], ["revenueViaReminder", "Revenue"],
+                    ["deliveryRate", "Delivered"], ["readRate", "Read"], ["conversionRate", "Conversion"]];
+        var sorted = rows.slice().sort(function (a, b) {
+          if (wa.sort === "academyName") return String(a.academyName).localeCompare(String(b.academyName));
+          return (Number(b[wa.sort] || 0) - Number(a[wa.sort] || 0));
+        });
+        return '<div class="wa-tablewrap"><div class="wa-scroll"><table class="wa-table"><thead><tr>' +
+          cols.map(function (c) { return '<th data-wasort="' + c[0] + '" class="' + (wa.sort === c[0] ? "on" : "") + '">' + c[1] + "</th>"; }).join("") +
+          "</tr></thead><tbody>" +
+          sorted.map(function (a) {
+            return '<tr data-tenant="' + esc(a.tenantId) + '">' +
+              "<td>" + esc(a.academyName || a.tenantId) + "</td>" +
+              "<td>" + num(a.remindersSent) + "</td>" +
+              "<td>" + num(a.playersReached) + "</td>" +
+              "<td>" + num(a.paymentsViaReminder) + "</td>" +
+              "<td>" + waMoney(a.revenueViaReminder) + "</td>" +
+              "<td>" + (noDelivery ? "—" : waPct(a.deliveryRate)) + "</td>" +
+              "<td>" + (noDelivery ? "—" : waPct(a.readRate)) + "</td>" +
+              "<td>" + waPct(a.conversionRate) + "</td></tr>";
+          }).join("") + "</tbody></table></div></div>";
+      }
+
+      function waPopup() {
+        if (!wa.open) return "";
+        var body;
+        if (wa.loading) {
+          body = '<div class="wa-msg"><div class="wa-spin"></div><h4>Reading reminder history…</h4><p>Aggregating across academies.</p></div>';
+        } else if (wa.error) {
+          body = '<div class="wa-msg"><span class="mi">cloud_off</span><h4>Could not load statistics</h4><p>' + esc(wa.error) + '</p><button data-wa-retry>Try again</button></div>';
+        } else if (!wa.data) {
+          body = '<div class="wa-msg"><div class="wa-spin"></div></div>';
+        } else {
+          var t = wa.data.totals || {}, ms = wa.data.months || [], acc = wa.data.academies || [];
+          var noDelivery = !t.hasDeliveryData;
+          if (!Number(t.remindersSent)) {
+            body = '<div class="wa-msg"><span class="mi">forum</span><h4>No reminders in this period</h4>' +
+              '<p>Nothing was sent by ' + (wa.tenant === "all" ? "any academy" : "this academy") +
+              ' in the last ' + wa.months + ' months. Reminders appear here as soon as the engine sends its first message.</p></div>';
+          } else {
+            body = waTiles(t) +
+              '<div class="wa-sec"><h3>Month on month</h3><span>' + (wa.tenant === "all" ? "all academies combined" : "this academy") + ', current month marked MTD</span></div>' +
+              waMonths(ms, noDelivery) +
+              (wa.tenant === "all"
+                ? '<div class="wa-sec"><h3>By academy</h3><span>tap a row for that academy’s detail · tap a heading to sort</span></div>' + waTable(acc, noDelivery)
+                : "") +
+              (noDelivery
+                ? '<p class="wa-note"><b>Delivery and read rates are unavailable.</b> Both academies run WhatsApp in manual mode, so Meta has not sent delivery callbacks yet. These fill in automatically once the WABA is live — they are shown as “—” rather than 0% so an unmeasured rate is never read as a bad one.</p>'
+                : "") +
+              '<p class="wa-note">Counts deduplicate Meta callbacks on (academy + message id) and count each player once per academy per month. Payments count only when a reminder led to a confirmed payment; revenue is the confirmed amount. Months use each academy’s own timezone.</p>';
+          }
+        }
+        var opts = '<option value="all"' + (wa.tenant === "all" ? " selected" : "") + ">All academies</option>" +
+          state.data.map(function (a) { return '<option value="' + esc(a.id) + '"' + (wa.tenant === a.id ? " selected" : "") + ">" + esc(a.name) + "</option>"; }).join("");
+        var mopts = [3, 4, 6, 12].map(function (m) { return '<option value="' + m + '"' + (wa.months === m ? " selected" : "") + ">Last " + m + " months</option>"; }).join("");
+
+        return '<div class="wa-back" data-wa-back><section class="wa-panel" role="dialog" aria-modal="true" aria-labelledby="waTitle">' +
+          '<div class="wa-head"><div><div class="eyebrow">WhatsApp performance</div><h2 id="waTitle">Reminders to payments</h2>' +
+          '<p>Deduplicated month-on-month results across academies.</p></div>' +
+          '<button class="wa-x" data-wa-close aria-label="Close"><span class="mi">close</span></button></div>' +
+          '<div class="wa-controls"><select data-wa-tenant aria-label="Academy">' + opts + "</select>" +
+          '<select data-wa-months aria-label="Reporting period">' + mopts + "</select></div>" +
+          '<div class="wa-body">' + body + "</div></section></div>";
+      }
+
+      /* ============ events (delegated; survive re-renders) ============ */
+      document.addEventListener("click", function (e) {
+        // ---- WhatsApp stats popup (before nav, so clicks inside it never fall through) ----
+        if (e.target.closest("[data-wa-open]")) { waOpen(); return; }
+        if (e.target.closest("[data-wa-close]")) { waClose(); return; }
+        if (e.target.closest("[data-wa-retry]")) { waLoad(); return; }
+        var waSort = e.target.closest("[data-wasort]");
+        if (waSort) { wa.sort = waSort.getAttribute("data-wasort"); render(); return; }
+        var waRow = e.target.closest("[data-tenant]");
+        if (waRow && wa.open) { wa.tenant = waRow.getAttribute("data-tenant"); waLoad(); return; }
+        if (e.target.hasAttribute && e.target.hasAttribute("data-wa-back")) { waClose(); return; }
+        if (wa.open && e.target.closest(".wa-panel")) return;   // clicks inside the dialog do nothing else
+
+        if (e.target.closest("[data-menu]")) { var app = document.querySelector(".app"); if (app) app.classList.toggle("nav-open"); return; }
+        var nav = e.target.closest("[data-nav]");
+        if (nav) { state.view = nav.getAttribute("data-nav"); state.sel = null; render(); scrollTop(); return; }
+        var open = e.target.closest("[data-open]");
+        if (open) { state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
+        if (e.target.closest("[data-back]")) { state.sel = null; render(); scrollTop(); return; }
+        var sort = e.target.closest("[data-sort]");
+        if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
+        if (e.target.closest("[data-signout]")) { localStorage.removeItem("am-session"); location.reload(); return; }
+        if (e.target.closest("[data-issues]")) {
+          /* Take the operator to where the errors can actually be acted
+             on. One academy affected is the common case, so go straight
+             into it rather than making them find it in the list. */
+          var errs = (state.health && state.health.client_errors_24h) || [];
+          var tenants = [];
+          errs.forEach(function (x) { if (tenants.indexOf(x.tenant_id) < 0) tenants.push(x.tenant_id); });
+          state.view = "academies";
+          state.sel = tenants.length === 1 ? tenants[0] : null;
+          render(); scrollTop(); return;
+        }
+        var setsub = e.target.closest("[data-setsub]");
+        if (setsub) {
+          var st = (document.getElementById("subStatus") || {}).value;
+          var mrrEl = document.getElementById("subMrr");
+          var mrr = mrrEl && mrrEl.value !== "" ? Number(mrrEl.value) : null;
+          setsub.disabled = true;
+          setsub.textContent = "Saving…";
+          rpc("set_subscription", {
+            p_tenant: setsub.getAttribute("data-setsub"),
+            p_status: st,
+            p_mrr: mrr,
+          }).then(function (r) {
+            if (!r || !r.ok) {
+              setsub.disabled = false;
+              setsub.textContent = "Could not save";
+              return;
+            }
+            // Re-read the portfolio rather than patching the row: the
+            // server may have moved the renewal date, and guessing what
+            // it did is how the screen and the database drift apart.
+            rpc("operator_portfolio").then(function (rows) {
+              if (rows) state.data = rows.map(mapAccount).sort(function (x, y) { return y.gmv - x.gmv; });
+              render();
+            });
+          });
+          return;
+        }
+        var res = e.target.closest("[data-resolve]");
+        if (res) {
+          var iconOnly = res.classList.contains("act-resolve");
+          res.disabled = true;
+          res.innerHTML = iconOnly
+            ? '<span class="mi">hourglass_empty</span>'
+            : '<span class="mi">hourglass_empty</span>Resolving';
+          rpc("resolve_client_error", {
+            p_tenant: res.getAttribute("data-tenant"),
+            p_msg: res.getAttribute("data-msg"),
+            p_ver: res.getAttribute("data-ver")
+          }).then(function (r) {
+            if (!r || !r.ok) {
+              // Leave it alone and say so. Silently re-rendering an
+              // unchanged list would read as "resolved" when it was not.
+              res.disabled = false;
+              res.innerHTML = iconOnly
+                ? '<span class="mi">error</span>'
+                : '<span class="mi">error</span>Could not resolve';
+              if (iconOnly) res.title = "Could not resolve";
+              return;
+            }
+            if (iconOnly) {
+              /* The activity feed is a record of what happened, and the
+                 error did happen — clearing the row would be rewriting
+                 history. Mark it handled instead; Insight and the errors
+                 card are where it disappears from. */
+              res.innerHTML = '<span class="mi">check_circle</span>';
+              res.title = "Resolved";
+              res.classList.add("act-resolve--done");
+              refreshHealth();
+              return;
+            }
+            refreshHealth();
+          });
+          return;
+        }
+      });
+      // the two popup selects
+      document.addEventListener("change", function (e) {
+        var t = e.target.closest("[data-wa-tenant]");
+        if (t) { wa.tenant = t.value; waLoad(); return; }
+        var m = e.target.closest("[data-wa-months]");
+        if (m) { wa.months = Number(m.value) || 4; waLoad(); return; }
+      });
+      // Escape closes the dialog
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && wa.open) waClose();
+      });
+
+      function scrollTop() { var s = document.getElementById("amScroll"); if (s) s.scrollTop = 0; }
+
+      /* Re-read health from the server rather than splicing the resolved
+         row out of the local copy. The server is what decides whether an
+         error is still open, and it has one rule that the client cannot
+         reproduce: a newer occurrence outranks the acknowledgement. */
+      function refreshHealth() {
+        return rpc("platform_health").then(function (h) {
+          if (h) { state.health = Object.assign({}, state.health, h); render(); }
+        });
+      }
+
+      /* ============ boot ============ */
+      render(); // shell first (empty), then hydrate
+      rpc("get_channels").then(function (list) {
+        if (list && list.length) { list.forEach(function (c) { if (CH[c.id] == null && c.color) CH[c.id] = c.color; }); }
+      }).then(function () {
+        return Promise.all([rpc("operator_portfolio"), rpc("platform_health"), rpc("reconcile_report").catch(function () { return null; })]);
+      }).then(function (r) {
+        var rows = r[0] || [], h = r[1] || {}, rec = r[2] || {};
+        state.data = rows.map(mapAccount).sort(function (a, b) { return b.gmv - a.gmv; });
+        state.health = Object.assign({}, h, { gap_count: (rec && rec.gap_count) || 0 });
+        state.loaded = true;
+        render();
+      });
+    })();
+  </script>
+</body>
+</html>
