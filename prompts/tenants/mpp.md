@@ -10,13 +10,21 @@ Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-12**.
 ₹4,000 MRR against an account with no rows, which looks like a broken
 integration and is not one. Read this section before diagnosing it.
 
-MPP was a local-first app: one JSON document in `localStorage` was the
-whole backend. **It cut over to Postgres on 2026-08-04.** Its telemetry
-shows the changeover precisely — 123 action events (`attendance_marked`,
-`student_added`, `payment_recorded` …) between 07-29 and **08-04 17:14**,
-and from then on nothing but `page_view` and `client_error`. Those action
-events came from the localStorage era. Since the cutover nobody has
-entered production data.
+**The rows were deleted on purpose.** Commit `0588583`, *"Empty mpp for
+handover"* (2026-08-04 17:45 UTC), cleared the demo data the app had
+accumulated: 63 students, 66 enrolments, 361 payments, 33 expenses, 5
+staff, 150 attendance rows, 7 batches, 7 fee rules, 238 timeline
+entries, 9 reminder events, 16 WhatsApp flow events. The backup was
+taken in the same transaction as the deletion and asserted to contain
+mpp rows before anything was removed, with `member_timeline` and
+`wa_flow_events` snapshotted by hand because `backup.take_snapshot()`
+does not cover them.
+
+So those 63 students were in **Postgres**, not in a browser — MPP has
+been writing to the platform since well before the handover. Its 123
+action events (`attendance_marked`, `student_added`, `payment_recorded`
+…) run 07-29 to **08-04 17:14 UTC** and stop there because the venue was
+handed over, not because anything broke. Since then: `page_view` only.
 
 So: **empty because unused, not because writes fail.** Verified
 2026-08-12 by signing in as `staff@matchpointpride.com` and exercising
@@ -57,13 +65,27 @@ trusts."
 
 ## Outstanding
 
-- **Ask the owner whether real students existed in localStorage before
-  04 Aug.** `store.tsx` removes the old keys on load, and nothing was
-  migrated into Postgres — the platform has zero rows. If those 8
-  `student_added` events were real families rather than trials, that data
-  exists only in whatever browser profile he used, until it is cleared.
-- The 33 `client_error` events are all `useStore must be used inside
-  <StoreProvider>` from 08-04, i.e. from the cutover itself. Worth
-  confirming they no longer reproduce before the venue goes live.
+- **The `useStore` crash is unresolved, not fixed.** All 33
+  `client_error` events say `useStore must be used inside
+  <StoreProvider>`, on `#/app` and `#/batches`, at 08-04 17:51 and 17:56
+  UTC — i.e. **6 to 11 minutes after the handover wipe at 17:45**. The
+  likely cause is the app rendering a tenant that had just become empty,
+  with `useStore` being what the global error handler reported rather
+  than the root cause.
+
+  It has not recurred in eight days, but that is weak evidence: mpp has
+  logged only five events since, all `page_view`, and nobody has reached
+  `#/app` — the route redirects to `#/` without an enrolled PIN.
+
+  Nothing was repaired. `src/main.tsx` has not been touched since
+  2026-07-29, before the crash, and its wiring is correct both then and
+  now: `ErrorBoundary` outside `StoreProvider` outside `App`, and the
+  boundary never calls `useStore`, so the fallback cannot be the thrower.
+  `StoreProvider` has a single return and always wraps its children, so
+  it can only fail to provide by throwing during its own render.
+
+  **To close this, enrol on a device and open `#/app` and `#/batches`
+  against the now-empty tenant.** If it reproduces, the real error is
+  being masked — capture it before the global handler rewrites it.
 - Nothing else MPP-specific is broken. The repo hardcodes the platform
   ref, so a ref change means a rebuild.
