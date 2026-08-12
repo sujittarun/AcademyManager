@@ -167,7 +167,7 @@
       var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
-        sales: { pipeline: null, leads: [], loaded: false, loading: false,
+        sales: { pipeline: null, leads: [], ab: null, loaded: false, loading: false,
                  from: "8297771212", f: { priority: "A", sport: "", stage: "", q: "", callable: true } } };
 
       // per-tenant raw activity — last 7 days of app events, fetched on demand
@@ -472,15 +472,27 @@
          the sender cannot quote different words. */
       var SALES_TPL = {
         Cricket:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, based here in Hyderabad. I built the app that Gen Alpha Cricket Academy runs on — attendance, fees and the parent reminders.\n\nBefore I pitch you anything: are you still tracking who's paid on Excel or in a register?",
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give cricket academies their own branded app \u2014 batches, attendance, fees and the parent reminders in one place. Gen Alpha Cricket Academy runs on it.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
         Swimming:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies — one runs 5 centres and about 100 students on ours.\n\nBefore I pitch you anything: are you still tracking batches on Excel or WhatsApp, and who's paid in a register?",
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give swimming academies their own branded app \u2014 batches, attendance, fees and the parent reminders in one place.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
         _multibranch:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, in Hyderabad. I build the software Raj Sports runs on — 5 centres, ~100 students, all on one screen.\n\nYou run several centres. How do you see all of them in one place today — do your coaches send you the register on WhatsApp?",
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give coaching academies their own branded app \u2014 one runs 5 centres and about 100 students on ours, all on one screen.\n\nYou run several centres. Are you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
         "Multi-sport":
-          "Hi — is this the right number for {name}?\n\nI'm from Academy Manager, based in Hyderabad. I build the platform Raj Sports runs on: 5 centres, 14 batches, 5 sports, ~100 students, in one app with their own name on it.\n\nSince you run several sports at different fees — when a parent asks what they owe, how do you work it out today?",
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give multi-sport academies their own branded app \u2014 one runs 5 centres, 14 batches and 5 sports on ours, with their own name on it.\n\nSince your fees differ per sport: are you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?",
         _default:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, from Hyderabad. I build the software Raj Sports runs on — about 100 kids across 5 centres here, including DPS Miyapur and Hill County.\n\nBefore I pitch you anything: are you still tracking batches on Excel or WhatsApp, and who's paid in a register?"
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We give coaching academies their own branded app \u2014 one runs 5 centres and about 100 students on ours.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
+      };
+
+      /* The A/B arm comes from the DATABASE, never from the client.
+         sales.leads.variant is a stored generated column over the lead id,
+         so the console, a manual query and sales_ab_results() cannot
+         disagree about who is in which arm — and nothing here can reassign
+         a lead mid-test, which would make the result meaningless.
+           A = text only
+           B = same text, then one screenshot of the dues list */
+      var SALES_AB = {
+        A: { label: "text only", shot: false },
+        B: { label: "+ screenshot", shot: true }
       };
 
       /* The console's esc() escapes & < > but not the double quote, because
@@ -488,8 +500,8 @@
          context. That is fine everywhere it is used for text — and not fine
          here, because these rows are built from names and URLs scraped off
          third-party web pages, and this view puts them inside href and value
-         attributes. A single quote character in an academy name would break
-         out of the attribute.
+         attributes. A single quote in an academy name would break out of the
+         attribute.
 
          So: escAttr for anything landing in an attribute, and safeUrl for
          the source link, which additionally refuses any scheme that is not
@@ -501,14 +513,6 @@
         return /^https?:\/\//i.test(String(u || "")) ? escAttr(u) : "";
       }
 
-      /* The greeting name is NOT the stored name.
-         34 of the 135 researched leads carry something a researcher needed
-         and a prospect must never see: an alias after a slash, an acronym
-         or a locality in brackets, a "- Hyderabad cluster" suffix. One went
-         out reading "Hi, is this Oyster Indoor Swimming Club / Oyster
-         Swimming Pool?" — which tells the reader they are a row in
-         somebody's list. The table keeps the full name because it is useful
-         internally; only the message gets the clean one. */
       function salesName(n) {
         var s = String(n || "").split(" / ")[0].trim(), prev;
         // Strip repeatedly until stable. One pass in a fixed order is not
@@ -557,10 +561,12 @@
             p_search: f.q || null,
             p_callable: f.callable ? true : null,
             p_limit: 400
-          })
+          }),
+          rpc("sales_ab_results")
         ]).then(function (r) {
           state.sales.pipeline = r[0] || null;
           state.sales.leads = r[1] || [];
+          state.sales.ab = r[2] || null;
           state.sales.loading = false;
           state.sales.loaded = true;
           render();
@@ -640,10 +646,18 @@
               (alts.length ? '<span style="font-size:11px;color:var(--tx4)"> +' + alts.length + " alt</span>" : "")
             : '<span style="color:var(--tx4)">—</span>';
 
+          // The arm decides what the caller has to do, so the button says it.
+          // A caller who does not know this lead is in the screenshot arm
+          // will send the wrong thing and quietly corrupt the experiment.
+          var arm = SALES_AB[l.variant] || SALES_AB.A;
           var acts = l.do_not_contact
             ? '<span style="font-size:11.5px;color:#b91c1c;font-weight:600">suppressed</span>'
             : (l.wa_link
-                ? '<button data-swa="' + l.id + '" title="Open WhatsApp with the opener, and log it" style="border:none;background:#059669;color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">chat</span> WhatsApp</button>'
+                ? '<button data-swa="' + l.id + '" title="' + escAttr(
+                    arm.shot
+                      ? "Arm B: send the opener, then attach ONE screenshot of the dues list (demo tenant only)"
+                      : "Arm A: send the opener as text only — no screenshot") +
+                  '" style="border:none;background:' + (arm.shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">' + (arm.shot ? "image" : "chat") + "</span> " + l.variant + (arm.shot ? " +shot" : " text") + "</button>"
                 : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>') +
               ' <button data-sact="' + l.id + '|call|no_answer" title="Called, no answer" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No answer</button>' +
               ' <button data-sact="' + l.id + '|whatsapp|replied|in" title="They replied" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
@@ -666,12 +680,37 @@
             '<td style="padding:11px 10px;white-space:nowrap">' + acts + "</td></tr>";
         }).join("");
 
+        // A/B panel. Shows the minimum detectable effect next to the rates,
+        // because the honest failure mode here is reading a 3-point gap off
+        // ~56 leads per arm as a finding.
+        var ab = state.sales.ab, abPanel = "";
+        if (ab && ab.A) {
+          var armCard = function (k, tone) {
+            var a = ab[k];
+            return '<div style="flex:1;min-width:170px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
+              '<div style="font-size:11px;font-weight:700;color:' + tone + '">ARM ' + k + " · " + esc(a.label) + "</div>" +
+              '<div style="font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:5px">' + a.reply_rate_pct + '<span style="font-size:13px;font-weight:600">%</span></div>' +
+              '<div style="font-size:11.5px;color:var(--tx4)">' + a.replied + " replied of " + a.sent + " sent · " + a.assigned + " assigned</div></div>";
+          };
+          abPanel = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
+            '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Opener test — does a screenshot earn replies?</h3>' +
+            '<span style="font-size:11.5px;color:var(--tx4)">same copy in both arms; the only difference is the image</span></div>' +
+            '<div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">' + armCard("A", "#059669") + armCard("B", "#7c3aed") + "</div>" +
+            '<div style="margin-top:13px;padding-top:11px;border-top:1px solid var(--bd3);font-size:12.5px">' +
+            '<b>' + esc(ab.verdict) + "</b>" +
+            '<span style="color:var(--tx4)"> · B−A = ' + ab.difference_pct + " pts" +
+            (ab.min_detectable_pct ? "; this sample can only resolve a gap of ±" + ab.min_detectable_pct + " pts, so anything smaller is noise" : "") +
+            "</span></div></div>";
+        }
+
         var note = '<div style="font-size:11.5px;color:var(--tx4);margin-top:12px;line-height:1.6">' +
-          "The WhatsApp button opens a chat with the opener pre-filled and logs the touch. It cannot attach the flyer — " +
-          "<code>wa.me</code> carries text only, so attach <code>academy-manager-flyer-social.png</code> by hand in the Business app. " +
+          "The button opens a chat with the opener pre-filled and logs the touch <b>against that lead's arm</b>. " +
+          "<b>A · text</b> sends text only. <b>B · +shot</b> means send the text, then attach <b>one</b> screenshot of the dues list — " +
+          "take it from the <b>demo tenant</b> (Crescent Sports Academy), never a real academy, or you are sending a stranger another client's member names. " +
+          "<code>wa.me</code> carries text only, so the image goes on by hand in the Business app. " +
           "<b>Stop</b> writes every one of that lead's numbers to the do-not-contact list, so a later re-import cannot bring them back.</div>";
 
-        return kpis + sender + filters +
+        return kpis + sender + abPanel + filters +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">' +
           '<thead><tr style="background:var(--fill)">' +
@@ -1051,8 +1090,9 @@
                         "_blank", "noopener");
             rpc("sales_log_touch", {
               p_lead: lid, p_channel: "whatsapp", p_outcome: "sent",
-              p_direction: "out", p_template: "opener_" + (lead.sport || "default"),
-              p_body: salesMsg(lead), p_sent_from: state.sales.from
+              p_direction: "out", p_template: "opener_" + (lead.sport || "default") + "_" + lead.variant,
+              p_body: salesMsg(lead), p_sent_from: state.sales.from,
+              p_variant: lead.variant
             }).then(function () { state.sales.loaded = false; loadSales(); });
           }
           return;
