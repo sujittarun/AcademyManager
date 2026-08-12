@@ -606,126 +606,89 @@
         }).then(function () { state.sales.loaded = false; loadSales(); });
       }
 
-      /* Batch-open: the whole point of the sales tab.
-         Opens the next N leads of ONE arm in tabs, each pre-filled, and logs
-         all of them as drafts in a single round-trip.
-
-         WHY BY ARM. Arm B needs a screenshot attached and arm A does not. A
-         mixed batch means deciding that per tab, which is how the wrong thing
-         gets sent. Doing all the text-only ones, then all the +shot ones,
-         removes the decision.
-
-         WHY DRAFTS. Opening a tab is not sending. Each row then asks; only
-         "Yes, sent" marks the lead contacted or counts in the test.
-
-         POPUPS. Browsers allow one window.open per gesture and block the
-         rest. There is no way around that from a page, so it is detected and
-         reported rather than silently losing nine of ten prospects. */
-      /* Arm B's image, on the clipboard.
-         wa.me carries text only, so the attachment cannot ride along with the
-         opener — that is a WhatsApp limitation, not something to code around.
-         The next best thing is to put the PNG on the clipboard when the chat
-         opens, so the caller pastes with one keystroke instead of hunting for
-         a file: click -> tab opens with the text -> Cmd/Ctrl+V -> Enter.
-
-         The blob is pre-fetched when the tab loads. Fetching it inside the
-         click handler works in Chrome but Safari treats the await as ending
-         the user gesture and refuses the clipboard write, so it is cached up
-         front and the click only writes. */
-      var SALES_IMG = "assets/marketing/dashboard-dues.png";
-      var salesImgBlob = null, salesImgTried = false;
-
-      function salesPrefetchImage() {
-        if (salesImgTried) return;
-        salesImgTried = true;
-        fetch(SALES_IMG).then(function (r) {
-          if (!r.ok) throw new Error(r.status);
-          return r.blob();
-        }).then(function (b) { salesImgBlob = b; })
-          .catch(function () { salesImgBlob = null; });
-      }
-
-      function salesCopyImage() {
-        if (!salesImgBlob || !window.ClipboardItem ||
-            !navigator.clipboard || !navigator.clipboard.write) return false;
-        try {
-          var item = {}; item[salesImgBlob.type || "image/png"] = salesImgBlob;
-          navigator.clipboard.write([new ClipboardItem(item)]);
-          return true;
-        } catch (e) { return false; }
-      }
-
-      var SALES_BATCH = 10;
-
-      function salesBatch(arm) {
-        var pool = state.sales.leads.filter(function (l) {
+      /* Working the queue, one lead per click.
+         WHY NOT TEN TABS AT ONCE
+         The first version opened ten. Browsers allow ONE window.open per user
+         gesture and block the rest, so in practice it opened one tab, logged
+         one lead, and left nine untouched — which then correctly reappeared
+         on the next click and looked like duplicates. Measured: two batch
+         clicks produced exactly two sends.
+         There is no way to open ten tabs from one click. So the primitive is
+         one lead per click, which is never blocked, and the click is made to
+         do two jobs at once: confirm the last one as sent AND open the next.
+         Steady state is one click per lead. */
+      function salesQueue(arm) {
+        return state.sales.leads.filter(function (l) {
           return l.variant === arm && l.wa_link && !l.do_not_contact &&
                  l.stage === "new" && l.last_outcome !== "opened" &&
                  !(state.sales.drafted || {})[l.id];
-        }).slice(0, SALES_BATCH);
-
-        if (!pool.length) {
-          window.alert("Nothing left to open in arm " + arm +
-            " for this filter.\n\nEither they are all drafted already, or the " +
-            "filter has none left. Widen the filter or confirm the ones in flight.");
-          return;
-        }
-
-        // one clipboard write for the whole batch — the same image goes in
-        // every arm-B chat, so it stays on the clipboard across all the tabs
-        var copied = arm === "B" ? salesCopyImage() : true;
-
-        var opened = 0, blocked = 0;
-        pool.forEach(function (l) {
-          var w = window.open(l.wa_link + "?text=" + encodeURIComponent(salesMsg(l)),
-                              "_blank", "noopener");
-          if (w) { opened++; } else { blocked++; }
-        });
-
-        if (arm === "B" && !copied) {
-          window.alert("The image is not on your clipboard — copy " +
-            "marketing/leads/dashboard-dues-whatsapp.jpg by hand, or arm B goes " +
-            "out as text only and the test measures nothing.");
-        }
-        if (blocked) {
-          window.alert(
-            blocked + " of " + pool.length + " tabs were blocked by the browser.\n\n" +
-            "Allow pop-ups for this site (the icon in the address bar), then " +
-            "click again. Only the " + opened + " that opened have been logged, " +
-            "so nothing is lost — the rest are still marked new.");
-        }
-
-        // log ONLY what actually opened
-        var lids = pool.slice(0, opened).map(function (l) { return l.id; });
-        if (!lids.length) return;
-        if (!state.sales.drafted) state.sales.drafted = {};
-        lids.forEach(function (id) { state.sales.drafted[id] = true; });
-
-        rpc("sales_log_batch", {
-          p_leads: lids, p_channel: "whatsapp", p_outcome: "opened",
-          p_direction: "out", p_template: "opener_" + arm,
-          p_sent_from: state.sales.from
-        }).then(function (r) {
-          if (r && r.skipped) {
-            window.alert(r.skipped + " lead(s) were skipped — most likely " +
-                         "do-not-contact. " + r.logged + " logged as drafts.");
-          }
-          state.sales.loaded = false; loadSales();
         });
       }
 
-      function salesConfirmAll(arm) {
-        var ids = state.sales.leads.filter(function (l) {
+      function salesInFlight(arm) {
+        return state.sales.leads.filter(function (l) {
           return l.variant === arm && !l.do_not_contact &&
                  (l.last_outcome === "opened" ||
                   (state.sales.drafted || {})[l.id]);
-        }).map(function (l) { return l.id; });
+        });
+      }
+
+      /* Opens exactly one chat. The window.open happens FIRST and
+         synchronously, before any await, or the browser stops treating it as
+         part of the click and blocks it. */
+      function salesOpenOne(arm) {
+        var next = salesQueue(arm)[0];
+        if (!next) { render(); return false; }
+
+        var armCfg = SALES_AB[arm] || SALES_AB.A;
+        if (armCfg.shot) salesCopyImage();
+
+        var w = window.open(next.wa_link + "?text=" +
+                            encodeURIComponent(salesMsg(next)), "_blank", "noopener");
+        if (!w) {
+          window.alert("The browser blocked the tab.\n\nAllow pop-ups for this " +
+            "site from the icon in the address bar, then click again. Nothing " +
+            "was logged, so this lead is still in the queue.");
+          return false;
+        }
+
+        if (!state.sales.drafted) state.sales.drafted = {};
+        state.sales.drafted[next.id] = true;
+        rpc("sales_log_touch", {
+          p_lead: next.id, p_channel: "whatsapp", p_outcome: "opened",
+          p_direction: "out", p_template: "opener_" + arm,
+          p_body: salesMsg(next), p_sent_from: state.sales.from,
+          p_variant: arm
+        }).then(function () { state.sales.loaded = false; loadSales(); });
+        render();
+        return true;
+      }
+
+      /* Confirm whatever is in flight for this arm as sent, then open the
+         next one — both inside the same click, so the tab is not blocked. */
+      function salesSentAndNext(arm) {
+        var ids = salesInFlight(arm).map(function (l) { return l.id; });
+        if (ids.length) {
+          ids.forEach(function (id) {
+            if (state.sales.drafted) delete state.sales.drafted[id];
+          });
+          rpc("sales_log_batch", {
+            p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
+            p_direction: "out", p_template: "opener_" + arm,
+            p_sent_from: state.sales.from
+          }).then(function () { state.sales.loaded = false; loadSales(); });
+        }
+        salesOpenOne(arm);
+      }
+
+      function salesConfirmAll(arm) {
+        var ids = salesInFlight(arm).map(function (l) { return l.id; });
         if (!ids.length) return;
-        if (!window.confirm("Mark all " + ids.length + " open draft(s) in arm " +
-              arm + " as SENT?\n\nOnly do this if you actually pressed send in " +
-              "each tab. This advances them out of the queue and counts them in " +
-              "the test.")) return;
-        ids.forEach(function (id) { delete state.sales.drafted[id]; });
+        if (!window.confirm("Mark " + ids.length + " open draft(s) as SENT?\n\n" +
+              "Only if you actually pressed send in each tab.")) return;
+        ids.forEach(function (id) {
+          if (state.sales.drafted) delete state.sales.drafted[id];
+        });
         rpc("sales_log_batch", {
           p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
           p_direction: "out", p_template: "opener_" + arm,
@@ -765,49 +728,34 @@
           '<input id="salesFrom" value="' + escAttr(state.sales.from) + '" style="border:1px solid #fcd34d;border-radius:8px;padding:6px 9px;font-size:12.5px;width:130px;background:#fff" />' +
           "</div>";
 
-        // how many are open in each arm right now
-        var draftedIn = function (arm) {
-          // count drafts the DATABASE knows about as well as this session's,
-          // so "All N sent" still works after a reload
-          return leads.filter(function (l) {
-            return l.variant === arm && !l.do_not_contact &&
-                   (l.last_outcome === "opened" ||
-                    (state.sales.drafted || {})[l.id]);
-          }).length;
-        };
-        var queueIn = function (arm) {
-          return leads.filter(function (l) {
-            return l.variant === arm && l.wa_link && !l.do_not_contact &&
-                   l.stage === "new" && l.last_outcome !== "opened" &&
-                   !(state.sales.drafted || {})[l.id];
-          }).length;
-        };
         var armBar = function (arm, tone, what) {
-          var q = queueIn(arm), d = draftedIn(arm);
-          return '<div style="flex:1;min-width:250px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
-            '<div style="font-size:11px;font-weight:700;color:' + tone + '">' + what.toUpperCase() + '</div>' +
+          var q = salesQueue(arm), inf = salesInFlight(arm);
+          var next = q[0];
+          return '<div style="flex:1;min-width:290px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
+            '<div style="font-size:11px;font-weight:700;color:' + tone + '">' + what.toUpperCase() + "</div>" +
             '<div style="font-size:10px;color:var(--tx4);letter-spacing:.02em">test arm ' + arm + "</div>" +
-            '<div style="font-size:12.5px;color:var(--tx3);margin-top:4px">' + q + ' waiting' +
-            (d ? ' · <b style="color:#b45309">' + d + " open</b>" : "") + "</div>" +
+            '<div style="font-size:12.5px;color:var(--tx3);margin-top:5px">' + q.length + " left" +
+              (inf.length ? ' · <b style="color:#b45309">' + inf.length + " open</b>" : "") + "</div>" +
+            (next ? '<div style="font-size:12px;margin-top:5px">next: <b>' + esc(salesName(next.name)) + "</b></div>"
+                  : '<div style="font-size:12px;color:var(--tx4);margin-top:5px">queue empty</div>') +
             '<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">' +
-            '<button data-sbatch="' + arm + '"' + (q ? "" : " disabled") +
-              ' style="border:none;background:' + (q ? tone : "var(--bd2)") + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:' + (q ? "pointer" : "default") + '">Open next ' + Math.min(q, SALES_BATCH) + "</button>" +
-            (d ? '<button data-sallsent="' + arm + '" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:6px 11px;font-size:12.5px;font-weight:600;cursor:pointer">All ' + d + " sent</button>" : "") +
+            (inf.length
+              ? '<button data-snext="' + arm + '" style="border:none;background:' + tone + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u2713 Sent \u2014 open next</button>' +
+                ' <button data-sallsent="' + arm + '" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:6px 10px;font-size:12.5px;font-weight:600;cursor:pointer">\u2713 Sent, stop here</button>'
+              : '<button data-sopen="' + arm + '"' + (next ? "" : " disabled") +
+                ' style="border:none;background:' + (next ? tone : "var(--bd2)") + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:' + (next ? "pointer" : "default") + '">Open next</button>') +
             "</div></div>";
         };
         var batchBar = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px 18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Work the queue</h3>' +
-          '<span style="font-size:11.5px;color:var(--tx4)">one group at a time, so you are not deciding about the image tab by tab</span></div>' +
-          /* Two axes were both labelled A/B/C and a reader could not tell them
-             apart. Nothing shows a bare letter now, and this says so once. */
+          '<span style="font-size:11.5px;color:var(--tx4)">one lead per click \u2014 browsers block multi-tab opens, so this never tries</span></div>' +
           '<div style="font-size:11px;color:var(--tx4);margin-top:6px"><b>Priority</b> (Hot / Warm / Cold) is how good the lead is, from its 0\u201310 score. <b>Text</b> vs <b>Text + image</b> is which half of the experiment it is in. Independent \u2014 a Hot lead can be in either.</div>' +
           '<div style="display:flex;gap:12px;margin-top:13px;flex-wrap:wrap">' +
           armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + image") + "</div>" +
           '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
-          "Opens up to " + SALES_BATCH + " chats, pre-filled, and logs them as <b>drafts</b> — nothing is marked sent until you say so. " +
-          "<b>Allow pop-ups for this site</b> or the browser blocks all but the first tab; if that happens you are told how many, and only the ones that opened are logged. " +
-          "<b>Arm B</b>: the image is copied to your clipboard when you open the batch \u2014 in each tab press <b>Cmd/Ctrl+V</b> then Enter. " +
-          "wa.me cannot carry an attachment, so this is as close to automatic as WhatsApp allows.</div></div>";
+          "<b>Open next</b> opens one chat with the opener pre-filled and logs it as a <b>draft</b>. Send it, then <b>\u2713 Sent \u2014 open next</b> records it and opens the following one, so it is one click per lead from then on. " +
+          "<b>Text + image</b>: a wa.me link cannot carry an attachment, so the image lands on your clipboard as the tab opens \u2014 press <b>Cmd/Ctrl+V</b> then Enter. " +
+          "Nothing is marked sent until you say so.</div></div>";
 
         var chip = function (key, val, label) {
           var on = (f[key] || "") === val || (key === "callable" && !!f.callable === (val === "1"));
@@ -1335,8 +1283,10 @@
           }
           return;
         }
-        var sbatch = e.target.closest("[data-sbatch]");
-        if (sbatch && !sbatch.disabled) { salesBatch(sbatch.getAttribute("data-sbatch")); return; }
+        var sopen = e.target.closest("[data-sopen]");
+        if (sopen && !sopen.disabled) { salesOpenOne(sopen.getAttribute("data-sopen")); return; }
+        var snext = e.target.closest("[data-snext]");
+        if (snext) { salesSentAndNext(snext.getAttribute("data-snext")); return; }
         var sallsent = e.target.closest("[data-sallsent]");
         if (sallsent) { salesConfirmAll(sallsent.getAttribute("data-sallsent")); return; }
         var sdone = e.target.closest("[data-sdone]");
