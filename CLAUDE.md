@@ -47,6 +47,28 @@ only: MRR, GMV, adoption, growth signals. Operational data stays in each
 tenant's own app. Keep it that way — it is what makes the console safe to
 open in front of anyone.
 
+## The console is published
+
+Live at **https://sujittarun.github.io/AcademyManager/** since 2026-08-12,
+and this repo is public.
+
+Pages serves the orphan **`gh-pages`** branch, not `main` — it holds only
+`index.html`, `assets/css/console.css`, three logos and `.nojekyll`. That
+is deliberate: `main` carries every migration, `PLATFORM.md`, `scripts/`
+and the tenant briefs, and none of that should be fetchable from the site
+even though the repo is browsable. Verified after going live: the console
+returns 200, `/PLATFORM.md` and `/scripts/migrate.sh` return 404.
+
+To ship a console change: commit it on `main`, then copy the five files
+onto `gh-pages` and push. Anything else committed to `gh-pages` is on the
+open web.
+
+**Never put `value=` on the sign-in inputs.** On 2026-08-05 the operator
+password was prefilled here and went public on this console and CourtSync;
+that is why the console was taken down for a week. The file is safe to
+publish only because it ships no secret — the key in it is the `anon` key,
+which is public by design, and the gate requires `am_role = 'operator'`.
+
 ## Observability
 
 `platform_health()` for the console, `cron_health_check()` hourly (cron
