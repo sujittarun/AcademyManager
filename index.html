@@ -606,6 +606,40 @@
         }).then(function () { state.sales.loaded = false; loadSales(); });
       }
 
+      /* Arm B's image, on the clipboard.
+         wa.me carries text only, so the attachment cannot ride along with the
+         opener. The next best thing is to put the PNG on the clipboard when
+         the chat opens, so the caller pastes with one keystroke instead of
+         hunting for a file.
+
+         The blob is pre-fetched when the tab loads: fetching it inside the
+         click works in Chrome, but Safari treats the await as ending the user
+         gesture and refuses the clipboard write. */
+      var SALES_IMG = "assets/marketing/dashboard-dues.png";
+      var salesImgBlob = null, salesImgTried = false;
+
+      function salesPrefetchImage() {
+        if (salesImgTried) return;
+        salesImgTried = true;
+        try {
+          fetch(SALES_IMG).then(function (r) {
+            if (!r.ok) throw new Error(r.status);
+            return r.blob();
+          }).then(function (b) { salesImgBlob = b; })
+            .catch(function () { salesImgBlob = null; });
+        } catch (e) { salesImgBlob = null; }
+      }
+
+      function salesCopyImage() {
+        if (!salesImgBlob || !window.ClipboardItem ||
+            !navigator.clipboard || !navigator.clipboard.write) return false;
+        try {
+          var item = {}; item[salesImgBlob.type || "image/png"] = salesImgBlob;
+          navigator.clipboard.write([new ClipboardItem(item)]);
+          return true;
+        } catch (e) { return false; }
+      }
+
       /* Working the queue, one lead per click.
          WHY NOT TEN TABS AT ONCE
          The first version opened ten. Browsers allow ONE window.open per user
