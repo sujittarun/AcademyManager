@@ -59,6 +59,14 @@ added to `package.json`. If `node` cannot find it:
 NODE_PATH=<scratchpad>/shotter/node_modules node AcademyManager/scripts/shoot-arm-b.js
 ```
 
+## Three sizes, and which to send
+
+| file | size | use |
+|---|---|---|
+| `dashboard-dues-whatsapp.jpg` | 1600px, ~130KB | **send this one.** WhatsApp recompresses to roughly this anyway; starting smaller means it uploads instantly on mobile data |
+| `dashboard-dues.png` | 2000px, ~340KB | decks, docs, email |
+| `dashboard-dues-4k.png` | 3816px, ~4.2MB | the master. Do not attach it to a chat |
+
 ## What the shot should show
 
 Verified live on 2026-08-12:
@@ -66,9 +74,21 @@ Verified live on 2026-08-12:
 | | |
 |---|---|
 | Active members | **94** |
-| Court bookings today | 2 |
+| Court bookings today | varies (live) |
 | **Renewals due** | **30 · worth ₹92,800** |
 | Revenue · August | ₹90k · Jul closed at ₹91k |
+| Renewal status | **68% paid up · 64 paid up / 30 due** |
+
+The frame is fitted to the app's content width rather than a fixed 1920 —
+at 1920 the layout centres itself and leaves ~600px of empty gradient each
+side, which on a phone shrinks the numbers to nothing. The script measures
+the container and scales to reach ~4K.
+
+It stops above "Recent activity": that section and a `₹9,975` figure below
+the donut come from `LT_DATA`, not `demo_snapshot()`, and the feed prints
+member names. Mixing real and seed numbers in one image is the Finance-page
+mistake in miniature. The cut is measured from the DOM, so a layout change
+cannot pull it into frame.
 
 "Renewals due 30 · worth ₹92,800" is the line that does the work — it is
 the pain the opener just asked about, and the amount comes from
