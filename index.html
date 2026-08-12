@@ -649,7 +649,8 @@
       function salesBatch(arm) {
         var pool = state.sales.leads.filter(function (l) {
           return l.variant === arm && l.wa_link && !l.do_not_contact &&
-                 l.stage === "new" && !(state.sales.drafted || {})[l.id];
+                 l.stage === "new" && l.last_outcome !== "opened" &&
+                 !(state.sales.drafted || {})[l.id];
         }).slice(0, SALES_BATCH);
 
         if (!pool.length) {
@@ -703,10 +704,11 @@
       }
 
       function salesConfirmAll(arm) {
-        var ids = Object.keys(state.sales.drafted || {}).filter(function (id) {
-          var l = state.sales.leads.filter(function (x) { return x.id === id; })[0];
-          return l && l.variant === arm;
-        });
+        var ids = state.sales.leads.filter(function (l) {
+          return l.variant === arm && !l.do_not_contact &&
+                 (l.last_outcome === "opened" ||
+                  (state.sales.drafted || {})[l.id]);
+        }).map(function (l) { return l.id; });
         if (!ids.length) return;
         if (!window.confirm("Mark all " + ids.length + " open draft(s) in arm " +
               arm + " as SENT?\n\nOnly do this if you actually pressed send in " +
@@ -754,15 +756,19 @@
 
         // how many are open in each arm right now
         var draftedIn = function (arm) {
-          return Object.keys(state.sales.drafted || {}).filter(function (id) {
-            var l = leads.filter(function (x) { return x.id === id; })[0];
-            return l && l.variant === arm;
+          // count drafts the DATABASE knows about as well as this session's,
+          // so "All N sent" still works after a reload
+          return leads.filter(function (l) {
+            return l.variant === arm && !l.do_not_contact &&
+                   (l.last_outcome === "opened" ||
+                    (state.sales.drafted || {})[l.id]);
           }).length;
         };
         var queueIn = function (arm) {
           return leads.filter(function (l) {
             return l.variant === arm && l.wa_link && !l.do_not_contact &&
-                   l.stage === "new" && !(state.sales.drafted || {})[l.id];
+                   l.stage === "new" && l.last_outcome !== "opened" &&
+                   !(state.sales.drafted || {})[l.id];
           }).length;
         };
         var armBar = function (arm, tone, what) {
@@ -827,10 +833,21 @@
           var arm = SALES_AB[l.variant] || SALES_AB.A;
           var acts = l.do_not_contact
             ? '<span style="font-size:11.5px;color:#b91c1c;font-weight:600">suppressed</span>'
-            : (state.sales.drafted || {})[l.id]
+            /* A draft is in flight if the DATABASE says so — its most recent
+               touch is an 'opened' with no send after it — or if this session
+               just opened it. Reading only the in-memory map lost every draft
+               on reload and showed the WhatsApp button again, which is how
+               eight sends went unrecorded. */
+            : ((state.sales.drafted || {})[l.id] || l.last_outcome === "opened")
+              /* A draft in flight still needs the other outcomes. Replacing
+                 the whole cell with just yes/no meant a prospect who replied
+                 "stop messaging me" while the draft sat open could not be
+                 suppressed without first lying about having sent it. */
               ? '<span style="font-size:11.5px;color:#b45309;font-weight:600">did you send it?</span>' +
                 ' <button data-sdone="' + l.id + '" style="border:none;background:#059669;color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer">Yes, sent</button>' +
-                ' <button data-sundo="' + l.id + '" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>'
+                ' <button data-sundo="' + l.id + '" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
+                ' <button data-sact="' + l.id + '|whatsapp|replied|in" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
+                ' <button data-sdnc="' + l.id + '" title="They asked us to stop" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Stop</button>'
             : (l.wa_link
                 ? '<button data-swa="' + l.id + '" title="' + escAttr(
                     arm.shot
@@ -838,6 +855,11 @@
                       : "Arm A: send the opener as text only — no screenshot") +
                   '" style="border:none;background:' + (arm.shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">' + (arm.shot ? "image" : "chat") + "</span> " + l.variant + (arm.shot ? " +shot" : " text") + "</button>"
                 : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>') +
+              /* Sent, straight out. Messages get sent from a phone, from an
+                 existing chat, or before anyone opened the console — and
+                 until now the only path to 'sent' was open-then-confirm, so
+                 those went unrecorded and the lead kept offering a button. */
+              (l.wa_link ? ' <button data-sact="' + l.id + '|whatsapp|sent" title="Already sent it — record that, whatever route it went out by" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer">\u2713 Sent</button>' : "") +
               ' <button data-sact="' + l.id + '|call|no_answer" title="Called, no answer" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No answer</button>' +
               ' <button data-sact="' + l.id + '|whatsapp|replied|in" title="They replied" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
               ' <button data-sact="' + l.id + '|whatsapp|not_interested" title="Not interested" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
