@@ -496,7 +496,7 @@
            this while the A/B test is running — both arms must send identical
            copy or the result means nothing. */
         _default:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies \u2014 batches, attendance, fees and the parent reminders in one place.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
+          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies \u2014 batches, attendance, fees and the parent reminders in one place. Same if you're a coach running classes across a few centres.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
       };
 
       /* The A/B arm comes from the DATABASE, never from the client.
@@ -562,6 +562,7 @@
       };
 
       function loadSales() {
+        salesPrefetchImage();
         if (state.sales.loading) return;
         state.sales.loading = true;
         var f = state.sales.f;
@@ -609,6 +610,40 @@
          POPUPS. Browsers allow one window.open per gesture and block the
          rest. There is no way around that from a page, so it is detected and
          reported rather than silently losing nine of ten prospects. */
+      /* Arm B's image, on the clipboard.
+         wa.me carries text only, so the attachment cannot ride along with the
+         opener — that is a WhatsApp limitation, not something to code around.
+         The next best thing is to put the PNG on the clipboard when the chat
+         opens, so the caller pastes with one keystroke instead of hunting for
+         a file: click -> tab opens with the text -> Cmd/Ctrl+V -> Enter.
+
+         The blob is pre-fetched when the tab loads. Fetching it inside the
+         click handler works in Chrome but Safari treats the await as ending
+         the user gesture and refuses the clipboard write, so it is cached up
+         front and the click only writes. */
+      var SALES_IMG = "assets/marketing/dashboard-dues.png";
+      var salesImgBlob = null, salesImgTried = false;
+
+      function salesPrefetchImage() {
+        if (salesImgTried) return;
+        salesImgTried = true;
+        fetch(SALES_IMG).then(function (r) {
+          if (!r.ok) throw new Error(r.status);
+          return r.blob();
+        }).then(function (b) { salesImgBlob = b; })
+          .catch(function () { salesImgBlob = null; });
+      }
+
+      function salesCopyImage() {
+        if (!salesImgBlob || !window.ClipboardItem ||
+            !navigator.clipboard || !navigator.clipboard.write) return false;
+        try {
+          var item = {}; item[salesImgBlob.type || "image/png"] = salesImgBlob;
+          navigator.clipboard.write([new ClipboardItem(item)]);
+          return true;
+        } catch (e) { return false; }
+      }
+
       var SALES_BATCH = 10;
 
       function salesBatch(arm) {
@@ -624,6 +659,10 @@
           return;
         }
 
+        // one clipboard write for the whole batch — the same image goes in
+        // every arm-B chat, so it stays on the clipboard across all the tabs
+        var copied = arm === "B" ? salesCopyImage() : true;
+
         var opened = 0, blocked = 0;
         pool.forEach(function (l) {
           var w = window.open(l.wa_link + "?text=" + encodeURIComponent(salesMsg(l)),
@@ -631,6 +670,11 @@
           if (w) { opened++; } else { blocked++; }
         });
 
+        if (arm === "B" && !copied) {
+          window.alert("The image is not on your clipboard — copy " +
+            "marketing/leads/dashboard-dues-whatsapp.jpg by hand, or arm B goes " +
+            "out as text only and the test measures nothing.");
+        }
         if (blocked) {
           window.alert(
             blocked + " of " + pool.length + " tabs were blocked by the browser.\n\n" +
@@ -741,7 +785,8 @@
           '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
           "Opens up to " + SALES_BATCH + " chats, pre-filled, and logs them as <b>drafts</b> — nothing is marked sent until you say so. " +
           "<b>Allow pop-ups for this site</b> or the browser blocks all but the first tab; if that happens you are told how many, and only the ones that opened are logged. " +
-          "Arm B: attach <code>dashboard-dues-whatsapp.jpg</code> in each tab before sending.</div></div>";
+          "<b>Arm B</b>: the image is copied to your clipboard when you open the batch \u2014 in each tab press <b>Cmd/Ctrl+V</b> then Enter. " +
+          "wa.me cannot carry an attachment, so this is as close to automatic as WhatsApp allows.</div></div>";
 
         var chip = function (key, val, label) {
           var on = (f[key] || "") === val || (key === "callable" && !!f.callable === (val === "1"));
@@ -1232,6 +1277,16 @@
                drafts in the A/B denominator. The row now asks. */
             if (!state.sales.drafted) state.sales.drafted = {};
             state.sales.drafted[lid] = true;
+            // arm B: put the image on the clipboard so the paste is one key
+            var armCopied = false;
+            if ((SALES_AB[lead.variant] || {}).shot) armCopied = salesCopyImage();
+            if ((SALES_AB[lead.variant] || {}).shot && !armCopied) {
+              window.setTimeout(function () {
+                window.alert("Could not copy the image to the clipboard.\n\n" +
+                  "Attach marketing/leads/dashboard-dues-whatsapp.jpg by hand in " +
+                  "the chat before sending.");
+              }, 50);
+            }
             rpc("sales_log_touch", {
               p_lead: lid, p_channel: "whatsapp", p_outcome: "opened",
               p_direction: "out", p_template: "opener_" + lead.variant,
