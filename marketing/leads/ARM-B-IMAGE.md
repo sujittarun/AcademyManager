@@ -29,8 +29,37 @@ real and mutually consistent. That is what to send.
 ## Making it
 
 ```bash
-node AcademyManager/scripts/shoot-arm-b.js
+node AcademyManager/scripts/shoot-arm-b-composite.js   # the one to use
 ```
+
+Composites **two** real screens into one page-like image: the dashboard
+(tiles, six-month chart, renewal donut) above the Finance page's
+**Ledger / Recent revenue** table.
+
+Why both: four KPI tiles read as thin — a prospect sees numbers but not a
+product doing anything. The ledger is the opposite, showing named rows with
+plan, amount, payment mode and date. Together they answer "what is this"
+and "what does it do".
+
+`shoot-arm-b.js` still exists and shoots the dashboard alone, if a shorter
+image is ever wanted.
+
+### Three edges it had to get right
+
+The ledger crop was wrong twice before it was right, and both mistakes were
+only visible by looking at the output:
+
+1. **The card's own bottom** includes the footer "9 payments · collected
+   ₹52,380" — both LT_DATA figures. Under a dashboard reading ₹90k across
+   227 payments, the image contradicted itself.
+2. **Just above the footer** sliced the last row in half, which reads as a
+   broken app — worse than including the total.
+3. **The last complete row's bottom** is the only edge that is both clean
+   and honest. That is what it uses, and it refuses to run if fewer than 5
+   rows are in frame.
+
+No AI-generated imagery. A generated "app screen" is a fake product; every
+pixel here is the real thing.
 
 Writes `marketing/leads/dashboard-dues.png` at 2x, so it stays crisp on a
 phone. Ten seconds, and it is the reason this is a script rather than a
