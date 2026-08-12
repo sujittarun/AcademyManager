@@ -548,6 +548,17 @@
         return SALES_TPL._default.replace("{name}", salesName(l.name));
       }
 
+      /* Two different things were both called A/B/C, in the same table:
+         the priority band (from the 0-10 score) and the A/B test arm. The
+         database still stores 'A'/'B'/'C' and 'A'/'B' — those are fine as
+         keys — but nothing user-facing shows a bare letter any more.
+
+           priority band  ->  Hot / Warm / Cold
+           test arm       ->  Text / Text + image                          */
+      var PRI_LABEL = { A: "Hot", B: "Warm", C: "Cold" };
+      var PRI_TONE  = { A: "#b45309", B: "#1d4ed8", C: "#6b7280" };
+      var ARM_LABEL = { A: "Text", B: "Text + image" };
+
       var CONF_BADGE = {
         verified:  ["#047857", "#ecfdf5", "verified"],
         directory: ["#b45309", "#fffbeb", "directory"],
@@ -740,7 +751,7 @@
         var kpis = '<div class="cardgrid" style="margin-bottom:18px">' +
           kpi("PROSPECTS", (p && p.total) || 0, "coaching academies, Hyderabad") +
           kpi("CALLABLE NOW", (p && p.callable) || 0, ((p && p.verified) || 0) + " own-site verified", "#047857") +
-          kpi("PRIORITY A", pr.A || 0, "score 8+ · call this week", "#b45309") +
+          kpi("HOT LEADS", pr.A || 0, "score 8+ · call this week", "#b45309") +
           kpi("REPLIED", st.replied || 0, ((p && p.replies_7d) || 0) + " replies in 7d") +
           kpi("NO NUMBER", (p && p.no_phone) || 0, "reach by DM or web form") +
           kpi("SUPPRESSED", (p && p.dnc) || 0, "asked us to stop") +
@@ -774,7 +785,8 @@
         var armBar = function (arm, tone, what) {
           var q = queueIn(arm), d = draftedIn(arm);
           return '<div style="flex:1;min-width:250px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
-            '<div style="font-size:11px;font-weight:700;color:' + tone + '">ARM ' + arm + ' · ' + what + "</div>" +
+            '<div style="font-size:11px;font-weight:700;color:' + tone + '">' + what.toUpperCase() + '</div>' +
+            '<div style="font-size:10px;color:var(--tx4);letter-spacing:.02em">test arm ' + arm + "</div>" +
             '<div style="font-size:12.5px;color:var(--tx3);margin-top:4px">' + q + ' waiting' +
             (d ? ' · <b style="color:#b45309">' + d + " open</b>" : "") + "</div>" +
             '<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">' +
@@ -785,9 +797,12 @@
         };
         var batchBar = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px 18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Work the queue</h3>' +
-          '<span style="font-size:11.5px;color:var(--tx4)">one arm at a time, so you are not deciding about the screenshot tab by tab</span></div>' +
+          '<span style="font-size:11.5px;color:var(--tx4)">one group at a time, so you are not deciding about the image tab by tab</span></div>' +
+          /* Two axes were both labelled A/B/C and a reader could not tell them
+             apart. Nothing shows a bare letter now, and this says so once. */
+          '<div style="font-size:11px;color:var(--tx4);margin-top:6px"><b>Priority</b> (Hot / Warm / Cold) is how good the lead is, from its 0\u201310 score. <b>Text</b> vs <b>Text + image</b> is which half of the experiment it is in. Independent \u2014 a Hot lead can be in either.</div>' +
           '<div style="display:flex;gap:12px;margin-top:13px;flex-wrap:wrap">' +
-          armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + screenshot") + "</div>" +
+          armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + image") + "</div>" +
           '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
           "Opens up to " + SALES_BATCH + " chats, pre-filled, and logs them as <b>drafts</b> — nothing is marked sent until you say so. " +
           "<b>Allow pop-ups for this site</b> or the browser blocks all but the first tab; if that happens you are told how many, and only the ones that opened are logged. " +
@@ -806,8 +821,8 @@
           })).join("");
 
         var filters = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">' +
-          chip("priority", "", "All") + chip("priority", "A", "A · call now") +
-          chip("priority", "B", "B") + chip("priority", "C", "C") +
+          chip("priority", "", "All") + chip("priority", "A", "Hot") +
+          chip("priority", "B", "Warm") + chip("priority", "C", "Cold") +
           '<span style="width:1px;height:22px;background:var(--bd2);margin:0 3px"></span>' +
           chip("callable", "1", "Has a number") +
           chip("stage", "new", "Not yet contacted") +
@@ -820,7 +835,8 @@
         var rows = leads.map(function (l) {
           var cb = CONF_BADGE[l.phone_confidence] || CONF_BADGE.none;
           var sb = STAGE_BADGE[l.stage] || STAGE_BADGE.new;
-          var prTone = l.priority === "A" ? "#b45309" : l.priority === "B" ? "#1d4ed8" : "#6b7280";
+          var prTone = PRI_TONE[l.priority] || "#6b7280";
+          var prName = PRI_LABEL[l.priority] || l.priority;
           var alts = (l.alt_phones || []);
           var phoneCell = l.phone
             ? '<span style="font-weight:600;font-variant-numeric:tabular-nums">' + esc(l.phone) + "</span>" +
@@ -853,7 +869,7 @@
                     arm.shot
                       ? "Arm B: send the opener, then attach ONE screenshot of the dues list (demo tenant only)"
                       : "Arm A: send the opener as text only — no screenshot") +
-                  '" style="border:none;background:' + (arm.shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">' + (arm.shot ? "image" : "chat") + "</span> " + l.variant + (arm.shot ? " +shot" : " text") + "</button>"
+                  '" style="border:none;background:' + (arm.shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">' + (arm.shot ? "image" : "chat") + "</span> " + (ARM_LABEL[l.variant] || l.variant) + "</button>"
                 : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>') +
               /* Sent, straight out. Messages get sent from a phone, from an
                  existing chat, or before anyone opened the console — and
@@ -870,7 +886,7 @@
               '<div style="font-size:11.5px;color:var(--tx4)">' + esc(l.sport || "—") + (l.area ? " · " + esc(l.area) : "") +
               ((l.branches || 1) >= 2 ? ' · <b>' + l.branches + " centres</b>" : "") + "</div>" +
               (l.tech_signal ? '<div style="font-size:11px;color:var(--tx4);margin-top:2px;max-width:430px">' + esc(l.tech_signal.slice(0, 110)) + "</div>" : "") + "</td>" +
-            '<td style="padding:11px 10px;text-align:center"><span style="font-size:13px;font-weight:700;color:' + prTone + '">' + l.priority + "</span>" +
+            '<td style="padding:11px 10px;text-align:center"><span style="font-size:12px;font-weight:700;color:' + prTone + '">' + prName + "</span>" +
               '<div style="font-size:11px;color:var(--tx4)">' + l.score + "/10</div></td>" +
             '<td style="padding:11px 10px">' + phoneCell +
               '<div><span style="font-size:10.5px;font-weight:600;color:' + cb[0] + ";background:" + cb[1] + ';padding:1px 6px;border-radius:10px">' + cb[2] + "</span>" +
@@ -889,7 +905,8 @@
           var armCard = function (k, tone) {
             var a = ab[k];
             return '<div style="flex:1;min-width:170px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
-              '<div style="font-size:11px;font-weight:700;color:' + tone + '">ARM ' + k + " · " + esc(a.label) + "</div>" +
+              '<div style="font-size:11px;font-weight:700;color:' + tone + '">' + esc(a.label).toUpperCase() + "</div>" +
+              '<div style="font-size:10px;color:var(--tx4)">test arm ' + k + "</div>" +
               '<div style="font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:5px">' + a.reply_rate_pct + '<span style="font-size:13px;font-weight:600">%</span></div>' +
               '<div style="font-size:11.5px;color:var(--tx4)">' + a.replied + " replied of " + a.sent + " sent" + (a.drafted ? " · " + a.drafted + " drafted, not sent" : "") + " · " + a.assigned + " assigned</div></div>";
           };
@@ -906,7 +923,7 @@
 
         var note = '<div style="font-size:11.5px;color:var(--tx4);margin-top:12px;line-height:1.6">' +
           "The button opens a chat with the opener pre-filled and logs it as a <b>draft</b> \u2014 then asks whether you actually sent it, because opening a draft is not sending one. Only <b>Yes, sent</b> marks the lead contacted or counts in the test. " +
-          "<b>A · text</b> sends text only. <b>B · +shot</b> means send the text, then attach <b>one</b> image — " +
+          "<b>Text</b> sends the opener alone. <b>Text + image</b> means send the opener, then attach <b>one</b> image — " +
           "<code>marketing/leads/dashboard-dues.png</code>, the demo <b>dashboard</b>: 94 members, 30 renewals due worth ₹92,800. " +
           "Not the Finance screen — that one still reads from the local seed and contradicts itself. " +
           "It comes from the demo tenant and carries no names and no phone numbers \u2014 never substitute a screenshot of a real academy, and never one showing a roster. " +
@@ -918,7 +935,7 @@
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">' +
           '<thead><tr style="background:var(--fill)">' +
-          ['Academy', 'Pri', 'Number', 'Suggested plan', 'Stage', 'Action'].map(function (h, i) {
+          ['Academy', 'Priority', 'Number', 'Suggested plan', 'Stage', 'Action'].map(function (h, i) {
             return '<th style="padding:9px 10px;text-align:' + (i === 1 ? "center" : "left") + ';font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">' + h.toUpperCase() + "</th>";
           }).join("") + "</tr></thead><tbody>" +
           (rows || '<tr><td colspan="6" style="padding:36px;text-align:center;color:var(--tx4);font-size:13px">No leads match these filters.</td></tr>') +
