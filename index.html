@@ -64,13 +64,31 @@
       function rpc(name, args) {
         return bearerTok().then(function (tok) {
           return fetch(BASE + "/rpc/" + name, { method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
-        }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).catch(function () { return null; });
+        }).then(function (r) {
+          // 401/403 must not be swallowed. Every caller does `|| []`, so a
+          // silent null renders an empty console — no academies, no error,
+          // no hint that the session is the problem. Send the operator back
+          // to the gate instead of showing them a blank dashboard.
+          if (r.status === 401 || r.status === 403) { signOutToGate("Session expired — please sign in again."); throw new Error(r.status); }
+          if (!r.ok) throw new Error(r.status);
+          return r.json();
+        }).catch(function () { return null; });
       }
 
       /* ============ sign-in gate ============ */
       var gate = document.getElementById("gate");
+      function signOutToGate(msg) {
+        localStorage.removeItem("am-session");
+        if (!gate) return;
+        gate.classList.remove("hide");
+        var p = gate.querySelector("p");
+        if (p && msg) p.textContent = msg;
+      }
       var s0 = amSession();
-      if (s0 && !s0.access_token) { localStorage.removeItem("am-session"); s0 = null; }
+      // A session with no refresh token cannot be renewed, and one whose
+      // refresh window has passed is already dead. Hiding the gate for
+      // either leaves the operator staring at an empty console.
+      if (s0 && (!s0.access_token || !s0.refresh_token)) { localStorage.removeItem("am-session"); s0 = null; }
       if (s0) gate.classList.add("hide");
       document.getElementById("gateForm").addEventListener("submit", function (e) {
         e.preventDefault();
@@ -897,6 +915,9 @@
 
       /* ============ boot ============ */
       render(); // shell first (empty), then hydrate
+      // Nothing to fetch until someone is signed in. Firing these while the
+      // gate is up just produced four 401s in the console on every visit.
+      if (!s0) return;
       rpc("get_channels").then(function (list) {
         if (list && list.length) { list.forEach(function (c) { if (CH[c.id] == null && c.color) CH[c.id] = c.color; }); }
       }).then(function () {
