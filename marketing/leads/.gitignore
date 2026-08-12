@@ -13,3 +13,11 @@
 *.tsv
 *.xlsx
 master*
+
+# Which tenants can and cannot carry a reference, with the usage figures
+# behind that call. This repo is PUBLIC, and a table stating that a named
+# client has almost no students on our product is their commercial
+# information — findable by them, and worth less to us than it costs.
+# The operating rule ("name only Raj Sports and Gen Alpha") lives in
+# WHATSAPP-KIT.md; the evidence stays here, locally.
+REFERENCES-INTERNAL.md
