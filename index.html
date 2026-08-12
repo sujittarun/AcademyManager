@@ -472,15 +472,15 @@
          the sender cannot quote different words. */
       var SALES_TPL = {
         Cricket:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, based here in Hyderabad. I built the app that Gen Alpha Cricket Academy runs on — attendance, fees and the parent reminders.\n\nBefore I pitch you anything: how do you track which parents have paid this month and which haven't? Excel, or a register?",
+          "Hi, is this {name}?\n\nI'm from Academy Manager, based here in Hyderabad. I built the app that Gen Alpha Cricket Academy runs on — attendance, fees and the parent reminders.\n\nBefore I pitch you anything: are you still tracking who's paid on Excel or in a register?",
         Swimming:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, in Hyderabad — I build the app Raj Sports uses to run their batches across 5 centres here.\n\nOne question before I pitch anything: with batches turning over every month, how do you keep track of who's paid and who's due?",
+          "Hi, is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies — one runs 5 centres and about 100 students on ours.\n\nBefore I pitch you anything: are you still tracking batches on Excel or WhatsApp, and who's paid in a register?",
         _multibranch:
           "Hi, is this {name}?\n\nI'm from Academy Manager, in Hyderabad. I build the software Raj Sports runs on — 5 centres, ~100 students, all on one screen.\n\nYou run several centres. How do you see all of them in one place today — do your coaches send you the register on WhatsApp?",
         "Multi-sport":
           "Hi — is this the right number for {name}?\n\nI'm from Academy Manager, based in Hyderabad. I build the platform Raj Sports runs on: 5 centres, 14 batches, 5 sports, ~100 students, in one app with their own name on it.\n\nSince you run several sports at different fees — when a parent asks what they owe, how do you work it out today?",
         _default:
-          "Hi, is this {name}?\n\nI'm from Academy Manager, from Hyderabad. I build the software Raj Sports runs on — about 100 kids across 5 centres here, including DPS Miyapur and Hill County.\n\nBefore I pitch you anything: how are you keeping track of who's paid their monthly fee and who's still due?"
+          "Hi, is this {name}?\n\nI'm from Academy Manager, from Hyderabad. I build the software Raj Sports runs on — about 100 kids across 5 centres here, including DPS Miyapur and Hill County.\n\nBefore I pitch you anything: are you still tracking batches on Excel or WhatsApp, and who's paid in a register?"
       };
 
       /* The console's esc() escapes & < > but not the double quote, because
@@ -501,11 +501,34 @@
         return /^https?:\/\//i.test(String(u || "")) ? escAttr(u) : "";
       }
 
+      /* The greeting name is NOT the stored name.
+         34 of the 135 researched leads carry something a researcher needed
+         and a prospect must never see: an alias after a slash, an acronym
+         or a locality in brackets, a "- Hyderabad cluster" suffix. One went
+         out reading "Hi, is this Oyster Indoor Swimming Club / Oyster
+         Swimming Pool?" — which tells the reader they are a row in
+         somebody's list. The table keeps the full name because it is useful
+         internally; only the message gets the clean one. */
+      function salesName(n) {
+        var s = String(n || "").split(" / ")[0].trim(), prev;
+        // Strip repeatedly until stable. One pass in a fixed order is not
+        // enough: "Sportz Village (EduSports) - Hyderabad school cluster"
+        // has a bracket that is only *trailing* once the " - suffix" is
+        // gone, so a single ordered pass leaves "(EduSports)" behind.
+        do {
+          prev = s;
+          s = s.replace(/\s+[-–]\s+.*$/, "")   // "- Hyderabad school cluster"
+               .replace(/\s*\([^)]*\)\s*$/, "") // "(ARTA)", "(Kompally)"
+               .trim();
+        } while (s !== prev && s.length >= 3);
+        return s.length >= 3 ? s : String(n || "").trim();
+      }
+
       function salesMsg(l) {
         var t = SALES_TPL[l.sport] ||
                 ((l.branches || 1) >= 2 ? SALES_TPL._multibranch : null) ||
                 SALES_TPL._default;
-        return t.replace("{name}", l.name);
+        return t.replace("{name}", salesName(l.name));
       }
 
       var CONF_BADGE = {
@@ -580,7 +603,7 @@
         // traceable to exactly what it had messaged.
         var sender = '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 15px;margin-bottom:16px">' +
           '<span class="mi" style="color:#b45309;font-size:19px">smartphone</span>' +
-          '<div style="font-size:12.5px;color:#78350f;flex:1;min-width:220px"><b>Sending from ' + esc(state.sales.from) + '</b> — must NOT be the number that sends tenant fee reminders. If that sender gets restricted for cold outreach, reminders stop for every academy.</div>' +
+          '<div style="font-size:12.5px;color:#78350f;flex:1;min-width:220px"><b>Sending from ' + esc(state.sales.from) + '</b> — checked 2026-08-12: the tenant fee-reminder sender is a different number (+91 81439 60950), so outreach cannot affect reminder delivery. Keep them separate — a sender restricted for cold messaging would stop reminders for every academy at once.</div>' +
           '<input id="salesFrom" value="' + escAttr(state.sales.from) + '" style="border:1px solid #fcd34d;border-radius:8px;padding:6px 9px;font-size:12.5px;width:130px;background:#fff" />' +
           "</div>";
 
