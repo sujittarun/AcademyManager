@@ -62,8 +62,9 @@ tenant — no names, no phone numbers — so it is safe on the open web.
 
 Everything else stays off the branch on purpose: `main` carries every
 migration, `PLATFORM.md`, `scripts/` and the tenant briefs, and none of
-that should be fetchable from the site even though the repo is browsable. Verified after going live: the console
-returns 200, `/PLATFORM.md` and `/scripts/migrate.sh` return 404.
+that should be fetchable from the site even though the repo is browsable.
+Verified after going live: the console returns 200, `/PLATFORM.md` and
+`/scripts/migrate.sh` return 404.
 
 To ship a console change: commit it on `main`, then copy those files onto
 `gh-pages` and push. Anything else committed to `gh-pages` is on the
