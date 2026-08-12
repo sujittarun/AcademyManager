@@ -594,6 +594,88 @@
         }).then(function () { state.sales.loaded = false; loadSales(); });
       }
 
+      /* Batch-open: the whole point of the sales tab.
+         Opens the next N leads of ONE arm in tabs, each pre-filled, and logs
+         all of them as drafts in a single round-trip.
+
+         WHY BY ARM. Arm B needs a screenshot attached and arm A does not. A
+         mixed batch means deciding that per tab, which is how the wrong thing
+         gets sent. Doing all the text-only ones, then all the +shot ones,
+         removes the decision.
+
+         WHY DRAFTS. Opening a tab is not sending. Each row then asks; only
+         "Yes, sent" marks the lead contacted or counts in the test.
+
+         POPUPS. Browsers allow one window.open per gesture and block the
+         rest. There is no way around that from a page, so it is detected and
+         reported rather than silently losing nine of ten prospects. */
+      var SALES_BATCH = 10;
+
+      function salesBatch(arm) {
+        var pool = state.sales.leads.filter(function (l) {
+          return l.variant === arm && l.wa_link && !l.do_not_contact &&
+                 l.stage === "new" && !(state.sales.drafted || {})[l.id];
+        }).slice(0, SALES_BATCH);
+
+        if (!pool.length) {
+          window.alert("Nothing left to open in arm " + arm +
+            " for this filter.\n\nEither they are all drafted already, or the " +
+            "filter has none left. Widen the filter or confirm the ones in flight.");
+          return;
+        }
+
+        var opened = 0, blocked = 0;
+        pool.forEach(function (l) {
+          var w = window.open(l.wa_link + "?text=" + encodeURIComponent(salesMsg(l)),
+                              "_blank", "noopener");
+          if (w) { opened++; } else { blocked++; }
+        });
+
+        if (blocked) {
+          window.alert(
+            blocked + " of " + pool.length + " tabs were blocked by the browser.\n\n" +
+            "Allow pop-ups for this site (the icon in the address bar), then " +
+            "click again. Only the " + opened + " that opened have been logged, " +
+            "so nothing is lost — the rest are still marked new.");
+        }
+
+        // log ONLY what actually opened
+        var lids = pool.slice(0, opened).map(function (l) { return l.id; });
+        if (!lids.length) return;
+        if (!state.sales.drafted) state.sales.drafted = {};
+        lids.forEach(function (id) { state.sales.drafted[id] = true; });
+
+        rpc("sales_log_batch", {
+          p_leads: lids, p_channel: "whatsapp", p_outcome: "opened",
+          p_direction: "out", p_template: "opener_" + arm,
+          p_sent_from: state.sales.from
+        }).then(function (r) {
+          if (r && r.skipped) {
+            window.alert(r.skipped + " lead(s) were skipped — most likely " +
+                         "do-not-contact. " + r.logged + " logged as drafts.");
+          }
+          state.sales.loaded = false; loadSales();
+        });
+      }
+
+      function salesConfirmAll(arm) {
+        var ids = Object.keys(state.sales.drafted || {}).filter(function (id) {
+          var l = state.sales.leads.filter(function (x) { return x.id === id; })[0];
+          return l && l.variant === arm;
+        });
+        if (!ids.length) return;
+        if (!window.confirm("Mark all " + ids.length + " open draft(s) in arm " +
+              arm + " as SENT?\n\nOnly do this if you actually pressed send in " +
+              "each tab. This advances them out of the queue and counts them in " +
+              "the test.")) return;
+        ids.forEach(function (id) { delete state.sales.drafted[id]; });
+        rpc("sales_log_batch", {
+          p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
+          p_direction: "out", p_template: "opener_" + arm,
+          p_sent_from: state.sales.from
+        }).then(function () { state.sales.loaded = false; loadSales(); });
+      }
+
       function salesView() {
         var p = state.sales.pipeline, f = state.sales.f;
         var leads = state.sales.leads;
@@ -625,6 +707,41 @@
           '<div style="font-size:12.5px;color:#78350f;flex:1;min-width:220px"><b>Sending from ' + esc(state.sales.from) + '</b> — checked 2026-08-12: the tenant fee-reminder sender is a different number (+91 81439 60950), so outreach cannot affect reminder delivery. Keep them separate — a sender restricted for cold messaging would stop reminders for every academy at once.</div>' +
           '<input id="salesFrom" value="' + escAttr(state.sales.from) + '" style="border:1px solid #fcd34d;border-radius:8px;padding:6px 9px;font-size:12.5px;width:130px;background:#fff" />' +
           "</div>";
+
+        // how many are open in each arm right now
+        var draftedIn = function (arm) {
+          return Object.keys(state.sales.drafted || {}).filter(function (id) {
+            var l = leads.filter(function (x) { return x.id === id; })[0];
+            return l && l.variant === arm;
+          }).length;
+        };
+        var queueIn = function (arm) {
+          return leads.filter(function (l) {
+            return l.variant === arm && l.wa_link && !l.do_not_contact &&
+                   l.stage === "new" && !(state.sales.drafted || {})[l.id];
+          }).length;
+        };
+        var armBar = function (arm, tone, what) {
+          var q = queueIn(arm), d = draftedIn(arm);
+          return '<div style="flex:1;min-width:250px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
+            '<div style="font-size:11px;font-weight:700;color:' + tone + '">ARM ' + arm + ' · ' + what + "</div>" +
+            '<div style="font-size:12.5px;color:var(--tx3);margin-top:4px">' + q + ' waiting' +
+            (d ? ' · <b style="color:#b45309">' + d + " open</b>" : "") + "</div>" +
+            '<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">' +
+            '<button data-sbatch="' + arm + '"' + (q ? "" : " disabled") +
+              ' style="border:none;background:' + (q ? tone : "var(--bd2)") + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:' + (q ? "pointer" : "default") + '">Open next ' + Math.min(q, SALES_BATCH) + "</button>" +
+            (d ? '<button data-sallsent="' + arm + '" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:6px 11px;font-size:12.5px;font-weight:600;cursor:pointer">All ' + d + " sent</button>" : "") +
+            "</div></div>";
+        };
+        var batchBar = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px 18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
+          '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Work the queue</h3>' +
+          '<span style="font-size:11.5px;color:var(--tx4)">one arm at a time, so you are not deciding about the screenshot tab by tab</span></div>' +
+          '<div style="display:flex;gap:12px;margin-top:13px;flex-wrap:wrap">' +
+          armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + screenshot") + "</div>" +
+          '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
+          "Opens up to " + SALES_BATCH + " chats, pre-filled, and logs them as <b>drafts</b> — nothing is marked sent until you say so. " +
+          "<b>Allow pop-ups for this site</b> or the browser blocks all but the first tab; if that happens you are told how many, and only the ones that opened are logged. " +
+          "Arm B: attach <code>dashboard-dues-whatsapp.jpg</code> in each tab before sending.</div></div>";
 
         var chip = function (key, val, label) {
           var on = (f[key] || "") === val || (key === "callable" && !!f.callable === (val === "1"));
@@ -725,11 +842,12 @@
           "<b>A · text</b> sends text only. <b>B · +shot</b> means send the text, then attach <b>one</b> image — " +
           "<code>marketing/leads/dashboard-dues.png</code>, the demo <b>dashboard</b>: 94 members, 30 renewals due worth ₹92,800. " +
           "Not the Finance screen — that one still reads from the local seed and contradicts itself. " +
-          "The dashboard carries no names and no phone numbers; reshoot it monthly as the demo calendar rolls (see marketing/leads/ARM-B-IMAGE.md). " +
+          "It comes from the demo tenant and carries no names and no phone numbers \u2014 never substitute a screenshot of a real academy, and never one showing a roster. " +
+          "Reshoot monthly as the demo calendar rolls: <code>node scripts/shoot-arm-b.js</code> (see marketing/leads/ARM-B-IMAGE.md). " +
           "<code>wa.me</code> carries text only, so the image goes on by hand in the Business app. " +
           "<b>Stop</b> writes every one of that lead's numbers to the do-not-contact list, so a later re-import cannot bring them back.</div>";
 
-        return kpis + sender + abPanel + filters +
+        return kpis + sender + abPanel + batchBar + filters +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">' +
           '<thead><tr style="background:var(--fill)">' +
@@ -1123,6 +1241,10 @@
           }
           return;
         }
+        var sbatch = e.target.closest("[data-sbatch]");
+        if (sbatch && !sbatch.disabled) { salesBatch(sbatch.getAttribute("data-sbatch")); return; }
+        var sallsent = e.target.closest("[data-sallsent]");
+        if (sallsent) { salesConfirmAll(sallsent.getAttribute("data-sallsent")); return; }
         var sdone = e.target.closest("[data-sdone]");
         if (sdone) {
           var did = sdone.getAttribute("data-sdone");
