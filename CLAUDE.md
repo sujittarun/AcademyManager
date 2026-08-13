@@ -23,8 +23,32 @@ supabase/schema.sql          the frozen, append-only base schema
 supabase/migrations/         new shared work, numbered, one file per change
 scripts/migrate.sh           the ONE migration runner (ledger-checked)
 scripts/_sql.py              Management API call; fails on HTTP status
+scripts/check-sales-view.js  runs the Sales tab's real code in node
 index.html                   the operator console
 ```
+
+## After ANY change to the Sales tab, run the harness
+
+```bash
+node scripts/check-sales-view.js
+```
+
+It drives the real `salesView`, `salesOpenOne`, `salesConfirmAll` and
+`salesQueue` in node and asserts what they **write**, not what they
+render. Fixtures are synthetic on purpose — this repo is public and the
+lead list is business names and phone numbers.
+
+It exists because the Sales tab has now failed twice in ways no amount of
+reading caught, and both times every shape check passed:
+
+| | |
+|---|---|
+| A block edit deleted two clipboard helpers | the tab rendered fine in review, then threw `ReferenceError` on load. Rendering correctly is not being callable. |
+| `if (!w) return` on `window.open`'s handle | `window.open` returns **null** whenever `noopener` is set — that is success, not failure. So the batch card bailed before logging on every click, logged **zero** touches in its whole lifetime, served the same names forever, and left ~15 real sends unrecorded. The row's button ignored the handle and worked. |
+
+The harness is mutation-tested: restore either bug and it fails with the
+symptom in the message. Add a case whenever the tab breaks again — a
+conclusion defended only by reading the source has been wrong here twice.
 
 ## Applying a migration
 
