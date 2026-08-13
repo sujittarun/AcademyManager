@@ -168,6 +168,7 @@
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { pipeline: null, leads: [], ab: null, drafted: {}, loaded: false, loading: false,
+                 notice: "", again: false,
                  from: "8297771212", f: { priority: "A", sport: "", stage: "", q: "", callable: true } } };
 
       // per-tenant raw activity — last 7 days of app events, fetched on demand
@@ -572,9 +573,28 @@
         lost: ["#6b7280", "#f3f4f6"]
       };
 
+      /* Every sales write goes through here. rpc() resolves null on any
+         failure and callers ran .then() regardless, so a refused write was
+         indistinguishable from a saved one — which is how a jammed queue and
+         ~15 unrecorded sends stayed invisible for a day. A write that does not
+         come back with a row now says so on screen. */
+      function salesWrite(name, args) {
+        return rpc(name, args).then(function (r) {
+          state.sales.notice = (r === null)
+            ? "⚠ That did not save — nothing was recorded. Check the " +
+              "connection and try again; the lead is still in the queue."
+            : "";
+          state.sales.loaded = false;
+          loadSales();
+          return r;
+        });
+      }
+
       function loadSales() {
         salesPrefetchImage();
-        if (state.sales.loading) return;
+        // a refresh asked for while one is in flight must not be dropped: the
+        // write that triggered it would never appear.
+        if (state.sales.loading) { state.sales.again = true; return; }
         state.sales.loading = true;
         var f = state.sales.f;
         Promise.all([
@@ -595,15 +615,16 @@
           state.sales.loading = false;
           state.sales.loaded = true;
           render();
+          if (state.sales.again) { state.sales.again = false; loadSales(); }
         });
       }
 
       function salesAct(id, channel, outcome, direction) {
-        rpc("sales_log_touch", {
+        salesWrite("sales_log_touch", {
           p_lead: id, p_channel: channel, p_outcome: outcome,
           p_direction: direction || "out",
           p_sent_from: state.sales.from
-        }).then(function () { state.sales.loaded = false; loadSales(); });
+        });
       }
 
       /* Arm B's image, on the clipboard.
@@ -677,23 +698,27 @@
         var armCfg = SALES_AB[arm] || SALES_AB.A;
         if (armCfg.shot) salesCopyImage();
 
-        var w = window.open(next.wa_link + "?text=" +
-                            encodeURIComponent(salesMsg(next)), "_blank", "noopener");
-        if (!w) {
-          window.alert("The browser blocked the tab.\n\nAllow pop-ups for this " +
-            "site from the icon in the address bar, then click again. Nothing " +
-            "was logged, so this lead is still in the queue.");
-          return false;
-        }
+        /* Do NOT gate the logging on the return value. `window.open` returns
+           null whenever 'noopener' is set — that is the specified behaviour,
+           not a failure — so `if (!w) return` bailed on every single click and
+           logged nothing. The row's WhatsApp button ignores the handle and
+           logged fine; this path gated on it and produced zero touches in its
+           whole lifetime, which is what jammed the queue on the same names and
+           left ~15 real sends unrecorded.
+
+           A phantom draft is cheap and undoable ("No" on the row). A dropped
+           log jams the queue. So log first, warn second. */
+        window.open(next.wa_link + "?text=" +
+                    encodeURIComponent(salesMsg(next)), "_blank", "noopener");
 
         if (!state.sales.drafted) state.sales.drafted = {};
         state.sales.drafted[next.id] = true;
-        rpc("sales_log_touch", {
+        salesWrite("sales_log_touch", {
           p_lead: next.id, p_channel: "whatsapp", p_outcome: "opened",
           p_direction: "out", p_template: "opener_" + arm,
           p_body: salesMsg(next), p_sent_from: state.sales.from,
           p_variant: arm
-        }).then(function () { state.sales.loaded = false; loadSales(); });
+        });
         render();
         return true;
       }
@@ -706,28 +731,37 @@
           ids.forEach(function (id) {
             if (state.sales.drafted) delete state.sales.drafted[id];
           });
-          rpc("sales_log_batch", {
+          salesWrite("sales_log_batch", {
             p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
             p_direction: "out", p_template: "opener_" + arm,
             p_sent_from: state.sales.from
-          }).then(function () { state.sales.loaded = false; loadSales(); });
+          });
         }
         salesOpenOne(arm);
       }
 
       function salesConfirmAll(arm) {
         var ids = salesInFlight(arm).map(function (l) { return l.id; });
-        if (!ids.length) return;
+        // Returning silently here read as a dead button. There is nothing to
+        // confirm whenever no draft is open — say so, and point at the row
+        // buttons, which is where an already-sent message gets recorded.
+        if (!ids.length) {
+          state.sales.notice = "Nothing is open to confirm for " +
+            (ARM_LABEL[arm] || arm) + ". To record a message you already sent, " +
+            "use ✓ Sent on that academy's row below.";
+          render();
+          return;
+        }
         if (!window.confirm("Mark " + ids.length + " open draft(s) as SENT?\n\n" +
               "Only if you actually pressed send in each tab.")) return;
         ids.forEach(function (id) {
           if (state.sales.drafted) delete state.sales.drafted[id];
         });
-        rpc("sales_log_batch", {
+        salesWrite("sales_log_batch", {
           p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
           p_direction: "out", p_template: "opener_" + arm,
           p_sent_from: state.sales.from
-        }).then(function () { state.sales.loaded = false; loadSales(); });
+        });
       }
 
       function salesView() {
@@ -786,6 +820,12 @@
           '<div style="font-size:11px;color:var(--tx4);margin-top:6px"><b>Priority</b> (Hot / Warm / Cold) is how good the lead is, from its 0\u201310 score. <b>Text</b> vs <b>Text + image</b> is which half of the experiment it is in. Independent \u2014 a Hot lead can be in either.</div>' +
           '<div style="display:flex;gap:12px;margin-top:13px;flex-wrap:wrap">' +
           armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + image") + "</div>" +
+          // a click that did nothing must say why. Silence read as a dead button.
+          (state.sales.notice
+            ? '<div style="margin-top:11px;background:#fffbeb;border:1px solid #fde68a;' +
+              'border-radius:9px;padding:9px 12px;font-size:12px;color:#78350f">' +
+              esc(state.sales.notice) + "</div>"
+            : "") +
           '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
           "<b>Open next</b> opens one chat with the opener pre-filled and logs it as a <b>draft</b>. Send it, then <b>\u2713 Sent \u2014 open next</b> records it and opens the following one, so it is one click per lead from then on. " +
           "<b>Text + image</b>: a wa.me link cannot carry an attachment, so the image lands on your clipboard as the tab opens \u2014 press <b>Cmd/Ctrl+V</b> then Enter. " +
@@ -1314,12 +1354,12 @@
                   "the chat before sending.");
               }, 50);
             }
-            rpc("sales_log_touch", {
+            salesWrite("sales_log_touch", {
               p_lead: lid, p_channel: "whatsapp", p_outcome: "opened",
               p_direction: "out", p_template: "opener_" + lead.variant,
               p_body: salesMsg(lead), p_sent_from: state.sales.from,
               p_variant: lead.variant
-            }).then(function () { state.sales.loaded = false; loadSales(); });
+            });
           }
           return;
         }
