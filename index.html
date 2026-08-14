@@ -497,14 +497,14 @@
            this while the A/B test is running — both arms must send identical
            copy or the result means nothing. */
         _default:
-          "Hi \u2014 is this {name}?\n\nI'm Tarun, from Hyderabad. I build software for sports academies.\n\nHow are you tracking batches and monthly fees right now \u2014 Excel, WhatsApp, or a register?"
+          "Hi \u2014 is this {name}?\n\nI'm Sujit, from Academy Manager. I build software for sports academies.\n\nHow are you tracking batches and monthly fees right now \u2014 Excel, WhatsApp, or a register?"
       };
 
       /* GENERATION 2, from 2026-08-13. Generation 1 was sent to 30 academies
          and got zero replies, so the copy changed. Every line of the old
          opener did something an advertisement does:
 
-           "I'm from Academy Manager"      a company, not a person
+           "I'm from Academy Manager"      a company with nobody behind it
            "We build branded apps for \u2026"   a positioning statement
            "batches, attendance, fees \u2026"   a feature list
            "Same if you're a coach \u2026"      a second segment pitch
@@ -512,22 +512,29 @@
          55 words, and the question came AFTER the pitch, so it read as a
          rhetorical set-up rather than curiosity. What replaced it:
 
-         \u00b7 A person's name. A stranger is answerable; a company is an ad.
-         \u00b7 One clause of context, and the PRODUCT IS NOT NAMED. Naming it is
-           what turns an introduction into a sale. If they reply, "who are
-           you?" is the most common thing they send, and that is where the
-           product, the demo link and the tenant references belong \u2014 the
-           answer lands when it was asked for.
+         \u00b7 A name AND the company. "I'm Sujit, from Academy Manager." A
+           person can be replied to and a company is checkable, so keep both.
+           The earlier draft of this generation dropped the company entirely;
+           that reads as evasive to a stranger, which is its own problem.
+         \u00b7 Nothing after the company name but what we do, in one clause. A
+           draft read "\u2026to support their day to day operations", which is the
+           feature list wearing a different coat \u2014 every piece of software
+           supports day-to-day operations, so it carries no information.
          \u00b7 A question with the choices supplied. "Excel" is a complete reply,
            which is the lowest-effort answer a busy person can give.
          \u00b7 No multi-centre line. It was requested for message 1 and is the
            most brochure-like sentence available; it moved to the reply
            playbook in marketing/leads/WHATSAPP-KIT.md.
 
-         About 30 words, down from 55. Do not edit while the A/B test runs \u2014 both arms must send
-         identical text or the comparison means nothing. If the copy changes
-         again, bump SALES_GEN below so the old and new sends are not pooled
-         into one reply rate. */
+         What still waits for the reply: what it actually DOES, the demo link
+         and the tenant references. "Who are you?" is the most common reply,
+         and the answer lands when it was asked for.
+
+         About 30 words, down from 55. Do not edit while the A/B test runs \u2014
+         both arms must send identical text or the comparison means nothing.
+         If the copy changes again, bump SALES_GEN below AND
+         sales_ab_generation() in the database, or the old and new sends get
+         pooled into one reply rate. */
 
       /* The A/B arm comes from the DATABASE, never from the client.
          sales.leads.variant is a stored generated column over the lead id,
@@ -654,11 +661,25 @@
         });
       }
 
+      /* Tag the generation on OUTBOUND touches. sales_ab_results() counts a
+         send only if its template matches the current generation, so a touch
+         with no template counts toward no experiment at all — and this is the
+         function behind the row's "✓ Sent", which is the main way an
+         already-sent message gets recorded. Ten touches were logged untagged
+         before this was noticed; they sit in `earlier_openers`.
+
+         An inbound reply gets no template, because it never had one — replies
+         are attributed through the lead's own outbound history instead. */
       function salesAct(id, channel, outcome, direction) {
+        var dir = direction || "out";
+        var lead = state.sales.leads.filter(function (x) { return x.id === id; })[0];
         salesWrite("sales_log_touch", {
           p_lead: id, p_channel: channel, p_outcome: outcome,
-          p_direction: direction || "out",
-          p_sent_from: state.sales.from
+          p_direction: dir,
+          p_template: (dir === "out" && lead && lead.variant)
+                        ? SALES_GEN + "_" + lead.variant : null,
+          p_sent_from: state.sales.from,
+          p_variant: (lead && lead.variant) || null
         });
       }
 

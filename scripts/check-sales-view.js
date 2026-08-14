@@ -203,7 +203,33 @@ const ok = [];
   else ok.push("suppressed lead stays out of the queue; an 'opened' lead counts as in flight");
 }
 
-// ── 5. every helper the load path reaches is callable ─────────────────────
+// ── 5. outbound touches carry the generation, inbound ones do not ─────────
+// sales_ab_results() counts a send only if its template matches the current
+// generation, so an untagged touch counts toward no experiment at all. Ten
+// were logged untagged before this was caught, because salesAct — the function
+// behind the row's "✓ Sent" — passed no template.
+{
+  const c = run(`
+    salesAct("` + leads[3].id + `", "whatsapp", "sent", "out");
+    salesAct("` + leads[3].id + `", "whatsapp", "replied", "in");
+    OUT = CALLS.map(function (x) {
+      return { dir: x.args.p_direction, tpl: x.args.p_template,
+               variant: x.args.p_variant };
+    });
+  `);
+  const [outbound, inbound] = c.OUT;
+  if (!outbound || !outbound.tpl)
+    fails.push("an outbound touch carries no template, so it counts in no generation");
+  else if (!/^opener\d+_B$/.test(outbound.tpl))
+    fails.push("outbound template is '" + outbound.tpl + "', expected <generation>_B");
+  else if (outbound.variant !== "B")
+    fails.push("outbound variant is " + outbound.variant + ", expected B");
+  else if (inbound && inbound.tpl)
+    fails.push("an inbound reply was tagged '" + inbound.tpl + "' — a reply never had a template");
+  else ok.push("outbound touches carry " + outbound.tpl + "; an inbound reply carries none");
+}
+
+// ── 6. every helper the load path reaches is callable ─────────────────────
 // A block edit once deleted two clipboard helpers; the tab rendered in review
 // and then threw at runtime. Rendering correctly is not being callable.
 {

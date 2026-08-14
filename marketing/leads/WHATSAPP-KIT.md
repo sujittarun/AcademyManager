@@ -150,33 +150,38 @@ it with real volume in it."
 
 > Hi — is this [Academy]?
 >
-> I'm Tarun, from Hyderabad. I build software for sports academies.
+> I'm Sujit, from Academy Manager. I build software for sports academies.
 >
 > How are you tracking batches and monthly fees right now — Excel, WhatsApp, or a register?
 
 Why it looks like this. **Generation 1 went to 30 academies and got zero
 replies** (A=13, B=17), which puts the true reply rate under roughly 12%.
 Every line of it did something an advertisement does — "I'm from Academy
-Manager" (a company, not a person), "We build branded apps for coaching
-academies" (a positioning statement), "batches, attendance, fees and the
-parent reminders in one place" (a feature list). 55 words, and the
-question came *after* the pitch, so it read as a rhetorical set-up.
+Manager" (a company with no person behind it), "We build branded apps for
+coaching academies" (a positioning statement), "batches, attendance, fees
+and the parent reminders in one place" (a feature list), "Same if you're a
+coach running classes across a few centres" (a second segment pitch).
+55 words, and the question came *after* the pitch, so it read as a
+rhetorical set-up rather than curiosity. Generation 2 still names Academy
+Manager — the fix was adding a person and deleting the sales copy, not
+hiding who is writing.
 
-The four rules generation 2 follows:
+The three rules generation 2 follows:
 
-1. **A person's name, not a company.** A stranger is answerable; a
-   company is an ad. This is the single biggest change.
-2. **Do not name the product.** Naming it turns an introduction into a
-   sale. "I build software for sports academies" says what you do
-   without selling anything.
-3. **Supply the answers.** "Excel" is a complete reply. The lowest-effort
+1. **Name yourself AND the company, and stop there.** A person can be
+   replied to; a company alone gets ignored. But "Academy Manager" is
+   the whole introduction — no tagline, no "to support their day-to-day
+   operations", which is the phrase that made the first draft of this
+   generation sound like a website again. Every piece of software
+   supports day-to-day operations, so the clause carries no information.
+2. **Supply the answers.** "Excel" is a complete reply. The lowest-effort
    answer a busy owner can give is the one you are most likely to get.
-4. **Nothing about their business.** 57 of 112 numbers are
+3. **Nothing about their business.** 57 of 112 numbers are
    directory-scraped, so asserting their branch count risks being wrong
    on line three. Asking is safe; telling is not.
 
-Everything else — the product name, the demo link, the references, the
-multi-centre pitch — waits for the reply. See §5.
+Everything else — what it actually does, the demo link, the references,
+the multi-centre pitch — waits for the reply. See §5.
 
 If the copy changes again, bump **`SALES_GEN`** in `index.html` *and*
 `sales_ab_generation()` in the database together, or the new opener's
