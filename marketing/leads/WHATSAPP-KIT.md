@@ -140,6 +140,53 @@ it with real volume in it."
 
 ## 2. Message 1 — the opener
 
+> **THE CONSOLE IS AUTHORITATIVE. `SALES_TPL._default` in
+> `AcademyManager/index.html` is what actually sends** — the Sales tab
+> pre-fills it, and both A/B arms must send byte-identical text or the
+> experiment means nothing. Do not retype an opener from this file into
+> WhatsApp; the per-sport variants below are kept as history.
+
+**Generation 2, from 2026-08-13** — about 30 words, down from 55:
+
+> Hi — is this [Academy]?
+>
+> I'm Tarun, from Hyderabad. I build software for sports academies.
+>
+> How are you tracking batches and monthly fees right now — Excel, WhatsApp, or a register?
+
+Why it looks like this. **Generation 1 went to 30 academies and got zero
+replies** (A=13, B=17), which puts the true reply rate under roughly 12%.
+Every line of it did something an advertisement does — "I'm from Academy
+Manager" (a company, not a person), "We build branded apps for coaching
+academies" (a positioning statement), "batches, attendance, fees and the
+parent reminders in one place" (a feature list). 55 words, and the
+question came *after* the pitch, so it read as a rhetorical set-up.
+
+The four rules generation 2 follows:
+
+1. **A person's name, not a company.** A stranger is answerable; a
+   company is an ad. This is the single biggest change.
+2. **Do not name the product.** Naming it turns an introduction into a
+   sale. "I build software for sports academies" says what you do
+   without selling anything.
+3. **Supply the answers.** "Excel" is a complete reply. The lowest-effort
+   answer a busy owner can give is the one you are most likely to get.
+4. **Nothing about their business.** 57 of 112 numbers are
+   directory-scraped, so asserting their branch count risks being wrong
+   on line three. Asking is safe; telling is not.
+
+Everything else — the product name, the demo link, the references, the
+multi-centre pitch — waits for the reply. See §5.
+
+If the copy changes again, bump **`SALES_GEN`** in `index.html` *and*
+`sales_ab_generation()` in the database together, or the new opener's
+reply rate gets pooled with the old one's.
+
+---
+
+The per-sport openers below are **generation 1 and earlier, retired.**
+They are kept because the reasoning is still useful, not to be sent.
+
 Structure, and why each line is there:
 
 1. **Confirm their name.** Proves this is not a blast. Biggest single
@@ -242,6 +289,39 @@ Then mark them nurture and stop. Three messages, no more.
 ---
 
 ## 5. Replies, and what to say
+
+Message 1 deliberately withholds the product name, the demo link and every
+reference. **This section is where they go.** A reply means they asked —
+and an answer to a question that was actually asked is worth more than the
+same words volunteered to a stranger.
+
+### They answer the question ("Excel", "register", "WhatsApp only")
+
+The most likely reply, and the one the opener is built for. They have just
+told you their process. Name the product now, and ask for one thing.
+
+> That's what I expected — most academies here are on exactly that.
+>
+> It's called Academy Manager. The part that saves the most time is the
+> monthly fee reminders: it works out who's due, sends the parent a
+> WhatsApp with a UPI link, and stops chasing them once they pay.
+>
+> Want me to send you a link you can click around in? No login, real data.
+
+Then send their tracked demo link from the Sales tab — the console records
+who opened it and how far they went, so an unanswered follow-up is not a
+guess.
+
+### "I have multiple centres" / they coach across venues
+
+The multi-centre line was cut from message 1 for being the most
+brochure-like sentence available. It belongs here, where it answers
+something:
+
+> Then this is the bit worth your time — one login across all of them.
+> Each centre's batches, attendance and fees stay separate, but the money
+> rolls up so you see the whole thing on one screen, plus what each centre
+> is owed.
 
 ### "Who is this?" / "What is this about?"
 > Sorry — [Your name], from Hyderabad. I make an app for coaching academies: attendance, fees, and the monthly WhatsApp reminders to parents with a UPI link.

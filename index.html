@@ -497,8 +497,37 @@
            this while the A/B test is running — both arms must send identical
            copy or the result means nothing. */
         _default:
-          "Hi \u2014 is this {name}?\n\nI'm from Academy Manager, here in Hyderabad. We build branded apps for coaching academies \u2014 batches, attendance, fees and the parent reminders in one place. Same if you're a coach running classes across a few centres.\n\nAre you still tracking batches on Excel or WhatsApp, and monthly payments/renewals in books?"
+          "Hi \u2014 is this {name}?\n\nI'm Tarun, from Hyderabad. I build software for sports academies.\n\nHow are you tracking batches and monthly fees right now \u2014 Excel, WhatsApp, or a register?"
       };
+
+      /* GENERATION 2, from 2026-08-13. Generation 1 was sent to 30 academies
+         and got zero replies, so the copy changed. Every line of the old
+         opener did something an advertisement does:
+
+           "I'm from Academy Manager"      a company, not a person
+           "We build branded apps for \u2026"   a positioning statement
+           "batches, attendance, fees \u2026"   a feature list
+           "Same if you're a coach \u2026"      a second segment pitch
+
+         55 words, and the question came AFTER the pitch, so it read as a
+         rhetorical set-up rather than curiosity. What replaced it:
+
+         \u00b7 A person's name. A stranger is answerable; a company is an ad.
+         \u00b7 One clause of context, and the PRODUCT IS NOT NAMED. Naming it is
+           what turns an introduction into a sale. If they reply, "who are
+           you?" is the most common thing they send, and that is where the
+           product, the demo link and the tenant references belong \u2014 the
+           answer lands when it was asked for.
+         \u00b7 A question with the choices supplied. "Excel" is a complete reply,
+           which is the lowest-effort answer a busy person can give.
+         \u00b7 No multi-centre line. It was requested for message 1 and is the
+           most brochure-like sentence available; it moved to the reply
+           playbook in marketing/leads/WHATSAPP-KIT.md.
+
+         About 30 words, down from 55. Do not edit while the A/B test runs \u2014 both arms must send
+         identical text or the comparison means nothing. If the copy changes
+         again, bump SALES_GEN below so the old and new sends are not pooled
+         into one reply rate. */
 
       /* The A/B arm comes from the DATABASE, never from the client.
          sales.leads.variant is a stored generated column over the lead id,
@@ -507,6 +536,12 @@
          a lead mid-test, which would make the result meaningless.
            A = text only
            B = same text, then one screenshot of the dues list */
+      /* Which generation of the opener a touch was sent with. It is recorded
+         on every touch as `<gen>_<arm>`, so a copy change does not pool the
+         old sends and the new ones into one reply rate. Bump it whenever
+         SALES_TPL changes; sales_ab_results() counts the current one only. */
+      var SALES_GEN = "opener2";
+
       var SALES_AB = {
         A: { label: "text only", shot: false },
         B: { label: "+ screenshot", shot: true }
@@ -715,7 +750,7 @@
         state.sales.drafted[next.id] = true;
         salesWrite("sales_log_touch", {
           p_lead: next.id, p_channel: "whatsapp", p_outcome: "opened",
-          p_direction: "out", p_template: "opener_" + arm,
+          p_direction: "out", p_template: SALES_GEN + "_" + arm,
           p_body: salesMsg(next), p_sent_from: state.sales.from,
           p_variant: arm
         });
@@ -733,7 +768,7 @@
           });
           salesWrite("sales_log_batch", {
             p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
-            p_direction: "out", p_template: "opener_" + arm,
+            p_direction: "out", p_template: SALES_GEN + "_" + arm,
             p_sent_from: state.sales.from
           });
         }
@@ -759,7 +794,7 @@
         });
         salesWrite("sales_log_batch", {
           p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
-          p_direction: "out", p_template: "opener_" + arm,
+          p_direction: "out", p_template: SALES_GEN + "_" + arm,
           p_sent_from: state.sales.from
         });
       }
@@ -941,6 +976,18 @@
           abPanel = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
             '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Opener test — does a screenshot earn replies?</h3>' +
             '<span style="font-size:11.5px;color:var(--tx4)">same copy in both arms; the only difference is the image</span></div>' +
+            // Which opener these rates are FOR, and what was set aside. Without
+            // this the panel drops to 0% after a copy change and reads as lost
+            // data rather than a new experiment.
+            (ab.generation
+              ? '<div style="font-size:11.5px;color:var(--tx4);margin-top:5px">Measuring <b>' +
+                esc(ab.generation) + "</b>" +
+                (ab.earlier_openers && ab.earlier_openers.delivered
+                  ? " — an earlier opener's " + ab.earlier_openers.delivered +
+                    " deliveries and " + ab.earlier_openers.replied +
+                    " replies are kept out of these rates, not lost"
+                  : "") + "</div>"
+              : "") +
             '<div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">' + armCard("A", "#059669") + armCard("B", "#7c3aed") + "</div>" +
             '<div style="margin-top:13px;padding-top:11px;border-top:1px solid var(--bd3);font-size:12.5px">' +
             '<b>' + esc(ab.verdict) + "</b>" +
@@ -1356,7 +1403,7 @@
             }
             salesWrite("sales_log_touch", {
               p_lead: lid, p_channel: "whatsapp", p_outcome: "opened",
-              p_direction: "out", p_template: "opener_" + lead.variant,
+              p_direction: "out", p_template: SALES_GEN + "_" + lead.variant,
               p_body: salesMsg(lead), p_sent_from: state.sales.from,
               p_variant: lead.variant
             });
