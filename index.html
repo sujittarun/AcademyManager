@@ -167,9 +167,9 @@
       var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
-        sales: { pipeline: null, leads: [], ab: null, drafted: {}, loaded: false, loading: false,
-                 notice: "", again: false,
-                 from: "8297771212", f: { priority: "A", sport: "", stage: "", q: "", callable: true } } };
+        sales: { today: null, funnel: null, leads: [], ab: null, done: {},
+                 loaded: false, loading: false, notice: "", again: false,
+                 f: { priority: "", sport: "", stage: "", q: "", callable: true } } };
 
       // per-tenant raw activity — last 7 days of app events, fetched on demand
       function loadEvents(id) {
@@ -232,12 +232,12 @@
         var overdue = accts.filter(function (a) { return a.bill === "overdue"; }).length;
         var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
         var billBadge = (overdue + pendingC) || "";
-        // how many A-priority prospects are still untouched — the only sales
-        // number worth interrupting the operator for
-        var sp = state.sales.pipeline;
-        var salesBadge = (sp && sp.by_priority && sp.by_stage &&
-                          sp.by_stage.new && sp.by_priority.A)
-          ? Math.min(sp.by_priority.A, sp.by_stage.new) : "";
+        /* How many leads need a human TODAY — the only sales number worth
+           interrupting the operator for. It used to count untouched hot
+           prospects, which never went down on its own and so stopped meaning
+           anything; this one clears as the day's work gets done. */
+        var sp = state.sales.today;
+        var salesBadge = (sp && sp.rows && sp.rows.length) ? sp.rows.length : "";
 
         var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], sales: ["Sales pipeline", "Coaching academies in Hyderabad we are selling to"], settings: ["Settings", "Organization & console configuration"] };
         var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
@@ -639,8 +639,11 @@
         if (state.sales.loading) { state.sales.again = true; return; }
         state.sales.loading = true;
         var f = state.sales.f;
+        // Four independent reads, fetched together. A round-trip to Tokyo is
+        // ~180ms and is ~97% of each request, so serialising these would cost
+        // most of the tab's load time for nothing.
         Promise.all([
-          rpc("sales_pipeline"),
+          rpc("sales_today"),
           rpc("sales_leads", {
             p_priority: f.priority || null,
             p_sport: f.sport || null,
@@ -649,11 +652,13 @@
             p_callable: f.callable ? true : null,
             p_limit: 400
           }),
-          rpc("sales_ab_results")
+          rpc("sales_ab_results"),
+          rpc("sales_funnel")
         ]).then(function (r) {
-          state.sales.pipeline = r[0] || null;
+          state.sales.today = r[0] || null;
           state.sales.leads = r[1] || [];
           state.sales.ab = r[2] || null;
+          state.sales.funnel = r[3] || null;
           state.sales.loading = false;
           state.sales.loaded = true;
           render();
@@ -661,26 +666,56 @@
         });
       }
 
-      /* Tag the generation on OUTBOUND touches. sales_ab_results() counts a
-         send only if its template matches the current generation, so a touch
-         with no template counts toward no experiment at all — and this is the
-         function behind the row's "✓ Sent", which is the main way an
-         already-sent message gets recorded. Ten touches were logged untagged
-         before this was noticed; they sit in `earlier_openers`.
-
-         An inbound reply gets no template, because it never had one — replies
-         are attributed through the lead's own outbound history instead. */
-      function salesAct(id, channel, outcome, direction) {
-        var dir = direction || "out";
-        var lead = state.sales.leads.filter(function (x) { return x.id === id; })[0];
-        salesWrite("sales_log_touch", {
-          p_lead: id, p_channel: channel, p_outcome: outcome,
-          p_direction: dir,
-          p_template: (dir === "out" && lead && lead.variant)
-                        ? SALES_GEN + "_" + lead.variant : null,
-          p_sent_from: state.sales.from,
-          p_variant: (lead && lead.variant) || null
+      /* ONE write path for "what happened", mirroring sales_disposition().
+         The old tab had five different ways to record an outcome and none of
+         them scheduled a next step, which is how 39 academies were messaged
+         once and then silently abandoned. */
+      function salesDo(id, what, when, note) {
+        var lead = salesFind(id);
+        // Keep the row on screen after it is dispositioned, so the operator
+        // gets confirmation and a way back. Without this the row simply
+        // vanishes, which reads as "did that work?"
+        if (!state.sales.done) state.sales.done = {};
+        if (what === "undo") { delete state.sales.done[id]; }
+        else {
+          state.sales.done[id] = { what: what,
+                                   name: (lead && lead.name) || "lead",
+                                   when: when || null };
+        }
+        return salesWrite("sales_disposition", {
+          p_lead: id, p_what: what, p_when: when || null, p_note: note || null,
+          p_body: what === "messaged" && lead ? salesMsg(lead) : null,
+          p_template: what === "messaged" && lead && lead.variant
+                        ? SALES_GEN + "_" + lead.variant : null
         });
+      }
+
+      // Today's rows and the full lead table hold the same leads; either may
+      // be the only one loaded, so look in both.
+      function salesFind(id) {
+        var t = ((state.sales.today && state.sales.today.rows) || [])
+                  .filter(function (x) { return x.id === id; })[0];
+        return t || state.sales.leads.filter(function (x) { return x.id === id; })[0];
+      }
+
+      /* Open the chat AND record the send in one action. The old tab opened a
+         draft, then asked "did you send it?" — double entry, since the work
+         was already done in WhatsApp, and eight real sends went unrecorded
+         because the confirm step got skipped. You click this because you are
+         sending; `Undo` covers the exception. */
+      function salesMessage(id) {
+        var lead = salesFind(id);
+        if (!lead || !lead.phone) return false;
+        var arm = SALES_AB[lead.variant] || SALES_AB.A;
+        if (arm.shot) salesCopyImage();
+        // window.open returns null whenever 'noopener' is set — that is
+        // success, not failure — so nothing here may depend on the handle.
+        window.open("https://wa.me/91" + String(lead.phone).replace(/\D/g, "") +
+                    "?text=" + encodeURIComponent(salesMsg(lead)),
+                    "_blank", "noopener");
+        salesDo(id, "messaged");
+        render();
+        return true;
       }
 
       /* Arm B's image, on the clipboard.
@@ -717,111 +752,158 @@
         } catch (e) { return false; }
       }
 
-      /* Working the queue, one lead per click.
-         WHY NOT TEN TABS AT ONCE
-         The first version opened ten. Browsers allow ONE window.open per user
-         gesture and block the rest, so in practice it opened one tab, logged
-         one lead, and left nine untouched — which then correctly reappeared
-         on the next click and looked like duplicates. Measured: two batch
-         clicks produced exactly two sends.
-         There is no way to open ten tabs from one click. So the primitive is
-         one lead per click, which is never blocked, and the click is made to
-         do two jobs at once: confirm the last one as sent AND open the next.
-         Steady state is one click per lead. */
-      function salesQueue(arm) {
-        return state.sales.leads.filter(function (l) {
-          return l.variant === arm && l.wa_link && !l.do_not_contact &&
-                 l.stage === "new" && l.last_outcome !== "opened" &&
-                 !(state.sales.drafted || {})[l.id];
-        });
+      /* ── TODAY ──────────────────────────────────────────────────────────
+         The whole workflow, replacing "work the queue by arm".
+
+         WHY THE OLD SHAPE WAS WRONG. It organised the day around the A/B
+         arms, which is a measurement, not a workflow — a salesperson opens
+         their tool and asks "who do I talk to today?", never "which arm?".
+         It also had exactly one touch in it: 39 academies were messaged once
+         and then nothing, with next_action_on NULL on all 135 rows, so no
+         query the console made could ever surface them again.
+
+         The order comes from sales_today() in the database, not from here.
+         Same reason reminder_queue() owns the fee ladder: the console, a
+         manual query and any future client must not disagree about who is
+         due. */
+      var BUCKET = {
+        reply:   { label: "REPLIED",     tone: "#047857", act: "chat" },
+        meeting: { label: "CALL BOOKED", tone: "#7c3aed", act: "call" },
+        demo:    { label: "OPENED DEMO", tone: "#b45309", act: "call" },
+        snoozed: { label: "ASKED TODAY", tone: "#0369a1", act: "call" },
+        due:     { label: "CALL DUE",    tone: "#0f766e", act: "call" },
+        "new":   { label: "NEW",         tone: "#6b7280", act: "message" }
+      };
+
+      function salesTodayCard() {
+        var t = state.sales.today;
+        if (!t) return "";
+        var rows = t.rows || [], c = t.counts || {};
+
+        /* The cap is the one place this tool refuses the operator. 35 openers
+           went out on 2026-08-14 against a safe ceiling of ~25 for a young
+           number, and a restricted sender stops fee reminders for every live
+           academy at once — so it has to be stated, not buried. */
+        var over = (t.over_cap || 0) > 0;
+        var capLine = over
+          ? '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 13px;font-size:12.5px;color:#991b1b;margin-top:11px">' +
+            "<b>" + t.started + " new conversations today — " + t.over_cap +
+            " over the safe daily limit of " + t.cap + ".</b> Send no more " +
+            "openers today. A sender restricted for cold messaging stops fee " +
+            "reminders for every live academy at once. Calls are unaffected." +
+            "</div>"
+          : '<div style="font-size:12px;color:var(--tx4);margin-top:9px">' +
+            t.started + " of " + t.cap + " new conversations started today" +
+            (t.held_back ? " · " + t.held_back + " fresh leads held back until tomorrow" : "") +
+            "</div>";
+
+        var order = ["reply", "meeting", "demo", "snoozed", "due", "new"];
+        var chips = order.filter(function (k) { return c[k]; }).map(function (k) {
+          var b = BUCKET[k];
+          return '<span style="font-size:11.5px;font-weight:600;color:' + b.tone +
+            ';background:var(--fill);border:1px solid var(--bd2);border-radius:20px;padding:3px 10px">' +
+            c[k] + " " + b.label.toLowerCase() + "</span>";
+        }).join(" ");
+
+        var body = rows.length
+          ? rows.map(salesTodayRow).join("")
+          : '<div style="padding:30px 4px;text-align:center;color:var(--tx4);font-size:13px">' +
+            (over
+              ? "Nothing left to do today — and you are over the sending limit. Come back tomorrow."
+              : "Nothing due. Every lead is either waiting on a scheduled date or spent.") +
+            (t.held_back ? "<br /><span style=\"font-size:12px\">" + t.held_back +
+                           " fresh leads unlock as the daily limit resets.</span>" : "") +
+            "</div>";
+
+        return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
+          '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">' +
+          '<h3 style="font-size:15px;font-weight:700">Today</h3>' +
+          '<span style="font-size:11.5px;color:var(--tx4)">worked top to bottom — replies first, then intent, then calls due</span>' +
+          '<span style="flex:1"></span>' + chips + "</div>" +
+          capLine +
+          (state.sales.notice
+            ? '<div style="margin-top:11px;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 12px;font-size:12px;color:#78350f">' +
+              esc(state.sales.notice) + "</div>"
+            : "") +
+          '<div style="margin-top:13px">' + body + "</div>" +
+          (t.spent ? '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;padding-top:10px;border-top:1px solid var(--bd3)">' +
+                     t.spent + " lead" + (t.spent === 1 ? " is" : "s are") +
+                     " spent — three attempts, no answer. Not dead, just out of reasons to call again.</div>" : "") +
+          "</div>";
       }
 
-      function salesInFlight(arm) {
-        return state.sales.leads.filter(function (l) {
-          return l.variant === arm && !l.do_not_contact &&
-                 (l.last_outcome === "opened" ||
-                  (state.sales.drafted || {})[l.id]);
-        });
-      }
+      function salesTodayRow(l) {
+        var b = BUCKET[l.bucket] || BUCKET["new"];
+        var done = (state.sales.done || {})[l.id];
+        var digits = String(l.phone || "").replace(/\D/g, "");
 
-      /* Opens exactly one chat. The window.open happens FIRST and
-         synchronously, before any await, or the browser stops treating it as
-         part of the click and blocks it. */
-      function salesOpenOne(arm) {
-        var next = salesQueue(arm)[0];
-        if (!next) { render(); return false; }
-
-        var armCfg = SALES_AB[arm] || SALES_AB.A;
-        if (armCfg.shot) salesCopyImage();
-
-        /* Do NOT gate the logging on the return value. `window.open` returns
-           null whenever 'noopener' is set — that is the specified behaviour,
-           not a failure — so `if (!w) return` bailed on every single click and
-           logged nothing. The row's WhatsApp button ignores the handle and
-           logged fine; this path gated on it and produced zero touches in its
-           whole lifetime, which is what jammed the queue on the same names and
-           left ~15 real sends unrecorded.
-
-           A phantom draft is cheap and undoable ("No" on the row). A dropped
-           log jams the queue. So log first, warn second. */
-        window.open(next.wa_link + "?text=" +
-                    encodeURIComponent(salesMsg(next)), "_blank", "noopener");
-
-        if (!state.sales.drafted) state.sales.drafted = {};
-        state.sales.drafted[next.id] = true;
-        salesWrite("sales_log_touch", {
-          p_lead: next.id, p_channel: "whatsapp", p_outcome: "opened",
-          p_direction: "out", p_template: SALES_GEN + "_" + arm,
-          p_body: salesMsg(next), p_sent_from: state.sales.from,
-          p_variant: arm
-        });
-        render();
-        return true;
-      }
-
-      /* Confirm whatever is in flight for this arm as sent, then open the
-         next one — both inside the same click, so the tab is not blocked. */
-      function salesSentAndNext(arm) {
-        var ids = salesInFlight(arm).map(function (l) { return l.id; });
-        if (ids.length) {
-          ids.forEach(function (id) {
-            if (state.sales.drafted) delete state.sales.drafted[id];
-          });
-          salesWrite("sales_log_batch", {
-            p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
-            p_direction: "out", p_template: SALES_GEN + "_" + arm,
-            p_sent_from: state.sales.from
-          });
+        // Already actioned this session: confirm it, and offer the way back.
+        if (done) {
+          var said = { messaged: "message sent", spoke: "spoke to them",
+                       no_answer: "no answer", gatekeeper: "reached gatekeeper",
+                       later: "snoozed", booked: "call booked",
+                       not_interested: "not interested", no_whatsapp: "no WhatsApp",
+                       stop: "suppressed", replied: "they replied" }[done.what] || done.what;
+          return '<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:10px;margin-bottom:7px">' +
+            '<span class="mi" style="color:#047857;font-size:17px">check_circle</span>' +
+            '<div style="flex:1;min-width:150px;font-size:12.5px;color:#166534">' +
+            "<b>" + esc(salesName(l.name)) + "</b> — " + esc(said) +
+            (done.when ? ", back on " + esc(String(done.when)) : "") + "</div>" +
+            '<button data-sdo="' + l.id + '|undo" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer">Undo</button>' +
+            "</div>";
         }
-        salesOpenOne(arm);
-      }
 
-      function salesConfirmAll(arm) {
-        var ids = salesInFlight(arm).map(function (l) { return l.id; });
-        // Returning silently here read as a dead button. There is nothing to
-        // confirm whenever no draft is open — say so, and point at the row
-        // buttons, which is where an already-sent message gets recorded.
-        if (!ids.length) {
-          state.sales.notice = "Nothing is open to confirm for " +
-            (ARM_LABEL[arm] || arm) + ". To record a message you already sent, " +
-            "use ✓ Sent on that academy's row below.";
-          render();
-          return;
-        }
-        if (!window.confirm("Mark " + ids.length + " open draft(s) as SENT?\n\n" +
-              "Only if you actually pressed send in each tab.")) return;
-        ids.forEach(function (id) {
-          if (state.sales.drafted) delete state.sales.drafted[id];
-        });
-        salesWrite("sales_log_batch", {
-          p_leads: ids, p_channel: "whatsapp", p_outcome: "sent",
-          p_direction: "out", p_template: SALES_GEN + "_" + arm,
-          p_sent_from: state.sales.from
-        });
+        var primary = b.act === "message"
+          ? '<button data-smsg="' + l.id + '" style="border:none;background:#059669;color:#fff;border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:15px;vertical-align:-3px">chat</span> Message</button>'
+          : (digits
+              ? '<a href="tel:+91' + escAttr(digits) + '" data-scall="' + l.id + '" style="text-decoration:none;border:none;background:' + b.tone + ';color:#fff;border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:600;display:inline-block"><span class="mi" style="font-size:15px;vertical-align:-3px">call</span> Call</a>'
+              : "");
+
+        var btn = function (what, label, title, extra) {
+          return '<button data-sdo="' + l.id + "|" + what + '" title="' + escAttr(title) + '"' +
+            ' style="border:1px solid ' + (extra ? "#fecaca" : "var(--bd2)") + ';background:' +
+            (extra ? "#fef2f2" : "var(--card)") + ";color:" + (extra ? "#b91c1c" : "var(--tx2)") +
+            ';border-radius:7px;padding:5px 9px;font-size:12px;cursor:pointer">' + label + "</button>";
+        };
+
+        // What can honestly happen next, and nothing else. The old strip
+        // offered six outcomes on every row regardless of state.
+        var acts = b.act === "message"
+          ? btn("no_whatsapp", "No WhatsApp", "One grey tick — nothing arrived on this number") + " " +
+            btn("stop", "Stop", "They asked us to stop — suppresses every number on this lead, permanently", 1)
+          : btn("spoke", "Spoke", "Got through and talked — the best outcome on this list") + " " +
+            btn("no_answer", "No answer", "Rang, nobody picked up. The cadence will schedule the next attempt") + " " +
+            btn("gatekeeper", "Gatekeeper", "Reached a coach or the front desk, not the decision maker") + " " +
+            '<span style="display:inline-flex;border:1px solid var(--bd2);border-radius:7px;overflow:hidden">' +
+            '<span style="font-size:12px;color:var(--tx4);padding:5px 7px;background:var(--fill)">Later</span>' +
+            '<button data-sdo="' + l.id + '|later|7" title="Come back in a week" style="border:none;border-left:1px solid var(--bd2);background:var(--card);padding:5px 8px;font-size:12px;cursor:pointer">1w</button>' +
+            '<button data-sdo="' + l.id + '|later|30" title="Come back in a month" style="border:none;border-left:1px solid var(--bd2);background:var(--card);padding:5px 8px;font-size:12px;cursor:pointer">1m</button>' +
+            '<button data-sdo="' + l.id + '|later|90" title="Come back in three months" style="border:none;border-left:1px solid var(--bd2);background:var(--card);padding:5px 8px;font-size:12px;cursor:pointer">3m</button></span> ' +
+            btn("booked", "Booked", "They agreed to a call or a demo — asks for the date") + " " +
+            btn("not_interested", "Not interested", "Lost. Asks why, because the funnel cannot answer that from a stage count", 1) + " " +
+            btn("stop", "Stop", "They asked us to stop — permanent", 1);
+
+        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:11px;border:1px solid var(--bd2);border-left:3px solid ' + b.tone + ';border-radius:10px;margin-bottom:7px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:210px">' +
+          '<div style="display:flex;align-items:baseline;gap:7px;flex-wrap:wrap">' +
+          '<span style="font-size:10px;font-weight:700;color:' + b.tone + ';letter-spacing:.04em">' + b.label + "</span>" +
+          '<span style="font-size:13.5px;font-weight:600">' + esc(salesName(l.name)) + "</span>" +
+          '<span style="font-size:11px;color:var(--tx4)">' + l.score + "/10</span></div>" +
+          '<div style="font-size:11.5px;color:var(--tx3);margin-top:2px">' + esc(l.reason || "") + "</div>" +
+          '<div style="font-size:11.5px;color:var(--tx4);margin-top:2px">' +
+          (l.phone ? '<span style="font-variant-numeric:tabular-nums;font-weight:600">' + esc(l.phone) + "</span> · " : "") +
+          esc(l.sport || "—") + (l.area ? " · " + esc(l.area) : "") +
+          ((l.branches || 1) >= 2 ? " · <b>" + l.branches + " centres</b>" : "") + "</div>" +
+          (l.contact_name ? '<div style="font-size:11.5px;color:var(--tx4)">ask for ' + esc(l.contact_name) + "</div>" : "") +
+          "</div>" +
+          '<div style="display:flex;flex-direction:column;gap:7px;align-items:flex-end">' +
+          primary +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:430px">' + acts + "</div>" +
+          "</div></div>";
       }
 
       function salesView() {
-        var p = state.sales.pipeline, f = state.sales.f;
+        var f = state.sales.f;
         var leads = state.sales.leads;
 
         if (!state.sales.loaded) {
@@ -834,58 +916,49 @@
             '<div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:6px;color:' + (tone || "inherit") + '">' + val + "</div>" +
             '<div style="font-size:11.5px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>";
         };
-        var pr = (p && p.by_priority) || {}, st = (p && p.by_stage) || {};
-        var kpis = '<div class="cardgrid" style="margin-bottom:18px">' +
-          kpi("PROSPECTS", (p && p.total) || 0, "coaching academies, Hyderabad") +
-          kpi("CALLABLE NOW", (p && p.callable) || 0, ((p && p.verified) || 0) + " own-site verified", "#047857") +
-          kpi("HOT LEADS", pr.A || 0, "score 8+ · call this week", "#b45309") +
-          kpi("REPLIED", st.replied || 0, ((p && p.replies_7d) || 0) + " replies in 7d") +
-          kpi("NO NUMBER", (p && p.no_phone) || 0, "reach by DM or web form") +
-          kpi("SUPPRESSED", (p && p.dnc) || 0, "asked us to stop") +
-          "</div>";
-
-        // sending number. Recorded on every touch so a restricted sender is
-        // traceable to exactly what it had messaged.
-        var sender = '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 15px;margin-bottom:16px">' +
-          '<span class="mi" style="color:#b45309;font-size:19px">smartphone</span>' +
-          '<div style="font-size:12.5px;color:#78350f;flex:1;min-width:220px"><b>Sending from ' + esc(state.sales.from) + '</b> — checked 2026-08-12: the tenant fee-reminder sender is a different number (+91 81439 60950), so outreach cannot affect reminder delivery. Keep them separate — a sender restricted for cold messaging would stop reminders for every academy at once.</div>' +
-          '<input id="salesFrom" value="' + escAttr(state.sales.from) + '" style="border:1px solid #fcd34d;border-radius:8px;padding:6px 9px;font-size:12.5px;width:130px;background:#fff" />' +
-          "</div>";
-
-        var armBar = function (arm, tone, what) {
-          var q = salesQueue(arm), inf = salesInFlight(arm);
-          var next = q[0];
-          return '<div style="flex:1;min-width:290px;border:1px solid var(--bd2);border-left:3px solid ' + tone + ';border-radius:10px;padding:12px 14px">' +
-            '<div style="font-size:11px;font-weight:700;color:' + tone + '">' + what.toUpperCase() + "</div>" +
-            '<div style="font-size:10px;color:var(--tx4);letter-spacing:.02em">test arm ' + arm + "</div>" +
-            '<div style="font-size:12.5px;color:var(--tx3);margin-top:5px">' + q.length + " left" +
-              (inf.length ? ' · <b style="color:#b45309">' + inf.length + " open</b>" : "") + "</div>" +
-            (next ? '<div style="font-size:12px;margin-top:5px">next: <b>' + esc(salesName(next.name)) + "</b></div>"
-                  : '<div style="font-size:12px;color:var(--tx4);margin-top:5px">queue empty</div>') +
-            '<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">' +
-            (inf.length
-              ? '<button data-snext="' + arm + '" style="border:none;background:' + tone + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u2713 Sent \u2014 open next</button>' +
-                ' <button data-sallsent="' + arm + '" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:6px 10px;font-size:12.5px;font-weight:600;cursor:pointer">\u2713 Sent, stop here</button>'
-              : '<button data-sopen="' + arm + '"' + (next ? "" : " disabled") +
-                ' style="border:none;background:' + (next ? tone : "var(--bd2)") + ';color:#fff;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:' + (next ? "pointer" : "default") + '">Open next</button>') +
-            "</div></div>";
+        /* The funnel, not six unrelated counts. The question a pipeline has to
+           answer is "where do leads die?", and a list of totals cannot — so
+           each step shows what survived the one before it. */
+        var fn = state.sales.funnel || {};
+        var step = function (label, val, of, sub, tone) {
+          var pct = (of && val != null) ? Math.round((val / of) * 1000) / 10 : null;
+          return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px">' +
+            '<div style="font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">' + label + "</div>" +
+            '<div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:6px;color:' + (tone || "inherit") + '">' + (val || 0) +
+            (pct != null ? '<span style="font-size:12px;font-weight:600;color:var(--tx4)"> · ' + pct + "%</span>" : "") + "</div>" +
+            '<div style="font-size:11.5px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>";
         };
-        var batchBar = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px 18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
-          '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="font-size:14px;font-weight:700">Work the queue</h3>' +
-          '<span style="font-size:11.5px;color:var(--tx4)">one lead per click \u2014 browsers block multi-tab opens, so this never tries</span></div>' +
-          '<div style="font-size:11px;color:var(--tx4);margin-top:6px"><b>Priority</b> (Hot / Warm / Cold) is how good the lead is, from its 0\u201310 score. <b>Text</b> vs <b>Text + image</b> is which half of the experiment it is in. Independent \u2014 a Hot lead can be in either.</div>' +
-          '<div style="display:flex;gap:12px;margin-top:13px;flex-wrap:wrap">' +
-          armBar("A", "#059669", "text only") + armBar("B", "#7c3aed", "text + image") + "</div>" +
-          // a click that did nothing must say why. Silence read as a dead button.
-          (state.sales.notice
-            ? '<div style="margin-top:11px;background:#fffbeb;border:1px solid #fde68a;' +
-              'border-radius:9px;padding:9px 12px;font-size:12px;color:#78350f">' +
-              esc(state.sales.notice) + "</div>"
-            : "") +
-          '<div style="font-size:11.5px;color:var(--tx4);margin-top:11px;line-height:1.6">' +
-          "<b>Open next</b> opens one chat with the opener pre-filled and logs it as a <b>draft</b>. Send it, then <b>\u2713 Sent \u2014 open next</b> records it and opens the following one, so it is one click per lead from then on. " +
-          "<b>Text + image</b>: a wa.me link cannot carry an attachment, so the image lands on your clipboard as the tab opens \u2014 press <b>Cmd/Ctrl+V</b> then Enter. " +
-          "Nothing is marked sent until you say so.</div></div>";
+        var kpis = '<div class="cardgrid" style="margin-bottom:18px">' +
+          step("REACHABLE", fn.reachable, null, (fn.total || 0) + " on the list") +
+          step("CONTACTED", fn.contacted, fn.reachable, "of reachable") +
+          step("ENGAGED", fn.engaged, fn.contacted, "replied or better", "#047857") +
+          step("BOOKED", fn.booked, fn.contacted, "call or demo agreed", "#7c3aed") +
+          step("DEAD NUMBER", fn.dead_number, null, "one tick — no WhatsApp", "#b45309") +
+          step("LOST", fn.lost, fn.contacted, (fn.suppressed || 0) + " asked us to stop") +
+          "</div>";
+
+        /* Where they die, in their own words. A stage count says 12 lost; only
+           the reason says whether we are losing on price, on a rival, or on
+           reaching the wrong person — and those need different fixes. */
+        var whyLost = "";
+        var wl = fn.why_lost || {};
+        if (Object.keys(wl).length) {
+          whyLost = '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px 18px;margin-bottom:18px">' +
+            '<div style="font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">WHY WE LOSE</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">' +
+            Object.keys(wl).map(function (k) {
+              return '<span style="font-size:12px;background:var(--fill);border:1px solid var(--bd2);border-radius:20px;padding:4px 11px">' +
+                esc(k) + ' <b style="font-variant-numeric:tabular-nums">' + wl[k] + "</b></span>";
+            }).join("") + "</div></div>";
+        }
+
+        /* The sender banner is gone. It restated the conclusion of an audit —
+           "I checked that outreach cannot break fee reminders" — permanently,
+           in the middle of the workflow. That belongs in
+           marketing/leads/WHATSAPP-KIT.md §0, which has it. What the operator
+           needs in that space while working is how many sends are left today,
+           and Today's card carries it. */
+
 
         var chip = function (key, val, label) {
           var on = (f[key] || "") === val || (key === "callable" && !!f.callable === (val === "1"));
@@ -925,44 +998,24 @@
           // A caller who does not know this lead is in the screenshot arm
           // will send the wrong thing and quietly corrupt the experiment.
           var arm = SALES_AB[l.variant] || SALES_AB.A;
+          /* The full list is REFERENCE — search, look something up, fix a
+             mistake. The day's work happens in Today, so this strip is only
+             what you cannot get there: message an out-of-queue lead, or
+             correct a lead's state. It used to carry six outcomes on every
+             row regardless of whether they were possible. */
           var acts = l.do_not_contact
             ? '<span style="font-size:11.5px;color:#b91c1c;font-weight:600">suppressed</span>'
-            /* A draft is in flight if the DATABASE says so — its most recent
-               touch is an 'opened' with no send after it — or if this session
-               just opened it. Reading only the in-memory map lost every draft
-               on reload and showed the WhatsApp button again, which is how
-               eight sends went unrecorded. */
-            : ((state.sales.drafted || {})[l.id] || l.last_outcome === "opened")
-              /* A draft in flight still needs the other outcomes. Replacing
-                 the whole cell with just yes/no meant a prospect who replied
-                 "stop messaging me" while the draft sat open could not be
-                 suppressed without first lying about having sent it. */
-              ? '<span style="font-size:11.5px;color:#b45309;font-weight:600">did you send it?</span>' +
-                ' <button data-sdone="' + l.id + '" style="border:none;background:#059669;color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer">Yes, sent</button>' +
-                ' <button data-sundo="' + l.id + '" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
-                ' <button data-sact="' + l.id + '|whatsapp|replied|in" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
-                ' <button data-sdnc="' + l.id + '" title="They asked us to stop" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Stop</button>'
-            : (l.wa_link
-                ? '<button data-swa="' + l.id + '" title="' + escAttr(
-                    arm.shot
-                      ? "Arm B: send the opener, then attach ONE screenshot of the dues list (demo tenant only)"
-                      : "Arm A: send the opener as text only — no screenshot") +
-                  '" style="border:none;background:' + (arm.shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">' + (arm.shot ? "image" : "chat") + "</span> " + (ARM_LABEL[l.variant] || l.variant) + "</button>"
-                : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>') +
-              /* Sent, straight out. Messages get sent from a phone, from an
-                 existing chat, or before anyone opened the console — and
-                 until now the only path to 'sent' was open-then-confirm, so
-                 those went unrecorded and the lead kept offering a button. */
-              (l.wa_link ? ' <button data-sact="' + l.id + '|whatsapp|sent" title="Already sent it — record that, whatever route it went out by" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer">\u2713 Sent</button>' : "") +
-              /* One tick means it never arrived. Recording that is the
-                 difference between "the list is wrong" and "the message is
-                 wrong", and those need opposite fixes. */
-              (l.wa_link ? ' <button data-sact="' + l.id + '|whatsapp|failed" title="One grey tick \u2014 never delivered. No WhatsApp on this number." style="border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">1 tick</button>' : "") +
-              ' <button data-sact="' + l.id + '|call|no_answer" title="Called, no answer" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No answer</button>' +
-              ' <button data-sact="' + l.id + '|whatsapp|replied|in" title="They replied" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Replied</button>' +
-              ' <button data-sact="' + l.id + '|whatsapp|not_interested" title="Not interested" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
-              ' <button data-sdnc="' + l.id + '" title="They asked us to stop — suppresses every lead on this number, permanently" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Stop</button>';
-
+            : (l.stage === "lost"
+                ? '<span style="font-size:11.5px;color:var(--tx4)">lost' +
+                  (l.lost_reason ? " — " + esc(l.lost_reason) : "") + "</span>"
+                : (l.phone
+                    ? '<button data-smsg="' + l.id + '" title="Opens the chat with the opener pre-filled and records the send" style="border:none;background:' + ((SALES_AB[l.variant] || SALES_AB.A).shot ? "#7c3aed" : "#059669") + ';color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer"><span class="mi" style="font-size:14px;vertical-align:-3px">chat</span> ' + (ARM_LABEL[l.variant] || l.variant) + "</button>" +
+                      ' <a href="tel:+91' + escAttr(String(l.phone).replace(/\D/g, "")) + '" style="text-decoration:none;border:1px solid var(--bd2);background:var(--card);color:var(--tx2);border-radius:7px;padding:5px 9px;font-size:12px;display:inline-block">Call</a>' +
+                      ' <button data-sdo="' + l.id + '|replied" title="They messaged back" style="border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:7px;padding:5px 9px;font-size:12px;font-weight:600;cursor:pointer">Replied</button>' +
+                      ' <button data-sdo="' + l.id + '|no_whatsapp" title="One grey tick — nothing arrived on this number. Keeps the academy as a prospect." style="border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No WhatsApp</button>' +
+                      ' <button data-sdo="' + l.id + '|not_interested" title="Lost — asks why" style="border:1px solid var(--bd2);background:var(--card);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">No</button>' +
+                      ' <button data-sdo="' + l.id + '|stop" title="They asked us to stop — permanent, and a re-import cannot undo it" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer">Stop</button>'
+                    : '<span style="font-size:11.5px;color:var(--tx4)">DM / form</span>'));
           return '<tr style="border-top:1px solid var(--bd3)">' +
             '<td style="padding:11px 10px"><div style="font-size:13px;font-weight:600">' + esc(l.name) + "</div>" +
               '<div style="font-size:11.5px;color:var(--tx4)">' + esc(l.sport || "—") + (l.area ? " · " + esc(l.area) : "") +
@@ -1018,16 +1071,16 @@
         }
 
         var note = '<div style="font-size:11.5px;color:var(--tx4);margin-top:12px;line-height:1.6">' +
-          "The button opens a chat with the opener pre-filled and logs it as a <b>draft</b> \u2014 then asks whether you actually sent it, because opening a draft is not sending one. Only <b>Yes, sent</b> marks the lead contacted or counts in the test. " +
-          "<b>Text</b> sends the opener alone. <b>Text + image</b> means send the opener, then attach <b>one</b> image — " +
-          "<code>marketing/leads/dashboard-dues.png</code>, the demo <b>dashboard</b>: 94 members, 30 renewals due worth ₹92,800. " +
-          "Not the Finance screen — that one still reads from the local seed and contradicts itself. " +
-          "It comes from the demo tenant and carries no names and no phone numbers \u2014 never substitute a screenshot of a real academy, and never one showing a roster. " +
-          "Reshoot monthly as the demo calendar rolls: <code>node scripts/shoot-arm-b.js</code> (see marketing/leads/ARM-B-IMAGE.md). " +
-          "<code>wa.me</code> carries text only, so the image goes on by hand in the Business app. " +
-          "<b>Stop</b> writes every one of that lead's numbers to the do-not-contact list, so a later re-import cannot bring them back.</div>";
+          "<b>Message</b> opens the chat with the opener pre-filled and records the send at the same time — there is no separate confirm step, because you press it in order to send. Got it wrong? <b>Undo</b> on the green row removes the touch. " +
+          "After the opener the cadence switches to <b>calls</b>: the ticks showed these messages are delivered and never opened, so a second message is not the answer. Next day, then +3, then +7, then the lead is spent. " +
+          "<b>Later</b> asks when and puts the lead away until that date — a prospect's own \"ring me next month\" is not an overdue chase. " +
+          "<b>Not interested</b> asks why, because a stage count cannot tell you whether you are losing on price or to a rival. " +
+          "<b>Stop</b> writes every one of that lead's numbers to the do-not-contact list and a re-import cannot undo it — for a number with no WhatsApp use <b>No WhatsApp</b>, which keeps the academy as a prospect. " +
+          "<b>Text + image</b> leads still need the screenshot pasted by hand: <code>wa.me</code> carries text only, so the PNG lands on your clipboard as the chat opens — <b>Cmd/Ctrl+V</b>, then send.</div>";
 
-        return kpis + sender + abPanel + batchBar + filters +
+        // Today first. It is the only part that tells you what to do; the
+        // funnel, the experiment and the full list are all reference.
+        return salesTodayCard() + kpis + whyLost + filters +
           '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)">' +
           '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">' +
           '<thead><tr style="background:var(--fill)">' +
@@ -1035,7 +1088,7 @@
             return '<th style="padding:9px 10px;text-align:' + (i === 1 ? "center" : "left") + ';font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.03em">' + h.toUpperCase() + "</th>";
           }).join("") + "</tr></thead><tbody>" +
           (rows || '<tr><td colspan="6" style="padding:36px;text-align:center;color:var(--tx4);font-size:13px">No leads match these filters.</td></tr>') +
-          "</tbody></table></div></div>" + note;
+          "</tbody></table></div></div>" + note + abPanel;
       }
 
       function growthView(accts) {
@@ -1396,75 +1449,53 @@
         if (e.target.closest("[data-menu]")) { var app = document.querySelector(".app"); if (app) app.classList.toggle("nav-open"); return; }
         var nav = e.target.closest("[data-nav]");
         // ---- sales pipeline (before nav; the buttons live inside the table) ----
-        var swa = e.target.closest("[data-swa]");
-        if (swa) {
-          var lid = swa.getAttribute("data-swa");
-          var lead = state.sales.leads.filter(function (x) { return x.id === lid; })[0];
-          if (lead && lead.wa_link) {
-            // open the chat with the opener pre-filled, then log it. wa.me
-            // carries text only — the flyer is attached by hand.
-            window.open(lead.wa_link + "?text=" + encodeURIComponent(salesMsg(lead)),
-                        "_blank", "noopener");
-            /* Log 'opened', NOT 'sent'. Pressing this button opens a draft;
-               the caller still has to press send inside WhatsApp, and may
-               read it and close it. Recording a draft as a send marked
-               prospects contacted who had never been messaged, and put
-               drafts in the A/B denominator. The row now asks. */
-            if (!state.sales.drafted) state.sales.drafted = {};
-            state.sales.drafted[lid] = true;
-            // arm B: put the image on the clipboard so the paste is one key
-            var armCopied = false;
-            if ((SALES_AB[lead.variant] || {}).shot) armCopied = salesCopyImage();
-            if ((SALES_AB[lead.variant] || {}).shot && !armCopied) {
-              window.setTimeout(function () {
-                window.alert("Could not copy the image to the clipboard.\n\n" +
-                  "Attach marketing/leads/dashboard-dues-whatsapp.jpg by hand in " +
-                  "the chat before sending.");
-              }, 50);
-            }
-            salesWrite("sales_log_touch", {
-              p_lead: lid, p_channel: "whatsapp", p_outcome: "opened",
-              p_direction: "out", p_template: SALES_GEN + "_" + lead.variant,
-              p_body: salesMsg(lead), p_sent_from: state.sales.from,
-              p_variant: lead.variant
-            });
+        /* One handler per verb, and every verb goes through salesDo ->
+           sales_disposition. The old tab had data-swa, data-sopen, data-snext,
+           data-sallsent, data-sdone, data-sundo, data-sact and data-sdnc: eight
+           entry points, five write shapes, and not one of them scheduled a
+           next step. */
+        var smsg = e.target.closest("[data-smsg]");
+        if (smsg) { salesMessage(smsg.getAttribute("data-smsg")); return; }
+
+        // The Call button is a real <a href="tel:"> so the OS handles it. We
+        // only record the attempt; the operator says what happened after.
+        var sdo = e.target.closest("[data-sdo]");
+        if (sdo) {
+          var a = sdo.getAttribute("data-sdo").split("|");
+          var id = a[0], what = a[1], arg = a[2];
+          var when = null, note = null;
+
+          if (what === "later") {
+            // arg is a day offset. Compute the date here so the button can
+            // stay a plain 1w/1m/3m, and let the database refuse anything
+            // that is not actually in the future.
+            var d = new Date();
+            d.setDate(d.getDate() + (parseInt(arg, 10) || 7));
+            when = d.toISOString().slice(0, 10);
+          } else if (what === "booked") {
+            var ans = window.prompt(
+              "What date is the call booked for? (YYYY-MM-DD)",
+              new Date(Date.now() + 864e5).toISOString().slice(0, 10));
+            if (!ans) return;
+            when = ans.trim();
+          } else if (what === "not_interested") {
+            // Ask WHY. A stage count cannot tell you whether you are losing on
+            // price or to a rival, and those need different responses.
+            note = window.prompt("Why? (price, uses a rival app, too small, " +
+                                 "wrong person, no interest…)", "");
+            if (note === null) return;
+          } else if (what === "stop") {
+            if (!window.confirm("Mark do-not-contact?\n\nThis suppresses every " +
+                  "lead reachable on any of this academy's numbers, and a " +
+                  "future re-import will not bring them back.\n\nFor a number " +
+                  "with no WhatsApp use “No WhatsApp” instead — that " +
+                  "keeps the academy as a prospect.")) return;
+          } else if (what === "gatekeeper") {
+            note = window.prompt("Who should you ask for next time? (optional)", "");
+            if (note === null) return;
+            note = "gatekeeper" + (note ? " — ask for " + note : "");
           }
-          return;
-        }
-        var sopen = e.target.closest("[data-sopen]");
-        if (sopen && !sopen.disabled) { salesOpenOne(sopen.getAttribute("data-sopen")); return; }
-        var snext = e.target.closest("[data-snext]");
-        if (snext) { salesSentAndNext(snext.getAttribute("data-snext")); return; }
-        var sallsent = e.target.closest("[data-sallsent]");
-        if (sallsent) { salesConfirmAll(sallsent.getAttribute("data-sallsent")); return; }
-        var sdone = e.target.closest("[data-sdone]");
-        if (sdone) {
-          var did = sdone.getAttribute("data-sdone");
-          if (state.sales.drafted) delete state.sales.drafted[did];
-          salesAct(did, "whatsapp", "sent", "out");
-          return;
-        }
-        var sundo = e.target.closest("[data-sundo]");
-        if (sundo) {
-          // they looked and did not send: keep the 'opened' record, drop the prompt
-          if (state.sales.drafted) delete state.sales.drafted[sundo.getAttribute("data-sundo")];
-          render();
-          return;
-        }
-        var sact = e.target.closest("[data-sact]");
-        if (sact) {
-          var a = sact.getAttribute("data-sact").split("|");
-          salesAct(a[0], a[1], a[2], a[3]);
-          return;
-        }
-        var sdnc = e.target.closest("[data-sdnc]");
-        if (sdnc) {
-          // irreversible by design: it writes every one of the lead's numbers
-          // to the do-not-contact list, which a re-import cannot undo.
-          if (window.confirm("Mark do-not-contact?\n\nThis suppresses every lead reachable on any of this academy's numbers, and a future re-import will not bring them back.")) {
-            rpc("sales_set_dnc", { p_lead: sdnc.getAttribute("data-sdnc"), p_reason: "asked us to stop" })
-              .then(function () { state.sales.loaded = false; loadSales(); });
-          }
+          salesDo(id, what, when, note);
           return;
         }
         var sf = e.target.closest("[data-sf]");
@@ -1594,10 +1625,11 @@
           state.sales.f.sport = e.target.value;
           state.sales.loaded = false; loadSales();
         }
-        if (e.target.id === "salesFrom") {
-          // recorded on every touch, so a restricted sender is traceable
-          state.sales.from = e.target.value.replace(/\D/g, "") || state.sales.from;
-        }
+        /* The sender-number input went with the banner. The number is a
+           property of the WhatsApp Business App the operator is typing in, not
+           something the console should invite them to change mid-campaign —
+           and sales_disposition() no longer records it per touch. It lives in
+           marketing/leads/WHATSAPP-KIT.md §0. */
       });
       document.addEventListener("keydown", function (e) {
         if (e.target.id === "salesQ" && e.key === "Enter") {
