@@ -34,8 +34,15 @@ function tokensMatch(left: string, right: string): boolean {
  *
  * 60: the complete normalized names are identical.
  * 55: all supplied name tokens match distinct candidate tokens, allowing one
- *     OCR typo in longer tokens. A single supplied token must be the player's
- *     first token (or their complete one-token name).
+ *     OCR typo in longer tokens, or a single token matching the player's first.
+ * 52: a single supplied token matches a LATER token of the player's name.
+ *     Staff say "Aadil" for "Mohammed Aadil", and refusing that outright meant
+ *     AgentAlpha could never match anyone whose given name is not first. Scored
+ *     below a first-token match on purpose: when both exist the caller sees two
+ *     candidates within its 10-point window and asks for a registration number
+ *     or parent phone instead of guessing. A shared surname behaves the same
+ *     way — every holder scores 52, so it stays ambiguous rather than matching
+ *     one of them. Nothing is written until staff confirm the review.
  * 0: insufficient identity evidence.
  */
 export function renewalNameMatchScore(requested: unknown, candidate: unknown): number {
@@ -46,10 +53,11 @@ export function renewalNameMatchScore(requested: unknown, candidate: unknown): n
   if (requestedTokens.join("") === candidateTokens.join("")) return 60;
 
   if (requestedTokens.length === 1) {
-    const isFirstName = tokensMatch(requestedTokens[0], candidateTokens[0]);
-    const isCompleteSingleName = candidateTokens.length === 1 &&
-      tokensMatch(requestedTokens[0], candidateTokens[0]);
-    return isFirstName || isCompleteSingleName ? 55 : 0;
+    if (tokensMatch(requestedTokens[0], candidateTokens[0])) return 55;
+    const matchesLaterToken = candidateTokens.slice(1).some((candidateToken) =>
+      tokensMatch(requestedTokens[0], candidateToken)
+    );
+    return matchesLaterToken ? 52 : 0;
   }
 
   const unusedCandidateIndexes = new Set(candidateTokens.map((_, index) => index));

@@ -825,7 +825,13 @@ async function forwardToAdmissionIntake(value: any, message: any) {
     `${env("SUPABASE_URL").replace(/\/+$/, "")}/functions/v1/admission-intake`,
     {
       method: "POST",
-      headers: serviceHeaders(),
+      // x-intake-secret as well as the service key: this project issues non-JWT API keys,
+      // so the service key alone is not something a gateway or a JWT check can validate.
+      // admission-intake accepts either, and the shared secret does not depend on key format.
+      headers: {
+        ...serviceHeaders(),
+        "x-intake-secret": env("ADMISSION_INTAKE_WEBHOOK_SECRET"),
+      },
       body: JSON.stringify({
         action: "ingest",
         channel: groupId ? "whatsapp_group" : "whatsapp",
@@ -4338,30 +4344,30 @@ async function sendRenewalConfirmation(payload: any, confirmedBy: string) {
     : buildRenewalConfirmationMessage(confirmationValues);
 
   let metaResponse: any;
-  let messageKind = isJoining ? "confirmation_text" : "confirmation_template";
+  let messageKind = "confirmation_template";
   let templateFallbackError: Record<string, any> | null = null;
-  if (isJoining) {
+  // Template first for BOTH joining and renewal. A joining confirmation used to go as
+  // free-form text, which Meta refuses with 131047 ("Re-engagement message") unless the
+  // parent happened to message us in the last 24 hours — and a parent who just paid from
+  // a reminder usually has not. Those confirmations were simply never delivered. The
+  // template carries the same four values ({{2}} is "admission and first cycle" here), and
+  // the warmer hand-written wording stays as the fallback for when the window is open.
+  try {
+    const templateValues = renewalConfirmationTemplateValues(confirmationValues);
+    metaResponse = await sendTemplatePayload(
+      to,
+      PAYMENT_CONFIRMATION_TEMPLATE_NAME,
+      [
+        {
+          type: "body",
+          parameters: templateValues.map((text) => ({ type: "text", text })),
+        },
+      ],
+    );
+  } catch (error) {
+    templateFallbackError = parseProviderError(error);
+    messageKind = "confirmation_text";
     metaResponse = await sendTextMessage(to, message);
-  } else {
-    try {
-      const templateValues = renewalConfirmationTemplateValues(confirmationValues);
-      metaResponse = await sendTemplatePayload(
-        to,
-        PAYMENT_CONFIRMATION_TEMPLATE_NAME,
-        [
-          {
-            type: "body",
-            parameters: templateValues.map((text) => ({ type: "text", text })),
-          },
-        ],
-      );
-    } catch (error) {
-      // Keep the existing in-window confirmation working while Meta reviews
-      // the same-content utility template.
-      templateFallbackError = parseProviderError(error);
-      messageKind = "confirmation_text";
-      metaResponse = await sendTextMessage(to, message);
-    }
   }
   const confirmationMessageId = String(metaResponse?.messages?.[0]?.id || "");
   const confirmedAt = new Date().toISOString();
@@ -5350,6 +5356,10 @@ Deno.serve(async (request) => {
         : [];
       const managerPaymentAlerts = await processDueManagerPaymentAlerts();
       const failedAgentConfirmations = await processFailedAgentConfirmations();
+      // Drains the parent proof nudges scheduled when someone taps Pay Now. This worker
+      // was written but never called, so its queue was never emptied and no parent was
+      // ever asked for the screenshot a renewal depends on.
+      const parentProofNudges = await processDueParentProofNudges();
       return jsonResponse({
         success: true,
         remindersPaused: !settings.whatsappRemindersEnabled,
@@ -5359,6 +5369,7 @@ Deno.serve(async (request) => {
         retries,
         managerPaymentAlerts,
         failedAgentConfirmations,
+        parentProofNudges,
       });
     }
     if (payload?.action === "send_admission_reminder") {
