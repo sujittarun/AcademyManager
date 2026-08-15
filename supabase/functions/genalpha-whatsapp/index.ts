@@ -2005,6 +2005,41 @@ function isTemplateFallbackError(errorPayload: Record<string, any>): boolean {
         text.includes("not approved")));
 }
 
+// Meta returns 131026 "Message undeliverable" when it cannot hand the message to
+// the recipient at all — most often the number is simply not on WhatsApp, but it
+// is a bucket error that also covers an outdated app or unaccepted terms, so a
+// single failure is not proof. Repeated failures with no delivery in between are.
+const UNDELIVERABLE_ERROR_CODE = "131026";
+const UNDELIVERABLE_STRIKES_BEFORE_FLAGGING = 3;
+
+/**
+ * Flags the parent contact once WhatsApp has refused the same number enough
+ * times. Without this a number that cannot receive anything fails quietly for
+ * months: Aadithya Bharadwaj B's parent failed 44 times from May to August while
+ * the roster still showed the contact as active.
+ */
+async function flagUndeliverableContact(studentId: string) {
+  if (!studentId) return;
+  const student = await fetchStudent(studentId).catch(() => null);
+  if (!student) return;
+  // Never overwrite a deliberate opt-out, and never re-flag what is already flagged.
+  if (isWhatsappContactBlocked(student)) return;
+
+  const strikes = await rest(
+    `whatsapp_flow_events?select=id&student_id=eq.${encodeURIComponent(studentId)}` +
+      `&error_code=eq.${UNDELIVERABLE_ERROR_CODE}&limit=${UNDELIVERABLE_STRIKES_BEFORE_FLAGGING}`,
+  ).catch(() => []);
+  if ((strikes?.length || 0) < UNDELIVERABLE_STRIKES_BEFORE_FLAGGING) return;
+
+  await rest(`students?id=eq.${encodeURIComponent(studentId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ whatsapp_contact_status: "wrong_number" }),
+  }).catch((error) => {
+    console.log(`Could not flag undeliverable contact for ${studentId}: ${error}`);
+  });
+  console.log(`Flagged ${studentId}: WhatsApp refused this number ${UNDELIVERABLE_STRIKES_BEFORE_FLAGGING}+ times.`);
+}
+
 function isHealthyEcosystemError(errorPayload: Record<string, any>): boolean {
   const code = providerErrorCode(errorPayload);
   const text = JSON.stringify(errorPayload || {}).toLowerCase();
@@ -4656,6 +4691,7 @@ async function handleWebhook(payload: any) {
         if (status === "sent") flowStatusPatch.sent_at = timestamp;
         if (status === "delivered") flowStatusPatch.delivered_at = timestamp;
         if (status === "read") flowStatusPatch.read_at = timestamp;
+        let undeliverable = false;
         if (status === "failed") {
           flowStatusPatch.failed_at = timestamp;
           flowStatusPatch.error_code = String(
@@ -4664,9 +4700,15 @@ async function handleWebhook(payload: any) {
           flowStatusPatch.error_message = String(
             statusUpdate?.errors?.[0]?.message || "",
           );
+          undeliverable = flowStatusPatch.error_code === UNDELIVERABLE_ERROR_CODE;
         }
         if (trackedFlowEvent?.id) {
           await updateWhatsappFlowEvent(trackedFlowEvent.id, flowStatusPatch);
+        }
+        if (undeliverable) {
+          await flagUndeliverableContact(
+            String(trackedReminder?.student_id || trackedFlowEvent?.student_id || ""),
+          );
         }
 
         if (!trackedReminder?.id) {
