@@ -2180,10 +2180,20 @@ async function recordReminderAccepted(
 ) {
   const whatsappMessageId = String(metaResponse?.messages?.[0]?.id || "");
   const acceptedAt = new Date().toISOString();
+  // message_preview is written before the send, by the legacy body renderer, and
+  // was never corrected afterwards — so the column claimed the plan-button text
+  // even when the Pay Now template went out, and reading it was the only way
+  // anyone could tell what a parent received. Record what was actually sent.
+  const sentBody = String(metaResponse?.local_message_body || "");
+  const sentTemplate = String(metaResponse?.local_template_name || "");
   await updateReminderEvent(event.id, {
     status: whatsappMessageId ? "accepted" : "sent",
     whatsapp_message_id: whatsappMessageId,
-    meta_response: metaResponse,
+    ...(sentBody ? { message_preview: sentBody } : {}),
+    meta_response: {
+      ...(metaResponse || {}),
+      ...(sentTemplate ? { local_template_name: sentTemplate } : {}),
+    },
     meta_error: {},
     failed_at: null,
     accepted_at: acceptedAt,
@@ -5358,6 +5368,37 @@ Deno.serve(async (request) => {
     }
     if (payload?.action === "agent_renewal_confirmed") {
       return await handleAgentRenewalConfirmed(request, payload);
+    }
+    if (payload?.action === "whatsapp_template_status") {
+      // Read-only: what Meta actually has. The body we render locally is only a
+      // preview — Meta sends the APPROVED template content, so "which template
+      // did we name" and "what does that template say" are different questions.
+      await assertAuthenticated(request);
+      const wabaId = await resolveWhatsappBusinessAccountId();
+      const list = await graphRequest(
+        `${encodeURIComponent(wabaId)}/message_templates?fields=name,status,category,language,components&limit=100`,
+      );
+      const templates = (graphDataList(list) || []).map((t: any) => ({
+        name: t?.name,
+        status: t?.status,
+        category: t?.category,
+        language: t?.language,
+        body: String(
+          (t?.components || []).find((c: any) => String(c?.type).toUpperCase() === "BODY")?.text || "",
+        ).slice(0, 400),
+        buttons: ((t?.components || []).find((c: any) => String(c?.type).toUpperCase() === "BUTTONS")?.buttons || [])
+          .map((b: any) => `${b?.type}:${b?.text}`),
+      }));
+      return jsonResponse({
+        success: true,
+        configuredDirectPayTemplate: directPaymentTemplateName(),
+        configuredReminderTemplates: {
+          heads_up: reminderTemplateName("heads_up"),
+          renewal_day: reminderTemplateName("renewal_day"),
+          overdue: reminderTemplateName("renewal"),
+        },
+        templates,
+      });
     }
     if (payload?.action === "setup_direct_payment_template") {
       return await handleSetupDirectPaymentTemplate(request);
