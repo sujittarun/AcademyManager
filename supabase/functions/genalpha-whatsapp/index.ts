@@ -2751,6 +2751,7 @@ async function managerAlertMessageBody(
   reminderEvent: any,
   proofWasSubmitted: boolean,
   paymentClaimed: boolean,
+  sentValues: string[] = [],
 ): Promise<string> {
   try {
     const wabaId = await resolveWhatsappBusinessAccountId();
@@ -2769,7 +2770,15 @@ async function managerAlertMessageBody(
       String(component?.type || "").toUpperCase() === "BODY"
     );
     const text = String(body?.text || "");
-    if (text) return renderWhatsappTemplateBody(text, [playerName]);
+    // Substitute every value the send actually used. Passing only the player name
+    // filled {{1}} and left {{2}}/{{3}} as literal placeholders in the timeline —
+    // the manager's real WhatsApp message was fine, the stored copy was not.
+    if (text) {
+      return renderWhatsappTemplateBody(
+        text,
+        sentValues.length ? sentValues : [playerName],
+      );
+    }
   } catch (error) {
     console.warn("Unable to load manager alert template body", error);
   }
@@ -2977,6 +2986,7 @@ async function sendManagerPaymentAlert(
     : [bodyComponent];
 
   let templateName = primaryName;
+  let sentComponents: any[] = primaryComponents;
   let templateResponse: any;
   try {
     try {
@@ -2986,6 +2996,7 @@ async function sendManagerPaymentAlert(
       // must surface, not be retried against an older template and hidden.
       if (!isTemplateFallbackError(parseProviderError(primaryError))) throw primaryError;
       templateName = legacyName;
+      sentComponents = legacyComponents;
       templateResponse = await sendTemplatePayload(to, legacyName, legacyComponents);
     }
   } catch (error) {
@@ -3011,12 +3022,18 @@ async function sendManagerPaymentAlert(
     }
     throw error;
   }
+  const sentBodyValues: string[] = (
+    (sentComponents.find((component: any) =>
+      String(component?.type || "").toLowerCase() === "body"
+    )?.parameters) || []
+  ).map((parameter: any) => String(parameter?.text ?? ""));
   const renderedMessageBody = await managerAlertMessageBody(
     templateName,
     playerName,
     reminderEvent,
     proofWasSubmitted,
     paymentClaimed,
+    sentBodyValues,
   );
 
   await updateReminderEvent(reminderEvent.id, {
