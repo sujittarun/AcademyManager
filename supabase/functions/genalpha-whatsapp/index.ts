@@ -663,6 +663,13 @@ function advanceDeliveryStatus(
 
 const DB_SCHEMA = "genalpha";
 
+// payment-proofs objects are keyed <tenant>/… and every storage policy
+// pivots on that first segment (migration 0023). This function uploads as
+// service_role, which is not subject to a policy, so a key written without
+// the prefix uploaded fine and then could not be read back by the staff it
+// was collected for — which is exactly what happened until 2026-08-17a.
+const STORAGE_TENANT = "genalpha";
+
 async function rest(path: string, init: RequestInit = {}) {
   const baseUrl = env("SUPABASE_URL").replace(/\/+$/, "");
   const response = await fetch(`${baseUrl}/rest/v1/${path}`, {
@@ -2679,7 +2686,7 @@ async function storePaymentProofMedia(message: any, reminderEvent: any) {
     const bucket = "payment-proofs";
     const safeMessageId = String(message.id || mediaId).replace(/[^a-zA-Z0-9_-]/g, "");
     const safeReminderId = String(reminderEvent.id || "unknown").replace(/[^a-zA-Z0-9_-]/g, "");
-    const objectPath = `${safeReminderId}/${safeMessageId}.${extensionForMime(mimeType)}`;
+    const objectPath = `${STORAGE_TENANT}/${safeReminderId}/${safeMessageId}.${extensionForMime(mimeType)}`;
     await ensurePaymentProofBucket(bucket);
 
     const uploadResponse = await fetch(
@@ -3817,8 +3824,11 @@ async function handlePaymentConfirmationMessage(
       event_type: "payment_pending_verification",
       event_date: new Date().toISOString().slice(0, 10),
       title: "Parent payment proof received",
+      // The object key used to be written into this sentence, which put a
+      // storage path in front of the manager where a screenshot belonged.
+      // The apps render the image from proof_path on the flow event.
       details: proofPath
-        ? `Parent replied with ${paymentConfirmation.type}. Proof stored at ${paymentConfirmation.proof_media?.storage_bucket || "payment-proofs"}/${proofPath}.`
+        ? `Parent replied with ${paymentConfirmation.type}. Payment screenshot saved.`
       : `Parent replied with ${paymentConfirmation.type || "message"}${
         paymentConfirmation.text ? `: ${paymentConfirmation.text}` : ""
       }.`,

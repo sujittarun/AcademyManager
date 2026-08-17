@@ -634,7 +634,11 @@ async function promotePaymentProof(session: any) {
   const ownerPath = session.intake_type === "renewal"
     ? session.matched_student_id
     : `admission-${session.id}`;
-  const targetPath = `${ownerPath}/whatsapp-intake-${session.id}.${extension}`;
+  // <tenant>/… — the payment-proofs read policy pivots on the first path
+  // segment (0023). Uploading as service_role succeeds either way, so a
+  // missing prefix only shows up later, as staff being unable to open the
+  // screenshot they were asked to verify.
+  const targetPath = `genalpha/${ownerPath}/whatsapp-intake-${session.id}.${extension}`;
   await uploadPaymentProof(targetPath, source.bytes, source.mime);
   payment.proof_bucket = "payment-proofs";
   payment.proof_path = targetPath;
