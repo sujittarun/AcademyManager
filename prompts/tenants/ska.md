@@ -94,6 +94,56 @@ what the two live rules do. If a sport-keyed rule is ever wanted, the
 enrolment has to carry a sport first — that is a change to the admission
 form and to `approve_application`, not to the rule.
 
+## The mobile pass, 2026-08-18 — what it found
+
+Tested at 375×812 on the live site, signed in as a throwaway staff account.
+Layout held everywhere: no horizontal scroll, no clipped text, the wide
+ledger tables scroll inside their own `.table-wrap`. Four real faults, all
+fixed and verified:
+
+**1. Native dialogs do not work, and four operator actions did nothing.**
+Measured in the app's own browser: `window.prompt(...)` **throws**
+`prompt() is not supported.` and `window.confirm(...)` **returns false
+without showing anything**. A throw kills the handler; a false reads as
+"the operator said no". So on a phone: declining a booking, approving an
+admission, declining an admission and "mark the rest present" all did
+nothing — three of them silently, no toast, no error, the row just sat
+there.
+
+`bookings.html` already knew — its comment says "window.prompt is
+suppressed on iOS" and it built a reason sheet for the cancel path. The
+other five call sites never got converted.
+
+`LT.ask()` is now in `core.js`: an in-app confirm and an in-app prompt in
+one, resolving to a **string** when confirmed and **null** when dismissed,
+so it drops into a `if (x === null) return;` prompt site unchanged. Use it.
+Never reach for `window.confirm` or `window.prompt` in a tenant app again.
+
+**The same bug is still live in other repos** (not touched — different
+repo, different session): `LeoTennis` 2 call sites, `MatchPoint` 1,
+`GenAlpha` 4, and the **operator console** 6. Nothing dangerous happens —
+they all fail closed — but the operator simply cannot complete those
+actions. `AcademyManager/index.html:1617` is a type-to-confirm delete, so
+that one is blocked rather than broken.
+
+**2. `LT.ask` itself shipped broken for ten minutes** — it opened with a
+double `requestAnimationFrame`, and rAF does not fire in a hidden or
+backgrounded tab, so the sheet was appended and never shown. Now it forces
+layout with `void back.offsetHeight` and opens in the same tick. The reveal
+and count-up observers already carry this lesson; it is three for three.
+
+**3. Every stat animated twice on every load.** A page that fetched its
+data called `LT.countUp` directly, and core's 1200 ms safety net then found
+the element unvisited and counted it from zero again. A direct call now
+sets `el._cuDone` and retires the net. Reported on "Collected today"; it
+was every stat on every page.
+
+**4. Light mode had no edges.** Every border was white — the dark theme's
+specular rim, never re-derived — measuring **1.06:1** against the `#f2f3f7`
+page. Now dark ink hairlines at 1.32–1.50:1 with the white kept as the
+inset top highlight, which is what a glass edge actually is. Compact
+controls were also 31px tall on a phone; they are 40 now.
+
 ## Outstanding
 
 - **The UPI handle is PROVISIONAL.** `9585491000@ybl`, supplied with the
