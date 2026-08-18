@@ -42,3 +42,15 @@ supabase/migrations/2026-08-11m-genalpha-admissions.sql
 *.webm
 *.wav
 *.mp3
+
+# ---------------------------------------------------------------
+# Rendered/scratch output. NOT tracked and NOT ignorable-by-accident.
+#
+# output/playwright/matchpoint-reel-4k/site-copy/login.html carries a
+# staff email AND password prefilled in value= attributes. It was
+# untracked but NOT ignored — one `git add .` from being published, which
+# is exactly how MatchPoint's README ended up with a live credential on
+# public GitHub. Ignoring it removes the accident.
+# ---------------------------------------------------------------
+output/
+supabase/.temp/
