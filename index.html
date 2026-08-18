@@ -75,6 +75,46 @@
         }).catch(function () { return null; });
       }
 
+
+      /* ============ the access-admin edge function ============
+         Creating a login needs the Supabase Admin API, which needs the
+         SERVICE ROLE key — and that may never sit in a static page. So the
+         writes live in an edge function, and this helper only ever sends
+         the OPERATOR'S OWN session token, exactly as rpc() does.
+
+         Two deliberate differences from rpc():
+           · the anon key is never acceptable as the bearer here. bearerTok()
+             falls back to it whenever there is no usable session, and that
+             fallback must not be handed to a function that mints accounts,
+             so it becomes a sign-in prompt instead.
+           · a failure is rejected, not swallowed. The function writes its
+             refusals for a human to read ("Centre 7 does not belong to this
+             academy."), and every caller here shows that text verbatim.
+             Swallowing it would leave the operator guessing.
+
+         (The sales funnel view has a local `var fn` of its own; it shadows
+         this harmlessly and never calls it.) */
+      function fn(action, body) {
+        return bearerTok().then(function (tok) {
+          if (!tok || tok === KEY) {
+            signOutToGate("Session expired — please sign in again.");
+            throw new Error("Your session has expired. Sign in again.");
+          }
+          return fetch(PROJECT + "/functions/v1/access-admin", {
+            method: "POST",
+            headers: { apikey: KEY, Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+            body: JSON.stringify(Object.assign({ action: action }, body || {})),
+          });
+        }).then(function (r) {
+          return r.text().then(function (txt) {
+            var j = null;
+            try { j = txt ? JSON.parse(txt) : null; } catch (e) { j = null; }
+            if (!r.ok) throw new Error((j && j.error) || ("The request failed (" + r.status + ")."));
+            return j || {};
+          });
+        });
+      }
+
       /* ============ sign-in gate ============ */
       var gate = document.getElementById("gate");
       function signOutToGate(msg) {
@@ -1245,6 +1285,398 @@
         return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Activity · last 7 days</h3>' + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + '</div><div style="margin-top:4px">' + inner + "</div></div>";
       }
 
+      /* ============ People & access =============================
+         Who can sign in to one academy's app. The read is a normal RPC
+         (list_staff_access, which reads auth.users behind a definer guard);
+         every write goes through the access-admin edge function above.
+
+         THERE ARE NO PASSWORDS ON THIS SCREEN — no field, no display, no
+         prompt. Creating someone returns a ONE-TIME SETUP LINK that the
+         person opens to choose their own. "Send setup link" is that same
+         mechanism, so a reset and a create are one path and the insecure
+         one never has to exist. This is not a preference: passing a
+         password from here to a client has published four live credentials
+         on this platform, one of which is still readable on GitHub. A link
+         expires; a password sent over WhatsApp is forever.
+
+         And no role but Manager and Coach. The function refuses to mint an
+         operator, so the select must not imply otherwise. */
+
+      /* Where each academy's people sign in — the setup link lands here.
+         >>> UPDATE THIS WHEN A TENANT'S APP MOVES. <<<
+         An academy not listed here simply gets no redirectTo: the link
+         still works, it just lands on the project's default page. That is
+         the right failure — sending a new manager to the wrong academy's
+         app is worse than sending them somewhere plain. */
+      var APP_LOGIN = {
+        ska:        "https://sujittarun.github.io/SKAcademy/login.html",
+        matchpoint: "https://sujittarun.github.io/MatchPoint/login.html",
+        mpp:        "https://sujittarun.github.io/MatchPointPride/login.html",
+        leo:        "https://sujittarun.github.io/LeoTennisAcademyapp/login.html",
+        raj:        "https://sujittarun.github.io/Rajsports/login.html",
+        genalpha:   "https://genalphaacademy.in/login.html",
+      };
+
+      var access = {
+        tenant: null,        // which academy `rows` describes
+        rows: null,          // null until the first read answers
+        loading: false,
+        error: "",           // the read failed
+        msg: "",             // a write was refused — shown verbatim
+        busy: "",            // "<verb>:<email>", so one row's button can say so
+        link: "", linkFor: "",
+        centres: null, centresFor: null,
+        role: "staff",
+        form: { name: "", email: "", centres: [] },
+      };
+
+      /* Fetched during render behind a guard, the same shape loadEvents()
+         uses: the card asks for what it needs and re-renders when it
+         arrives. `force` is the path taken after every write. */
+      function accessLoad(id, force) {
+        if (!id) return;
+        if (id !== access.tenant) {
+          /* Moved to a different academy. A setup link is a bearer
+             credential until it is spent, so it does not follow. */
+          access.tenant = id; access.rows = null; access.error = ""; access.msg = ""; access.failed = false;
+          access.link = ""; access.linkFor = ""; access.linkKind = ""; access.busy = "";
+          access.role = "staff"; access.form = { name: "", email: "", centres: [] };
+        } else if (!force && (access.rows !== null || access.loading || access.failed)) {
+          /* access.failed is what stops a failed read looping. Without it
+             rows stays null, the guard lets the next render() call
+             straight through, that read fails too, and the console fires
+             an unbounded stream of requests for as long as the operator
+             sits on the page — re-running signOutToGate each time on a
+             401. loadEvents() latches by storing `rows || []`; this reads
+             a real distinction between "empty" and "broken", so it needs
+             its own flag rather than that trick. */
+          return;
+        }
+        if (force) access.failed = false;
+        access.loading = true;
+        rpc("list_staff_access", { p_tenant: id }).then(function (rows) {
+          if (access.tenant !== id) return;             // the operator moved on
+          access.loading = false;
+          if (rows == null) {
+            access.error = "Could not read who can sign in to this academy.";
+            access.failed = true;
+          } else {
+            access.error = ""; access.failed = false; access.rows = rows;
+          }
+          render();
+        });
+      }
+
+      /* The centre list is only needed to scope a coach, and to name the
+         centres a coach already has. Operators can read centres directly:
+         the select policy is `auth_role() = 'operator' or (staff and own
+         tenant)`. */
+      function accessCentres(id) {
+        if (!id || access.centresFor === id) return;
+        access.centresFor = id; access.centres = null;
+        get("/centres?tenant_id=eq." + encodeURIComponent(id) + "&select=id,name,short_name&order=sort,name")
+          .then(function (rows) {
+            if (access.centresFor !== id) return;
+            access.centres = rows || [];
+            render();
+          });
+      }
+
+      function accessRow(email) {
+        var rows = access.rows || [], i;
+        for (i = 0; i < rows.length; i++) if (String(rows[i].email) === String(email)) return rows[i];
+        return null;
+      }
+
+      /* Returns HTML-safe text either way. */
+      function accessCentreNames(p) {
+        var ids = p.centre_ids || [];
+        if (!ids.length) return "no centres";
+        if (!access.centres) return ids.length + (ids.length === 1 ? " centre" : " centres");
+        var byId = {};
+        access.centres.forEach(function (c) { byId[c.id] = c.short_name || c.name; });
+        return esc(ids.map(function (i) { return byId[i] || ("centre " + i); }).join(", "));
+      }
+
+      /* A coach who can sign in and reach nothing. Two ways to get there:
+         no staff_scopes row / no centres on it (needs_scope), or a scope
+         that has been switched off. Both look like a broken app to the
+         person, so both are a warning here rather than a quiet state. */
+      function accessBlind(p) {
+        if (p.role !== "coach") return "";
+        if (p.needs_scope) return "No centres yet";
+        if (p.has_scope && p.scope_active === false) return "Centres switched off";
+        return "";
+      }
+
+      function accessStatus(p) {
+        if (p.banned) return pill("Suspended", ["#b91c1c", "#fef2f2"], true);
+        var blind = accessBlind(p), out = "";
+        if (blind) out += pill(blind, ["#b45309", "#fffbeb"], true);
+        if (!p.last_sign_in) out += (out ? " " : "") + pill("Never signed in", ["#475569", "#f1f5f9"], true);
+        else if (!out) out = '<span style="font-size:12px;color:var(--tx4);white-space:nowrap">Last signed in ' + fmtDate(p.last_sign_in) + "</span>";
+        return out;
+      }
+
+      function accessBtn(verb, email, label, icon, danger) {
+        var busy = access.busy === verb + ":" + email;
+        return '<button class="btn-g err-resolve" data-acc="' + verb + '" data-acc-email="' + escAttr(email) + '"' +
+          (busy ? " disabled" : "") + (danger ? ' style="color:#b91c1c"' : "") + ">" +
+          '<span class="mi">' + (busy ? "hourglass_empty" : icon) + "</span>" +
+          (busy ? "Working…" : label) + "</button>";
+      }
+
+      function accessPersonRow(p) {
+        var email = String(p.email || "");
+        var isCoach = p.role === "coach";
+        var roleLabel = p.role === "staff" ? "Manager" : isCoach ? "Coach" : String(p.role || "unknown");
+        var roleChip = '<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:' +
+          (isCoach ? "#f5f3ff;color:#6d28d9" : "var(--acs);color:var(--act)") + '">' + esc(roleLabel) + "</span>";
+        /* A suspended person cannot sign in at all, so the "will reach
+           nothing" warning is not true of them and only muddies the row. */
+        var blind = p.banned ? "" : accessBlind(p);
+        var sub = esc(email) + (isCoach ? " · " + accessCentreNames(p) : "");
+        var warn = blind
+          ? '<div style="font-size:11.5px;color:#b45309;margin-top:4px;line-height:1.45">Can sign in, but every screen will be empty. Add them again below with the same email and pick their centres.</div>'
+          : "";
+
+        var buttons = accessBtn("link", email, "Send setup link", "link") +
+          /* "Replace sign-in secret" hands you a value to pass on directly.
+             The setup link above is still the better habit — it means no
+             credential ever sits in your WhatsApp history — but a login you
+             can read down the phone is the real workflow, and pretending
+             otherwise just pushes it somewhere less careful. */
+          accessBtn("secret", email, "Replace sign-in secret", "key") +
+          (p.banned ? accessBtn("restore", email, "Restore", "lock_open")
+                    : accessBtn("suspend", email, "Suspend", "block")) +
+          accessBtn("delete", email, "Delete", "delete", true);
+
+        return '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--bd3)">' +
+          '<div style="min-width:190px;flex:1 1 210px">' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13.5px;font-weight:600;color:var(--tx)">' + esc(p.name || email) + "</span>" + roleChip + "</div>" +
+            '<div style="font-size:12px;color:var(--tx4);margin-top:3px;word-break:break-word">' + sub + "</div>" + warn +
+          "</div>" +
+          /* 0 1 auto, not 0 0 auto: a flex item at its content width cannot
+             shrink, so on a phone the three buttons ran off the card edge
+             instead of wrapping onto a second line. */
+          '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:0 1 auto;min-width:0">' + accessStatus(p) + "</div>" +
+          '<div style="display:flex;gap:7px;flex-wrap:wrap;flex:0 1 auto;min-width:0">' + buttons + "</div>" +
+        "</div>";
+      }
+
+      /* Shown as text, never as an <a>. Opening a recovery link spends it,
+         so a well-meant click by the operator would burn the one thing the
+         person needs. */
+      function accessLinkBox() {
+        var isSecret = access.linkKind === "secret";
+        var title = isSecret ? "New sign-in secret" : "Setup link";
+        var copy  = isSecret ? "Copy" : "Copy link";
+        /* The two cases fail in opposite ways, so they say opposite things.
+           A setup link must NOT be opened by the operator (opening spends
+           it); a secret must be copied NOW (it is never shown again). */
+        var note = isSecret
+          ? 'Their old one stopped working the moment this was issued. It is shown <b>once</b> — nothing stores it, so if you lose it you issue another. Send it in a way you would be happy to have kept forever, because whatever you send it in usually is.'
+          : 'Send this to them. They open it once to choose their own password, and it expires — issue a fresh one with <b>Send setup link</b> if it lapses. Do not open it yourself: opening it spends it.';
+        return '<div style="margin-top:14px;padding:13px 14px;border:1px solid var(--ac);background:var(--acs);border-radius:12px">' +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--act)">' + esc(title) + "</div>" +
+          '<div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-top:3px;word-break:break-all">' + esc(access.linkFor) + "</div>" +
+          '<div id="accLink" style="margin-top:8px;padding:9px 11px;background:var(--card);border:1px solid var(--bd-btn);border-radius:9px;font-size:' + (isSecret ? "15px;font-weight:700;letter-spacing:.5px" : "12px") + ';color:var(--tx2);word-break:break-all;user-select:all">' + esc(access.link) + "</div>" +
+          '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+            '<button class="btn-g err-resolve" data-acc-copy><span class="mi">content_copy</span>' + esc(copy) + "</button>" +
+            '<button class="btn-g err-resolve" data-acc-dismiss>Done</button>' +
+          "</div>" +
+          '<div style="margin-top:10px;font-size:11.5px;line-height:1.5;color:var(--tx3)">' + note + "</div>" +
+        "</div>";
+      }
+
+      /* Reuses the .billing-edit control styles rather than inventing a
+         second form language on the same screen; console.css is not part
+         of this change. */
+      function accessForm(a) {
+        var coach = access.role === "coach", cs = access.centres, picker = "";
+        if (coach) {
+          if (cs === null) {
+            picker = '<div style="font-size:12.5px;color:var(--tx4);margin-bottom:9px">Reading this academy’s centres…</div>';
+          } else if (!cs.length) {
+            picker = '<div style="margin-bottom:9px;padding:10px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:9px;font-size:12px;line-height:1.5;color:#92400e">This academy has no centres, so a coach cannot be scoped to one — and a coach with no centres signs in and reaches nothing. Add a centre in the academy’s own app first.</div>';
+          } else {
+            picker = '<div style="margin-bottom:9px"><div style="font-size:11.5px;color:var(--tx4);margin-bottom:7px">Centres this coach may take a register at</div>' +
+              '<div style="display:flex;flex-wrap:wrap;gap:7px">' + cs.map(function (c) {
+                var on = access.form.centres.indexOf(Number(c.id)) >= 0;
+                return '<label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 11px;border:1px solid ' +
+                  (on ? "var(--ac)" : "var(--bd-btn)") + ";background:" + (on ? "var(--acs)" : "var(--card)") + ";color:" +
+                  (on ? "var(--act)" : "var(--tx2)") + ';border-radius:9px;cursor:pointer;white-space:nowrap">' +
+                  '<input type="checkbox" data-acc-centre="' + Number(c.id) + '"' + (on ? " checked" : "") + ' style="margin:0" />' +
+                  esc(c.short_name || c.name) + "</label>";
+              }).join("") + "</div></div>";
+          }
+        }
+        var blocked = coach && (!cs || !cs.length);
+        var busy = access.busy === "create";
+        return '<div class="billing-edit">' +
+          '<div class="billing-edit__label">Add someone</div>' +
+          '<div class="billing-edit__row"><input id="accName" placeholder="Full name" value="' + escAttr(access.form.name) + '" /></div>' +
+          '<div class="billing-edit__row"><input id="accEmail" type="email" placeholder="name@academy.in" value="' + escAttr(access.form.email) + '" /></div>' +
+          '<div class="billing-edit__row"><select id="accRole" data-acc-role>' +
+            '<option value="staff"' + (coach ? "" : " selected") + ">Manager — the whole academy</option>" +
+            '<option value="coach"' + (coach ? " selected" : "") + ">Coach — attendance only</option>" +
+          "</select></div>" + picker +
+          '<button class="billing-edit__save" data-acc-create' + (busy || blocked ? " disabled" : "") + ">" +
+            (busy ? "Creating…" : "Create sign-in") + "</button>" +
+          '<div class="billing-edit__hint">No password is set here and none is ever shown. This creates the account and hands back a one-time link the person opens to choose their own. Managers reach the whole academy; a coach reaches only attendance, at the centres you tick.</div>' +
+        "</div>";
+      }
+
+      /* `card` is detailView's own card() helper, passed in so this panel
+         wears the same chrome as every other card on that screen instead
+         of a second copy that drifts from it. */
+      function accessCard(a, card) {
+        accessLoad(a.id);
+        accessCentres(a.id);
+        var rows = access.rows, inner = "";
+
+        if (access.msg) {
+          inner += '<div style="margin-top:12px;padding:11px 13px;border:1px solid #fecaca;background:#fef2f2;border-radius:11px;font-size:12.5px;line-height:1.5;color:#b91c1c">' + esc(access.msg) + "</div>";
+        }
+        if (access.link) inner += accessLinkBox();
+
+        if (access.error) {
+          inner += '<div style="padding:18px 0;font-size:13px;color:var(--tx4)">' + esc(access.error) + "</div>";
+        } else if (rows === null) {
+          inner += '<div style="padding:18px 0;font-size:13px;color:var(--tx4)">Reading who can sign in…</div>';
+        } else if (!rows.length) {
+          inner += '<div style="padding:22px 0 10px;text-align:center">' +
+            '<div style="font-size:13.5px;font-weight:600">No logins yet</div>' +
+            '<div style="font-size:12.5px;color:var(--tx4);margin:5px auto 0;line-height:1.55;max-width:430px">Nobody at ' + esc(a.name) +
+            ' can sign in to their app yet. Add the manager first — a coach reaches only the centres you give them.</div></div>';
+        } else {
+          inner += '<div style="margin-top:8px">' + rows.map(accessPersonRow).join("") + "</div>";
+        }
+
+        inner += accessForm(a);
+        var n = rows ? rows.length : 0;
+        var meta = n ? (n + (n === 1 ? " person" : " people") + (access.loading ? " · refreshing" : "")) : "";
+        return '<div style="margin-top:20px">' + card("People &amp; access", meta, inner) + "</div>";
+      }
+
+      /* render() rebuilds the whole view, so whatever has been typed must
+         be read back into state before anything triggers one — otherwise
+         ticking a centre empties the name field. */
+      function accessSyncForm() {
+        var n = document.getElementById("accName"), em = document.getElementById("accEmail");
+        if (n) access.form.name = n.value;
+        if (em) access.form.email = em.value;
+      }
+
+      function accessDo(verb, email) {
+        var id = access.tenant, row = accessRow(email);
+        if (!id || !email) return;
+        var body = { tenant: id, email: email };
+        if (verb === "link") {
+          if (APP_LOGIN[id]) body.redirectTo = APP_LOGIN[id];
+        } else if (verb === "suspend" || verb === "restore") {
+          /* set_staff_scope OVERWRITES centre_ids with whatever this call
+             sends, and access-admin passes the request's `centres` straight
+             through. Omitting them would erase a coach's centres, so a
+             restore would hand back a login that reaches nothing. Send
+             back exactly what the read just gave us. */
+          if (row) { body.name = row.name || ""; body.centres = row.centre_ids || []; }
+        } else if (verb === "secret") {
+          if (!window.confirm(
+            "Replace " + email + "'s sign-in secret?\n\n" +
+            "A new one is generated and shown to you ONCE. Their current one " +
+            "stops working immediately.\n\n" +
+            "Anything you pass on by hand can be forwarded and screenshotted — " +
+            "Send setup link avoids that by letting them choose their own.")) return;
+        } else if (verb === "delete") {
+          var typed = window.prompt(
+            "Deleting removes " + email + "'s sign-in permanently, and takes the record of " +
+            "which registers they marked with it. Suspending is reversible and is usually what you want.\n\n" +
+            "Type DELETE to remove them.", "");
+          if (String(typed || "").trim().toUpperCase() !== "DELETE") return;
+          body.confirm = "DELETE";
+        } else { return; }
+
+        access.busy = verb + ":" + email; access.msg = ""; render();
+        fn(verb, body).then(function (j) {
+          access.busy = "";
+          if (j && j.setup_link) { access.link = j.setup_link; access.linkFor = email; access.linkKind = "link"; }
+          /* A replaced secret comes back exactly once — it is not stored
+             anywhere and cannot be read again. Show it in the same box as
+             a setup link so there is one place to look, and one place that
+             gets cleared when you leave. */
+          if (j && j.secret) { access.link = j.secret; access.linkFor = email; access.linkKind = "secret"; }
+          /* Re-read rather than patching the row. The server may have done
+             more than this screen knows — a suspend also deactivates the
+             coach's scope — and guessing is how the screen and the database
+             drift apart. */
+          accessLoad(access.tenant, true);
+          render();
+        }).catch(function (err) {
+          access.busy = "";
+          access.msg = err.message || "That did not work.";
+          render();
+        });
+      }
+
+      function accessCreate() {
+        var id = access.tenant;
+        if (!id) return;
+        accessSyncForm();
+        var email = String(access.form.email || "").trim();
+        var name = String(access.form.name || "").trim();
+        var role = access.role === "coach" ? "coach" : "staff";
+        var centres = role === "coach" ? access.form.centres.slice() : [];
+
+        if (!email) { access.msg = "An email is needed — the setup link goes there."; render(); return; }
+        if (role === "coach" && !centres.length) {
+          /* The edge function accepts an empty centre list; this screen
+             does not. A coach with none signs in successfully and then
+             reaches nothing, which is indistinguishable from a broken app
+             — and is the single thing this panel exists to prevent. */
+          access.msg = "Pick at least one centre. A coach with none can sign in and will then reach nothing.";
+          render(); return;
+        }
+
+        var body = { tenant: id, email: email, name: name, role: role, centres: centres };
+        if (APP_LOGIN[id]) body.redirectTo = APP_LOGIN[id];
+        access.busy = "create"; access.msg = ""; render();
+        fn("create", body).then(function (j) {
+          access.busy = "";
+          access.linkFor = email;
+          access.link = (j && j.setup_link) || "";
+          if (!access.link) access.msg = "The account was created, but no setup link came back. Use Send setup link on their row.";
+          access.form = { name: "", email: "", centres: [] };
+          accessLoad(access.tenant, true);
+          render();
+        }).catch(function (err) {
+          access.busy = "";
+          access.msg = err.message || "That did not work.";
+          render();
+        });
+      }
+
+      function accessSelectLink() {
+        var el = document.getElementById("accLink");
+        if (!el || !window.getSelection || !document.createRange) return;
+        var r = document.createRange(); r.selectNodeContents(el);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      }
+      function accessCopy(btn) {
+        if (!access.link) return;
+        var said = function (ok) {
+          btn.innerHTML = '<span class="mi">' + (ok ? "check" : "content_copy") + "</span>" + (ok ? "Copied" : "Select it and copy");
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(access.link).then(function () { said(true); }, function () { accessSelectLink(); said(false); });
+        } else { accessSelectLink(); said(false); }
+      }
+
+      /* Leaving the detail view drops the setup link: it is a live
+         credential until it is spent, and it should not be waiting on
+         screen when the operator comes back an hour later. */
+      function accessLeave() { access.link = ""; access.linkFor = ""; access.linkKind = ""; access.msg = ""; }
+
       function detailView(a) {
         if (!a) return "";
         var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
@@ -1256,7 +1688,7 @@
 
         if (a.health === "Onboarding") {
           var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
-          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + tenantErrorsCard(a);
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + accessCard(a, card) + tenantErrorsCard(a);
         }
 
         function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
@@ -1308,7 +1740,13 @@
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
             card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
             card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
-          "</div></div>" + tenantErrorsCard(a);
+          "</div></div>" +
+          /* Full width, directly below Plan & billing rather than inside
+             it: the right-hand column is 1fr of a 1.5fr:1fr grid, and a
+             row carrying a name, an email, a role, a status and three
+             buttons will not fit in it. card() is hoisted, so the
+             onboarding branch above can reach it too. */
+          accessCard(a, card) + tenantErrorsCard(a);
       }
 
       /* ============ WhatsApp reminder performance ============
@@ -1507,13 +1945,13 @@
         }
 
         if (nav) {
-          state.view = nav.getAttribute("data-nav"); state.sel = null;
+          accessLeave(); state.view = nav.getAttribute("data-nav"); state.sel = null;
           if (state.view === "sales" && !state.sales.loaded) loadSales();
           render(); scrollTop(); return;
         }
         var open = e.target.closest("[data-open]");
-        if (open) { state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
-        if (e.target.closest("[data-back]")) { state.sel = null; render(); scrollTop(); return; }
+        if (open) { accessLeave(); state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
+        if (e.target.closest("[data-back]")) { accessLeave(); state.sel = null; render(); scrollTop(); return; }
         var sort = e.target.closest("[data-sort]");
         if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
         if (e.target.closest("[data-signout]")) { localStorage.removeItem("am-session"); location.reload(); return; }
@@ -1525,7 +1963,7 @@
           var tenants = [];
           errs.forEach(function (x) { if (tenants.indexOf(x.tenant_id) < 0) tenants.push(x.tenant_id); });
           state.view = "academies";
-          state.sel = tenants.length === 1 ? tenants[0] : null;
+          accessLeave(); state.sel = tenants.length === 1 ? tenants[0] : null;
           render(); scrollTop(); return;
         }
         var setsub = e.target.closest("[data-setsub]");
@@ -1555,6 +1993,14 @@
           });
           return;
         }
+        /* ---- People & access ---- */
+        var accBtn = e.target.closest("[data-acc]");
+        if (accBtn) { accessDo(accBtn.getAttribute("data-acc"), accBtn.getAttribute("data-acc-email")); return; }
+        var accCopy = e.target.closest("[data-acc-copy]");
+        if (accCopy) { accessCopy(accCopy); return; }
+        if (e.target.closest("[data-acc-dismiss]")) { access.link = ""; access.linkFor = ""; access.linkKind = ""; render(); return; }
+        if (e.target.closest("[data-acc-create]")) { accessCreate(); return; }
+
         var res = e.target.closest("[data-resolve]");
         if (res) {
           var iconOnly = res.classList.contains("act-resolve");
@@ -1593,6 +2039,25 @@
           return;
         }
       });
+      /* the add-someone form. Both branches sync what has been typed
+         BEFORE re-rendering, because render() rebuilds the inputs. */
+      document.addEventListener("change", function (e) {
+        var accRole = e.target.closest("[data-acc-role]");
+        if (accRole) { accessSyncForm(); access.role = accRole.value === "coach" ? "coach" : "staff"; render(); return; }
+        var accC = e.target.closest("[data-acc-centre]");
+        if (accC) {
+          accessSyncForm();
+          var cid = Number(accC.getAttribute("data-acc-centre"));
+          var at = access.form.centres.indexOf(cid);
+          if (accC.checked && at < 0) access.form.centres.push(cid);
+          else if (!accC.checked && at >= 0) access.form.centres.splice(at, 1);
+          render(); return;
+        }
+      });
+      document.addEventListener("input", function (e) {
+        if (e.target.id === "accName" || e.target.id === "accEmail") accessSyncForm();
+      });
+
       // the two popup selects
       document.addEventListener("change", function (e) {
         var t = e.target.closest("[data-wa-tenant]");
