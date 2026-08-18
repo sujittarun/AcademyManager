@@ -204,7 +204,7 @@
       }
 
       /* ============ state + data ============ */
-      var state = { view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
+      var state = { myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { today: null, funnel: null, leads: [], ab: null, done: {},
@@ -327,6 +327,11 @@
               '<div style="display:flex;align-items:center;gap:10px;padding:12px 6px 2px;margin-top:8px;border-top:1px solid var(--bd2)">' +
                 '<div style="width:34px;height:34px;border-radius:50%;background:var(--acs);color:var(--act);display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none">RK</div>' +
                 '<div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Operator</div><div style="font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">operator@academymanager.in</div></div>' +
+                /* Reset MY OWN password. The panel below manages everyone
+                   else's access; without this the one account it cannot
+                   help is the operator's own — which is exactly the one
+                   with no colleague to ask. */
+                '<span class="mi" data-my-link style="font-size:17px;color:var(--tx5);cursor:pointer;margin-right:2px" title="Reset my password">key</span>' +
                 '<span class="mi" data-signout style="font-size:18px;color:var(--tx5);cursor:pointer" title="Sign out">logout</span>' +
               "</div>" +
             "</aside>" +
@@ -343,7 +348,7 @@
               "</header>" +
               '<div class="am-scroll" id="amScroll"><div class="view">' + body + "</div></div>" +
             "</main>" +
-          "</div>" + waPopup();
+          "</div>" + waPopup() + myLinkBox();
       }
 
       function kpiCard(icon, value, label, sub, trend, trendColor, trendIcon) {
@@ -1467,6 +1472,26 @@
       /* Shown as text, never as an <a>. Opening a recovery link spends it,
          so a well-meant click by the operator would burn the one thing the
          person needs. */
+      /* The operator's own reset link. Same rules as every other link
+         this console shows: rendered as TEXT, never as an <a>, because
+         opening a recovery link spends it — and a self-inflicted click
+         would burn the one thing they need to get back in. */
+      function myLinkBox() {
+        if (!state.myLink) return "";
+        return '<div style="position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:400;' +
+          'width:min(560px,calc(100vw - 28px));padding:14px 16px;border:1px solid var(--ac);' +
+          'background:var(--card);border-radius:14px;box-shadow:0 18px 50px rgba(16,24,40,.28)">' +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--act)">Reset your password</div>' +
+          '<div id="myLink" style="margin-top:8px;padding:9px 11px;background:var(--bg2);border:1px solid var(--bd-btn);' +
+          'border-radius:9px;font-size:12px;color:var(--tx2);word-break:break-all;user-select:all">' + esc(state.myLink) + "</div>" +
+          '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+            '<button class="btn-g err-resolve" data-my-copy><span class="mi">content_copy</span>Copy link</button>' +
+            '<button class="btn-g err-resolve" data-my-dismiss>Done</button>' +
+          "</div>" +
+          '<div style="margin-top:9px;font-size:11.5px;line-height:1.5;color:var(--tx3)">Open this in a browser to choose a new password. It is single-use and expires, so do not open it here — copy it first if you want it on another device.</div>' +
+        "</div>";
+      }
+
       function accessLinkBox() {
         var isSecret = access.linkKind === "secret";
         var title = isSecret ? "New sign-in secret" : "Setup link";
@@ -1954,7 +1979,29 @@
         if (e.target.closest("[data-back]")) { accessLeave(); state.sel = null; render(); scrollTop(); return; }
         var sort = e.target.closest("[data-sort]");
         if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
-        if (e.target.closest("[data-signout]")) { localStorage.removeItem("am-session"); location.reload(); return; }
+        if (e.target.closest("[data-my-link]")) {
+          /* No email is sent. The function reads the caller's own address
+             from the auth server — passing one would make this a button
+             that mints a reset link for any account on the platform. */
+          fn("my_link", { redirectTo: location.href.split("#")[0] })
+            .then(function (j) { state.myLink = (j && j.setup_link) || ""; render(); })
+            .catch(function (err) { alert(err.message || "Could not create a reset link."); });
+          return;
+        }
+        if (e.target.closest("[data-my-copy]")) {
+          var box = document.getElementById("myLink");
+          var btn = e.target.closest("[data-my-copy]");
+          var done = function (ok) { btn.innerHTML = ok ? "Copied" : "Select it and copy"; };
+          if (navigator.clipboard && state.myLink) {
+            navigator.clipboard.writeText(state.myLink).then(function () { done(true); }, function () { done(false); });
+          } else if (box) {
+            var r = document.createRange(); r.selectNodeContents(box);
+            var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); done(false);
+          }
+          return;
+        }
+        if (e.target.closest("[data-my-dismiss]")) { state.myLink = ""; render(); return; }
+        if (e.target.closest("[data-signout]")) { state.myLink = ""; localStorage.removeItem("am-session"); location.reload(); return; }
         if (e.target.closest("[data-issues]")) {
           /* Take the operator to where the errors can actually be acted
              on. One academy affected is the common case, so go straight
