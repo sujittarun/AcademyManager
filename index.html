@@ -1339,7 +1339,7 @@
           /* Moved to a different academy. A setup link is a bearer
              credential until it is spent, so it does not follow. */
           access.tenant = id; access.rows = null; access.error = ""; access.msg = ""; access.failed = false;
-          access.link = ""; access.linkFor = ""; access.busy = "";
+          access.link = ""; access.linkFor = ""; access.linkKind = ""; access.busy = "";
           access.role = "staff"; access.form = { name: "", email: "", centres: [] };
         } else if (!force && (access.rows !== null || access.loading || access.failed)) {
           /* access.failed is what stops a failed read looping. Without it
@@ -1441,6 +1441,12 @@
           : "";
 
         var buttons = accessBtn("link", email, "Send setup link", "link") +
+          /* "Replace sign-in secret" hands you a value to pass on directly.
+             The setup link above is still the better habit — it means no
+             credential ever sits in your WhatsApp history — but a login you
+             can read down the phone is the real workflow, and pretending
+             otherwise just pushes it somewhere less careful. */
+          accessBtn("secret", email, "Replace sign-in secret", "key") +
           (p.banned ? accessBtn("restore", email, "Restore", "lock_open")
                     : accessBtn("suspend", email, "Suspend", "block")) +
           accessBtn("delete", email, "Delete", "delete", true);
@@ -1462,15 +1468,24 @@
          so a well-meant click by the operator would burn the one thing the
          person needs. */
       function accessLinkBox() {
+        var isSecret = access.linkKind === "secret";
+        var title = isSecret ? "New sign-in secret" : "Setup link";
+        var copy  = isSecret ? "Copy" : "Copy link";
+        /* The two cases fail in opposite ways, so they say opposite things.
+           A setup link must NOT be opened by the operator (opening spends
+           it); a secret must be copied NOW (it is never shown again). */
+        var note = isSecret
+          ? 'Their old one stopped working the moment this was issued. It is shown <b>once</b> — nothing stores it, so if you lose it you issue another. Send it in a way you would be happy to have kept forever, because whatever you send it in usually is.'
+          : 'Send this to them. They open it once to choose their own password, and it expires — issue a fresh one with <b>Send setup link</b> if it lapses. Do not open it yourself: opening it spends it.';
         return '<div style="margin-top:14px;padding:13px 14px;border:1px solid var(--ac);background:var(--acs);border-radius:12px">' +
-          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--act)">Setup link</div>' +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--act)">' + esc(title) + "</div>" +
           '<div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-top:3px;word-break:break-all">' + esc(access.linkFor) + "</div>" +
-          '<div id="accLink" style="margin-top:8px;padding:9px 11px;background:var(--card);border:1px solid var(--bd-btn);border-radius:9px;font-size:12px;color:var(--tx2);word-break:break-all;user-select:all">' + esc(access.link) + "</div>" +
+          '<div id="accLink" style="margin-top:8px;padding:9px 11px;background:var(--card);border:1px solid var(--bd-btn);border-radius:9px;font-size:' + (isSecret ? "15px;font-weight:700;letter-spacing:.5px" : "12px") + ';color:var(--tx2);word-break:break-all;user-select:all">' + esc(access.link) + "</div>" +
           '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
-            '<button class="btn-g err-resolve" data-acc-copy><span class="mi">content_copy</span>Copy link</button>' +
+            '<button class="btn-g err-resolve" data-acc-copy><span class="mi">content_copy</span>' + esc(copy) + "</button>" +
             '<button class="btn-g err-resolve" data-acc-dismiss>Done</button>' +
           "</div>" +
-          '<div style="margin-top:10px;font-size:11.5px;line-height:1.5;color:var(--tx3)">Send this to them. They open it once to choose their own password, and it expires — issue a fresh one with <b>Send setup link</b> if it lapses. Do not open it yourself: opening it spends it.</div>' +
+          '<div style="margin-top:10px;font-size:11.5px;line-height:1.5;color:var(--tx3)">' + note + "</div>" +
         "</div>";
       }
 
@@ -1566,6 +1581,13 @@
              restore would hand back a login that reaches nothing. Send
              back exactly what the read just gave us. */
           if (row) { body.name = row.name || ""; body.centres = row.centre_ids || []; }
+        } else if (verb === "secret") {
+          if (!window.confirm(
+            "Replace " + email + "'s sign-in secret?\n\n" +
+            "A new one is generated and shown to you ONCE. Their current one " +
+            "stops working immediately.\n\n" +
+            "Anything you pass on by hand can be forwarded and screenshotted — " +
+            "Send setup link avoids that by letting them choose their own.")) return;
         } else if (verb === "delete") {
           var typed = window.prompt(
             "Deleting removes " + email + "'s sign-in permanently, and takes the record of " +
@@ -1578,7 +1600,12 @@
         access.busy = verb + ":" + email; access.msg = ""; render();
         fn(verb, body).then(function (j) {
           access.busy = "";
-          if (j && j.setup_link) { access.link = j.setup_link; access.linkFor = email; }
+          if (j && j.setup_link) { access.link = j.setup_link; access.linkFor = email; access.linkKind = "link"; }
+          /* A replaced secret comes back exactly once — it is not stored
+             anywhere and cannot be read again. Show it in the same box as
+             a setup link so there is one place to look, and one place that
+             gets cleared when you leave. */
+          if (j && j.secret) { access.link = j.secret; access.linkFor = email; access.linkKind = "secret"; }
           /* Re-read rather than patching the row. The server may have done
              more than this screen knows — a suspend also deactivates the
              coach's scope — and guessing is how the screen and the database
@@ -1648,7 +1675,7 @@
       /* Leaving the detail view drops the setup link: it is a live
          credential until it is spent, and it should not be waiting on
          screen when the operator comes back an hour later. */
-      function accessLeave() { access.link = ""; access.linkFor = ""; access.msg = ""; }
+      function accessLeave() { access.link = ""; access.linkFor = ""; access.linkKind = ""; access.msg = ""; }
 
       function detailView(a) {
         if (!a) return "";
@@ -1971,7 +1998,7 @@
         if (accBtn) { accessDo(accBtn.getAttribute("data-acc"), accBtn.getAttribute("data-acc-email")); return; }
         var accCopy = e.target.closest("[data-acc-copy]");
         if (accCopy) { accessCopy(accCopy); return; }
-        if (e.target.closest("[data-acc-dismiss]")) { access.link = ""; access.linkFor = ""; render(); return; }
+        if (e.target.closest("[data-acc-dismiss]")) { access.link = ""; access.linkFor = ""; access.linkKind = ""; render(); return; }
         if (e.target.closest("[data-acc-create]")) { accessCreate(); return; }
 
         var res = e.target.closest("[data-resolve]");
