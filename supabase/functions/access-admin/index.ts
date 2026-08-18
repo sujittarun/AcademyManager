@@ -350,6 +350,30 @@ async function createPerson(p: any, by: string) {
   return { ok: true, email, role, tenant, scope, setup_link: link };
 }
 
+/* A reset link for the CALLER'S OWN account.
+
+   THE ONLY SAFE WAY TO DO THIS: the email comes from `caller`, which
+   requireOperator() took from the auth server's own /auth/v1/user
+   response — never from the request body. If this accepted an email
+   argument it would be a button that mints a password-reset link for any
+   account on the platform, which is the opposite of a security feature.
+
+   Nothing is escalated: the caller has already proved they hold this
+   account's session. They are asking for a link to the account they are
+   already signed in to.
+
+   Not written to sync_log: that table's tenant_id is NOT NULL and an
+   operator belongs to no tenant, so there is nowhere honest to file it.
+   Supabase stamps auth.users.recovery_sent_at, which is the real record. */
+async function myLink(caller: { id: string; email: string }, p: any) {
+  if (!caller.email || caller.email === "service_role") {
+    throw new Error("This is only for a signed-in operator account.");
+  }
+  const link = await setupLink(caller.email, p && p.redirectTo);
+  if (!link) throw new Error("Could not create a reset link. Try again.");
+  return { ok: true, email: caller.email, setup_link: link, self: true };
+}
+
 async function resendLink(p: any, by: string) {
   const tenant = await assertTenant(p.tenant);
   const email = cleanEmail(p.email);
@@ -518,6 +542,8 @@ Deno.serve(async (request) => {
     switch (action) {
       case "create":    return json(await createPerson(body, caller.email));
       case "link":      return json(await resendLink(body, caller.email));
+      /* Deliberately takes `caller`, not `body` — see myLink(). */
+      case "my_link":   return json(await myLink(caller, body));
       case "suspend":   return json(await suspend(body, caller.email, true));
       case "restore":   return json(await suspend(body, caller.email, false));
       case "secret":    return json(await setSecret(body, caller.email));
