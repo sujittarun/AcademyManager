@@ -1,6 +1,6 @@
 # Super Kings Academy — paste into a chat opened in `SuperKingsAcademy/`
 
-Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-17**.
+Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-18**.
 
 `ska` — a CSK-affiliated **cricket academy AND facility-rental business**
 in Coimbatore. Both revenue lines at once, which is what makes it
@@ -30,17 +30,18 @@ Coimbatore) | Vakaman FE") and the client writes it that way.
 
 | | | |
 |---|---|---|
-| Coaching | cricket | members / enrollments / batches, the shared fee chain |
-| 4 practice nets | `nets`, courts N1–N4 | ₹500/hour, flat |
+| Coaching | cricket | Morning + Evening batches, the shared fee chain |
+| 2 astro nets | `astro`, courts A1 A2 | ₹500/hour |
+| 2 matting nets | `matting`, courts M1 M2 | ₹400/hour |
 | 1 main ground | `ground`, court G1 | **full day only**, by weekday |
 
 Ground: **Mon–Thu ₹10,000 · Fri ₹20,000 · Sat–Sun ₹25,000.**
 
-The 4 nets are **one pool**, deliberately — 2 Astro and 2 Matting, but
-the client asked for the surface to be a label, not a pricing axis.
-`config.courtLabels` maps `N1`→`Astro Net 1` … `N4`→`Matting Net 2`. If
-Astro is ever priced above Matting they must become separate facility
-types, which is a migration, not a config edit.
+The nets were ONE pool until 2026-08-18, with the surface as a label —
+that was the client's call and it was right until they priced the two
+apart. `2026-08-18c` split them, exactly as `2026-08-17b`'s header said
+would be required. `G1` is never shown to a user: it is derived, there is
+only one ground, and the screens say "Main Ground".
 
 ## The three things to know before touching anything
 
@@ -95,15 +96,19 @@ form and to `approve_application`, not to the rule.
 
 ## Outstanding
 
-- **`tenant_revenue_streams()` is hardcoded to `sport='tennis'` and
-  `'pickleball'`** and therefore returns ₹0 for `nets` and `ground`. It
-  is blind to this tenant. The Finance screen cannot be honest until it
-  is made config-driven — and doing so must not change the JSON keys the
-  demo's donut renders.
-- **No UPI collection id yet.** `config.billing.upiIds` is `[]` on
-  purpose. `resolve_upi()` falls back to `upiIds->>0`, so fee collection
-  has no destination until the client supplies the real one. Never invent
-  a plausible handle.
+- **The UPI handle is PROVISIONAL.** `9585491000@ybl`, supplied with the
+  words "i am not sure if this is correct". Send ₹1 and check the payee
+  name the app shows BEFORE the academy takes real money. It is one
+  UPDATE to `config.billing.upiIds`, and `resolve_upi()` is the only
+  thing that reads it.
+- **Fee rules are placeholders**: Morning ₹2,500, Evening ₹3,000,
+  admission ₹1,000. The client had deferred fees; these were added to
+  test the chase ladder and are labelled as placeholders in `note`.
+  Confirm the real amounts.
+- **Scenario test data is still in the database.** Five demo members
+  (`members.is_demo`), a week of bookings on synthetic 90000 phones, and
+  a maintenance block. Remove with
+  `SuperKingsAcademy/supabase/REMOVE-TEST-DATA.sql` before go-live.
 - **WhatsApp is sold but not provisioned.** `modules.whatsapp` is `true`,
   `config.whatsapp.enabled` is `false`, `dryRun` `true`. A tenant with
   WhatsApp enabled and no number does not fail loudly — it queues
@@ -120,6 +125,6 @@ form and to `approve_application`, not to the rule.
 ## Watch the first-letter rule
 
 `record_booking()` and `record_booking_v2()` derive the court id as
-`upper(left(sport,1)) || i`. `nets`→N, `ground`→G. Adding a facility
-type starting with N or G collides silently and presents as a booking
-landing on the wrong court.
+`upper(left(sport,1)) || i`. `astro`→A, `matting`→M, `ground`→G. Adding a
+facility type starting with A, M or G collides silently and presents as a
+booking landing on the wrong court.
