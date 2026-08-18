@@ -193,6 +193,32 @@ change.
 **Never rename or move an applied .sql file** — the ledger is keyed on
 its basename.
 
+**An assertion that WRITES will commit.** A `do $$ … $$` block at the
+foot of a migration is the right way to prove the change works — but the
+dry run rolls it back and the real apply does **not**. Anything it
+inserted is now production data.
+
+`2026-08-17d` proved `submit_application` by calling it seven times and
+left seven fake admissions across two tenants, including rows that
+counted against a real per-phone rate limit. They were found only by
+counting the table afterwards, which is the check that should be the
+habit — the migration reported `✓ applied` either way.
+
+So an assertion may **read** freely, and must clean up anything it
+**writes**, in the same block:
+
+```sql
+do $$ declare v_id bigint; begin
+  v_id := (submit_application('ska','ZZ Probe','9000000901')->>'id')::bigint;
+  if …not what was expected… then raise exception '…'; end if;
+  delete from applications where tenant_id = 'ska' and id = v_id;  -- always
+end $$;
+```
+
+Better still, put write-heavy proofs in `supabase/tests/`, which
+`run-test.sh` executes inside a transaction it always rolls back. That
+is what the directory is for.
+
 The base schema is `AcademyManager/supabase/schema.sql`. It is frozen and
 append-only; its in-file redefinitions are correct only read top to
 bottom.
