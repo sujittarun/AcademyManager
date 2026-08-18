@@ -194,7 +194,20 @@ begin
 
   -- 6. my_access() is what the app routes on, so it has to be right.
   if (my_access()->>'role') <> 'coach' then fails := fails || ARRAY['my_access reported the wrong role']; end if;
-  if (my_access()->>'tenant_id') <> 'raj' then fails := fails || ARRAY['my_access reported the wrong academy']; end if;
+  /* KEY IS 'tenant', NOT 'tenant_id'. my_access() builds
+     jsonb_build_object('tenant', auth_tenant()) — there has never been a
+     tenant_id key. So this line read `NULL <> 'raj'`, which is NULL, and
+     `if NULL then` is false: the check silently passed no matter which
+     academy the coach belonged to. The one assertion here that proves a
+     coach cannot see another academy's data proved nothing.
+
+     Written as an explicit null test as well, so the same mistake cannot
+     come back quietly — a missing key now FAILS instead of passing. */
+  if (my_access()->>'tenant') is null then
+    fails := fails || ARRAY['my_access returned no tenant key at all'];
+  elsif (my_access()->>'tenant') <> 'raj' then
+    fails := fails || ARRAY['my_access reported the wrong academy'];
+  end if;
   if jsonb_array_length(my_access()->'centres') <> 1 then
     fails := fails || format('my_access listed %s centres, expected 1',
                              jsonb_array_length(my_access()->'centres'));
