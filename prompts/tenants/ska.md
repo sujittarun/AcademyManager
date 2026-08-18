@@ -67,6 +67,32 @@ types, which is a migration, not a config edit.
    payments row per booking is the same rupee counted twice. Collection
    is `bookings.paid_at` / `paid_mode` / `collected_by`.
 
+## The fee-rule trap, found by testing on 2026-08-18
+
+**A fee rule keyed on `sport` will never match at this academy, and will
+fail silently.**
+
+The admission form does not ask which sport — it is a cricket academy, so
+nobody thought to. `submit_application` therefore stores `sport = null`,
+`approve_application` copies that into `enrollments.sport`, and
+`resolve_fee`'s chain looks for a rule matching that null. A rule created
+with `sport = 'cricket'` is skipped, `resolve_fee` returns
+`source: 'unset'`, and every member sits at `blocked_reason: fee_not_set`
+for ever. Nothing errors. The queue simply never chases anyone.
+
+Proven both ways on the same enrolment:
+
+```
+resolve_fee(..., sport => enrolment's null, ...)  -> unset
+resolve_fee(..., sport => 'cricket',        ...)  -> 2500, source 'batch'
+```
+
+**So: key SKA's fee rules on the BATCH and leave `sport` null.** A
+batch-keyed rule matches regardless of the enrolment's sport, which is
+what the two live rules do. If a sport-keyed rule is ever wanted, the
+enrolment has to carry a sport first — that is a change to the admission
+form and to `approve_application`, not to the rule.
+
 ## Outstanding
 
 - **`tenant_revenue_streams()` is hardcoded to `sport='tennis'` and
