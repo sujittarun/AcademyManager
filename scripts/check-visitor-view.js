@@ -277,6 +277,28 @@ check("opening an academy asks the database for its visitors", () => {
     "no fetch was started, so the panel would stay empty forever");
 });
 
+/* raj and matchpoint have no config.sport, and the strapline
+   concatenated it raw: "undefined · Hyderabad" on the live console for
+   two of six academies. The word "undefined" on an operator dashboard
+   reads as a broken integration, not a missing config key. */
+check("an academy with no sport configured does not read as undefined", () => {
+  const a = api.mapAccount({ tenant_id: "raj", name: "Raj Sports",
+                             config: { city: "Hyderabad" },
+                             last_write_at: new Date().toISOString() });
+  assert(!/undefined/.test(a.sub), "the strapline is '" + a.sub + "'");
+  assert(a.sub === "Multi-sport · Hyderabad", "unexpected strapline: " + a.sub);
+  assert(a.sport === "Multi-sport", "the sport itself is " + a.sport);
+
+  const noCity = api.mapAccount({ tenant_id: "x", name: "X", config: {},
+                                  last_write_at: new Date().toISOString() });
+  assert(noCity.sub === "Multi-sport", "a dangling separator: '" + noCity.sub + "'");
+
+  const full = api.mapAccount({ tenant_id: "ska", name: "SKA",
+                                config: { sport: "Cricket", city: "Coimbatore" },
+                                last_write_at: new Date().toISOString() });
+  assert(full.sub === "Cricket · Coimbatore", "a configured academy broke: " + full.sub);
+});
+
 /* The operator asked for identity on each ACTIVITY, not only a roll-up
    per device: "was that member added by me testing, or by a real user?"
    is a question about one row. */

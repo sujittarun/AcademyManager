@@ -312,8 +312,15 @@
         var renewsPast = r.renews_on && new Date(r.renews_on) < new Date();
         var st = r.sub_status || "";
         var bill = (st === "overdue" || renewsPast) ? "overdue" : (st === "active" || st === "paid") ? "paid" : "pending";
+        /* Two tenants have no config.sport — raj and the archived
+           matchpoint — and `sub` built the strapline by concatenating it
+           raw, so their card read "undefined · Hyderabad" on the live
+           console. The line above it guarded the same value and the one
+           below did not, which is what a duplicated default always comes
+           to. One guard now, used by both. */
+        var sport = cfg.sport || "Multi-sport";
         return {
-          id: r.tenant_id, name: r.name, sport: cfg.sport || "Multi-sport", icon: sportIcon(cfg.sport), city: cfg.city || "",
+          id: r.tenant_id, name: r.name, sport: sport, icon: sportIcon(cfg.sport), city: cfg.city || "",
           owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, health: health,
           gmv: r.gmv_30d || 0, prev: r.gmv_prev || 0, bookings: r.bookings_30d || 0, enq: r.apps_30d || 0,
           players: r.active_players || 0, cap: r.player_cap || 0, sessions: r.sessions_30d || 0, activeDays: r.active_days_30d || 0,
@@ -325,7 +332,7 @@
           events30: r.events_30d || 0,
           federated: !!r.federated, rollupAt: r.rollup_at || null,
           subStatus: r.sub_status || "",
-          tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
+          tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: sport + (cfg.city ? " · " + cfg.city : ""),
         };
       }
       function sortedData() {
