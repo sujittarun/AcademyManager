@@ -15,7 +15,8 @@ These files do. Open the chat **inside that tenant's folder**, paste
 | `leo.md` | `leo` | yes — venue, 231 bookings |
 | `matchpoint.md` | `matchpoint` | **archived** — `config.archived = true`, so absent from the console. 10 members and 1 payment remain, and it still logged events on 2026-08-19 |
 | `mpp.md` | `mpp` | not yet — empty |
-| `ska.md` | `ska` | yes — newest, the visitor-tracking testbed |
+| `ska.md` | `ska` | yes — the visitor-tracking testbed |
+| `mezzo.md` | `mezzo` | **yes — first paying client.** One operator, ~80 students, eight instruments |
 | `demo.md` | `demo` | synthetic — "Demo Sports Academy" since `2026-08-19m` |
 
 Machaxi is **retired**. Its repo stays private because its git history

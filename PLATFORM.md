@@ -65,7 +65,13 @@ ap-northeast-1. `ozjhyhhnmixvjlfnrree` (*Academy Manager — staging*) is
 the empty second org, kept for a staging project.
 
 Live tenants, as `tenants.id`: `leo`, `mpp`, `raj`, `genalpha`, `demo`,
-`ska`. Every row carries `tenant_id text`.
+`ska`, `mezzo`. Every row carries `tenant_id text`.
+
+**`mezzo` is the first paying client** — Mezzo School of Music,
+Coimbatore, onboarded 2026-08-19. One operator, ~80 active students,
+eight instruments. Its brief is `prompts/tenants/mezzo.md`; the two
+things it changed platform-wide are a config-driven reminder rule
+(`2026-08-19r`) and `attendance_month()` (`2026-08-19s`).
 
 **`matchpoint` is archived, not live.** `0012` set
 `config.archived = true`, and `operator_portfolio()` filters on it, so it
@@ -721,6 +727,8 @@ MatchPoint/        ARCHIVED tenant 'matchpoint' — badminton, player
                    the console; the rows and the 11-table player cluster
                    are all still there.
 MatchPointPride/   tenant 'mpp'      — separate app for the Pride venue owner
+Mezzo/             tenant 'mezzo'    — music school, first paying client.
+                   Three tabs: register, dues, money. One operator.
 Raj Sports/        tenant 'raj'      — coaching only, NO bookings
 RajSportsApp/      Android client for 'raj'
 RajSportsIOS/      iOS client for 'raj'
