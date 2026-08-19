@@ -662,12 +662,19 @@
          domain, which is a different origin and therefore a different
          localStorage. */
       var APPS = [
+        /* The repo is `mezzo-school-of-music`, not `Mezzo`, and Super
+           Kings publishes from `SKAcademy`, not `SuperKingsAcademy`. Both
+           were wrong here because they were inferred from the local folder
+           name rather than fetched — and a launcher pointing at a 404 is
+           worse than no launcher, because the session IS seeded and the
+           only broken part is the link. APP_LOGIN below already had
+           SKAcademy right; this list contradicted it. */
         { id: "mezzo",      name: "Mezzo School of Music", key: "mz-session",
-          url: "https://sujittarun.github.io/Mezzo/" },
+          url: "https://sujittarun.github.io/mezzo-school-of-music/" },
         { id: "raj",        name: "Raj Sports",            key: "rs-session",
           url: "https://sujittarun.github.io/Rajsports/" },
         { id: "ska",        name: "Super Kings Academy",   key: "ska-cloud-session",
-          url: "https://sujittarun.github.io/SuperKingsAcademy/" },
+          url: "https://sujittarun.github.io/SKAcademy/" },
         { id: "leo",        name: "Leo Tennis Academy",    key: "lt-cloud-session",
           url: "https://sujittarun.github.io/LeoTennisAcademyapp/" },
         { id: "demo",       name: "Demo Sports Academy",   key: "amd-cloud-session",
@@ -1720,7 +1727,24 @@
         leo:        "https://sujittarun.github.io/LeoTennisAcademyapp/login.html",
         raj:        "https://sujittarun.github.io/Rajsports/login.html",
         genalpha:   "https://genalphaacademy.in/login.html",
+        /* Mezzo and Demo have no setup page of their own yet, so a link
+           for them would land on a screen with nothing to read the
+           recovery fragment. Until each app has its own, they come here:
+           this page DOES read the fragment, and the person can sign into
+           their academy normally afterwards. Falling through to nothing
+           was worse — Supabase then used its Site URL, which is the
+           operator console's sign-in gate, so a new Mezzo login was
+           invited into Academy Manager. */
+        mezzo:      "https://sujittarun.github.io/AcademyManager/reset.html",
+        demo:       "https://sujittarun.github.io/AcademyManager/reset.html",
       };
+
+      /* Say out loud when an academy has no setup page of its own, rather
+         than quietly sending its people somewhere generic. */
+      function appLoginIsOwn(id) {
+        var u = APP_LOGIN[id] || "";
+        return !!u && u.indexOf("/AcademyManager/") < 0;
+      }
 
       var access = {
         tenant: null,        // which academy `rows` describes

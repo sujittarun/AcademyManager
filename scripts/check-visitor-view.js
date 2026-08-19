@@ -361,6 +361,41 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* The launcher and the invite flow both hold a URL per tenant, and they
+   disagreed: APPS said SuperKingsAcademy while APP_LOGIN said SKAcademy,
+   and only one of those is a real site. Two lists of the same fact will
+   drift; the least this can do is refuse to let them drift silently. */
+check("the launcher and the invite links agree on where each app lives", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const apps = src.slice(src.indexOf("var APPS = ["), src.indexOf("var ELSEWHERE"));
+  const login = src.slice(src.indexOf("var APP_LOGIN = {"), src.indexOf("function appLoginIsOwn"));
+
+  const byId = {};
+  [...apps.matchAll(/id:\s*"(\w+)"[\s\S]{0,220}?url:\s*"https:\/\/sujittarun\.github\.io\/([^/"]+)/g)]
+    .forEach((m) => { byId[m[1]] = m[2]; });
+  assert(Object.keys(byId).length >= 6, "could not read the launcher's URLs");
+
+  [...login.matchAll(/(\w+):\s*"https:\/\/sujittarun\.github\.io\/([^/"]+)/g)].forEach((m) => {
+    const id = m[1], repo = m[2];
+    if (repo === "AcademyManager") return;          // the shared fallback, on purpose
+    if (!byId[id]) return;                          // not a launcher app
+    assert(byId[id] === repo,
+      id + ' points at "' + byId[id] + '" in the launcher and "' + repo + '" in the invite links');
+  });
+});
+
+/* A repo name guessed from a local folder is not a URL. These two were
+   both wrong on the first cut, and a launcher pointing at a 404 is worse
+   than none: the session IS seeded, so only the link looks broken. */
+check("no launcher URL uses a name that was only ever a local folder", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const apps = src.slice(src.indexOf("var APPS = ["), src.indexOf("var ELSEWHERE"));
+  ["/Mezzo/", "/SuperKingsAcademy/"].forEach((bad) => {
+    assert(!apps.includes(bad),
+      bad + " is a local folder name, not a published site — it returns 404");
+  });
+});
+
 check("the launcher signs in as whoever is looking at the console", () => {
   const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
   const fn = src.slice(src.indexOf("function appsSignIn("), src.indexOf("function academiesView("));
