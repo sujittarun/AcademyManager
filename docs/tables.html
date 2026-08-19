@@ -3,302 +3,259 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Academy Manager — How tables are shared across tenants</title>
+<title>One Schema, Six Academies</title>
 <style>
   :root{
-    --bg:#020617; --panel:#0b1220; --panel2:#0f172a; --line:#1e293b;
-    --txt:#e2e8f0; --dim:#94a3b8; --faint:#64748b;
-    --sky:#38bdf8; --violet:#a78bfa; --amber:#fbbf24; --rose:#fb7185; --emerald:#34d399;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --bg:#070b14; --surf:#0e1524; --surf2:#131c30; --line:#1c2740; --line2:#25324f;
+    --txt:#dee6f2; --dim:#8494ac; --faint:#5a6880;
+    --core:#4fb6f0; --mod:#9d8cf5; --cfg:#f0b24f; --bad:#f26d7d; --good:#3fd6a0;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);
-    font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    -webkit-font-smoothing:antialiased}
-  .wrap{max-width:1080px;margin:0 auto;padding:38px 20px 90px}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.62 var(--sans);
+    -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+  .wrap{max-width:1020px;margin:0 auto;padding:44px 20px 100px}
 
-  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--sky)}
-  h1{font-size:clamp(26px,4vw,36px);line-height:1.15;font-weight:800;letter-spacing:-.02em;margin:8px 0 10px;color:#fff}
-  .lede{color:var(--dim);max-width:64ch;margin:0}
-  h2{font-size:20px;font-weight:750;letter-spacing:-.01em;margin:0 0 6px;color:#fff}
-  .sub{color:var(--faint);font-size:13.5px;margin:0 0 20px;max-width:70ch}
+  .eyebrow{font-size:10.5px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--core)}
+  h1{font-size:clamp(28px,5vw,42px);line-height:1.08;font-weight:800;letter-spacing:-.035em;
+    margin:10px 0 12px;color:#fff;text-wrap:balance}
+  .lede{color:var(--dim);max-width:62ch;margin:0;font-size:16px}
+  .lede b{color:var(--txt);font-weight:650}
+  h2{font-size:21px;font-weight:750;letter-spacing:-.015em;margin:0 0 6px;color:#fff;text-wrap:balance}
+  .sub{color:var(--faint);font-size:13.5px;margin:0 0 22px;max-width:70ch}
+  code,.m{font-family:var(--mono);font-size:.87em;color:#b9c7de}
 
-  section{margin-top:52px;padding-top:30px;border-top:1px solid var(--line)}
-  section:first-of-type{border-top:0}
-  .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
-    border-radius:6px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);
-    color:var(--sky);font-size:11px;font-weight:800;margin-right:9px;vertical-align:2px}
+  section{margin-top:58px;padding-top:32px;border-top:1px solid var(--line)}
+  .num{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;
+    border-radius:6px;background:rgba(79,182,240,.12);border:1px solid rgba(79,182,240,.32);
+    color:var(--core);font-size:11px;font-weight:800;margin-right:10px;vertical-align:2px;font-family:var(--mono)}
 
-  /* ---- band: a group of tables ---- */
-  .band{border:1px solid var(--line);border-radius:14px;background:var(--panel);
-    padding:16px 18px 18px;margin-bottom:14px;border-left:3px solid var(--c,var(--sky))}
-  .band h3{margin:0;font-size:14px;font-weight:750;color:var(--c,var(--sky));
-    display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
-  .band h3 span.rule{color:var(--faint);font-weight:500;font-size:12.5px}
-  .band p{margin:7px 0 13px;color:var(--dim);font-size:13px;max-width:72ch}
-  .tabs{display:flex;flex-wrap:wrap;gap:6px}
-  .t{font-family:var(--mono);font-size:11.5px;padding:3px 8px;border-radius:6px;
-    background:rgba(148,163,184,.07);border:1px solid rgba(148,163,184,.16);color:#cbd5e1;white-space:nowrap}
-  .t b{color:var(--c,var(--sky));font-weight:700}
-  .t i{font-style:normal;color:var(--faint)}
+  /* ── the matrix ─────────────────────────────── */
+  .mx{border:1px solid var(--line);border-radius:14px;background:var(--surf);overflow:hidden}
+  .mx-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:600px}
+  thead th{position:sticky;top:0;background:var(--surf);z-index:2}
+  th.tn{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--dim);
+    padding:14px 0 12px;width:62px;text-align:center;border-bottom:1px solid var(--line2);letter-spacing:.02em}
+  th.tn i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.1em;
+    color:var(--faint);font-weight:700;margin-top:3px}
+  th.corner{border-bottom:1px solid var(--line2);padding-left:18px;text-align:left;
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:750}
+  tr.grp td{padding:16px 18px 7px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    font-weight:800;color:var(--g,var(--core))}
+  tr.grp td span{color:var(--faint);font-weight:600;letter-spacing:.02em;text-transform:none;font-size:11.5px;margin-left:9px}
+  td.tbl{padding:5px 18px;font-family:var(--mono);font-size:12px;color:#c3cfe4;white-space:nowrap}
+  td.tbl em{font-style:normal;color:var(--faint);font-size:11px}
+  td.c{text-align:center;padding:5px 0}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+    background:var(--g,var(--core));box-shadow:0 0 0 3px color-mix(in srgb,var(--g,var(--core)) 14%,transparent)}
+  .dot.off{background:transparent;box-shadow:none;border:1px solid var(--line2);width:7px;height:7px}
+  tr.row:hover td{background:rgba(255,255,255,.022)}
+  tr.hl td{background:rgba(242,109,125,.055)}
+  tr.hl:hover td{background:rgba(242,109,125,.085)}
+  .mx-foot{display:flex;flex-wrap:wrap;gap:16px;padding:13px 18px;border-top:1px solid var(--line);
+    font-size:11.5px;color:var(--faint);align-items:center}
+  .key{display:inline-flex;align-items:center;gap:6px}
+  .key .dot{width:8px;height:8px}
 
-  /* ---- the spine graphic ---- */
-  .spine{border:1px solid var(--line);border-radius:14px;background:var(--panel);
-    padding:20px;margin:0 0 22px;text-align:center}
-  .spine .db{display:inline-block;padding:10px 20px;border-radius:10px;
-    background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.35);
-    font-family:var(--mono);font-size:12.5px;color:#bae6fd}
-  .spine .col{margin-top:12px;color:var(--faint);font-size:12.5px}
-  .spine .col code{font-family:var(--mono);color:var(--amber);font-size:12px}
+  /* ── callouts ───────────────────────────────── */
+  .note{border:1px solid var(--line);border-left:3px solid var(--c,var(--bad));border-radius:12px;
+    background:var(--surf2);padding:15px 18px;margin:20px 0;font-size:13.5px;color:var(--dim)}
+  .note b{color:var(--txt);font-weight:650}
+  .note .hd{color:var(--c,var(--bad));font-weight:800;font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;margin-bottom:7px}
+  .pill{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;
+    padding:2px 7px;border-radius:5px;white-space:nowrap;font-family:var(--mono)}
+  .ok{background:rgba(63,214,160,.13);color:var(--good);border:1px solid rgba(63,214,160,.3)}
+  .blind{background:rgba(242,109,125,.13);color:var(--bad);border:1px solid rgba(242,109,125,.33)}
 
-  /* ---- comparison table ---- */
-  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;
-    border:1px solid var(--line);border-radius:14px;background:var(--panel)}
-  table{border-collapse:collapse;width:100%;min-width:640px;font-size:13px}
-  th{text-align:left;padding:11px 14px;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
-    color:var(--faint);font-weight:750;border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:12px 14px;border-bottom:1px solid rgba(30,41,59,.7);vertical-align:top;color:var(--dim)}
-  tr:last-child td{border-bottom:0}
-  td.name{color:var(--txt);font-weight:650}
-  td code,.mono{font-family:var(--mono);font-size:11.5px;color:#cbd5e1}
-  .pill{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;
-    padding:2px 7px;border-radius:5px;white-space:nowrap}
-  .ok{background:rgba(52,211,153,.13);color:var(--emerald);border:1px solid rgba(52,211,153,.3)}
-  .blind{background:rgba(251,113,133,.13);color:var(--rose);border:1px solid rgba(251,113,133,.32)}
+  /* ── three-nouns strip ──────────────────────── */
+  .nouns{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:12px;margin-bottom:4px}
+  .noun{border:1px solid var(--line);border-top:2px solid var(--c);border-radius:12px;
+    background:var(--surf);padding:15px 16px}
+  .noun .w{font-weight:700;font-size:14px;color:#fff;line-height:1.35}
+  .noun .k{font-size:11.5px;color:var(--faint);margin-top:3px}
+  .noun .loc{font-family:var(--mono);font-size:11.5px;color:var(--c);margin:11px 0 9px;line-height:1.5}
+  .noun .who{font-size:12px;color:var(--dim);line-height:1.55}
 
-  /* ---- callout ---- */
-  .note{border:1px solid var(--line);border-left:3px solid var(--c,var(--rose));
-    border-radius:12px;background:var(--panel2);padding:15px 17px;margin:18px 0;font-size:13.5px;color:var(--dim)}
-  .note b{color:var(--txt)}
-  .note .hd{color:var(--c,var(--rose));font-weight:750;font-size:12px;letter-spacing:.05em;
-    text-transform:uppercase;margin-bottom:6px}
+  /* ── decision flow ──────────────────────────── */
+  .q{border:1px solid rgba(79,182,240,.28);background:rgba(79,182,240,.055);border-radius:12px;
+    padding:13px 16px;font-weight:650;color:#dcf0ff;font-size:14.5px}
+  .q small{display:block;font-weight:400;color:var(--faint);font-size:12.5px;margin-top:5px;line-height:1.55}
+  .arm{display:grid;grid-template-columns:60px 1fr;align-items:stretch}
+  .lbl{display:flex;align-items:center;justify-content:flex-end;padding-right:13px;
+    font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+  .out{border:1px solid var(--line);border-left:3px solid var(--c,var(--good));border-radius:11px;
+    background:var(--surf);padding:13px 16px;margin:9px 0}
+  .out .w{color:var(--c,var(--good));font-weight:750;font-size:14px}
+  .out .d{color:var(--dim);font-size:12.8px;margin-top:5px;line-height:1.6}
+  .ex{margin-top:8px;font-size:12px;color:var(--faint)}
+  .ex b{color:var(--dim);font-weight:650}
+  .stem{width:1px;height:15px;background:var(--line2);margin:0 auto}
 
-  /* ---- flowchart ---- */
-  .flow{display:flex;flex-direction:column;align-items:stretch;gap:0}
-  .q{border:1px solid rgba(56,189,248,.3);background:rgba(56,189,248,.06);border-radius:12px;
-    padding:13px 16px;font-weight:650;color:#e0f2fe;font-size:14px}
-  .q small{display:block;font-weight:400;color:var(--faint);font-size:12px;margin-top:4px;line-height:1.5}
-  .arm{display:grid;grid-template-columns:64px 1fr;align-items:stretch}
-  .lbl{display:flex;align-items:center;justify-content:flex-end;padding-right:12px;
-    font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
-  .out{border:1px solid var(--line);border-left:3px solid var(--c,var(--emerald));border-radius:10px;
-    background:var(--panel);padding:12px 15px;margin:8px 0}
-  .out .w{color:var(--c,var(--emerald));font-weight:750;font-size:13.5px}
-  .out .d{color:var(--dim);font-size:12.5px;margin-top:4px;line-height:1.55}
-  .out .d code{font-family:var(--mono);font-size:11.5px;color:#cbd5e1}
-  .stem{width:1px;height:14px;background:var(--line);margin:0 auto}
-  .ex{margin-top:7px;font-size:12px;color:var(--faint)}
-  .ex b{color:var(--dim);font-weight:600}
+  .never{border:1px solid rgba(242,109,125,.26);border-radius:12px;background:rgba(242,109,125,.045);
+    padding:16px 19px;margin-top:24px}
+  .never .hd{color:var(--bad);font-weight:800;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px}
+  .never ul{margin:0;padding-left:19px;color:var(--dim);font-size:13px}
+  .never li{margin:6px 0}
+  .never code{color:#fda4af}
 
-  .never{border:1px solid rgba(251,113,133,.28);border-radius:12px;background:rgba(251,113,133,.05);
-    padding:15px 18px;margin-top:22px}
-  .never .hd{color:var(--rose);font-weight:800;font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:9px}
-  .never ul{margin:0;padding-left:18px;color:var(--dim);font-size:13px}
-  .never li{margin:5px 0}
-  .never code{font-family:var(--mono);font-size:11.5px;color:#fda4af}
-
-  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
-    color:var(--faint);font-size:12px;line-height:1.7}
-  footer code{font-family:var(--mono);color:var(--dim)}
-  @media (max-width:560px){
-    .arm{grid-template-columns:46px 1fr}
-    .lbl{padding-right:8px;font-size:10px}
-  }
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+    color:var(--faint);font-size:12px;line-height:1.75}
+  @media (max-width:560px){ .arm{grid-template-columns:44px 1fr} .lbl{padding-right:9px;font-size:9.5px} }
 </style>
 </head>
 <body>
 <div class="wrap">
 
   <div class="eyebrow">Schema · one database, six academies</div>
-  <h1>How tables are shared across tenants</h1>
-  <p class="lede">There are <b>41 tenant-scoped tables</b> and <b>not one of them is named after an academy</b>.
-  Nothing is called <code class="mono">raj_members</code>. What varies between academies is the
-  <code class="mono">tenant_id</code> in each row — never the table.</p>
+  <h1>One schema, six academies</h1>
+  <p class="lede">There are <b>41 tenant-scoped tables</b> and <b>not one is named after an academy</b>.
+  Nothing is called <code>raj_members</code>. What differs between academies is the
+  <code>tenant_id</code> in each row — never the table.</p>
 
-  <!-- ============ 1 ============ -->
-  <section>
-    <h2><span class="num">1</span>The shape</h2>
-    <p class="sub">Every row in every table carries which academy it belongs to. Row-level security
-    is the only thing keeping them apart, so that column is load-bearing, not decoration.</p>
+  <!-- ============ 1 · THE MATRIX ============ -->
+  <section style="border-top:0;padding-top:34px">
+    <h2><span class="num">1</span>Who fills which table</h2>
+    <p class="sub">Every table is shared; each academy simply uses the ones its business needs.
+    Read down a column to see one academy's world, across a row to see how widely a table is used.</p>
 
-    <div class="spine">
-      <div class="db">Supabase · ugsklcipzyiogxynshnh</div>
-      <div class="col">every table has <code>tenant_id text</code> → <code>'leo'</code> <code>'raj'</code> <code>'mpp'</code> <code>'machaxi'</code> <code>'matchpoint'</code> <code>'genalpha'</code></div>
-    </div>
-
-    <div class="band" style="--c:var(--sky)">
-      <h3>Core <span class="rule">— the noun means the same thing everywhere, so one table serves everyone</span></h3>
-      <p>A member is a member whether they are at Raj or Pride. These are shared the moment a second
-      academy needs them; the counts below are simply who has filled them in so far.</p>
-      <div class="tabs">
-        <span class="t"><b>members</b> <i>193</i></span>
-        <span class="t"><b>payments</b> <i>473</i></span>
-        <span class="t"><b>enrollments</b> <i>167</i></span>
-        <span class="t"><b>batches</b> <i>20</i></span>
-        <span class="t"><b>centres</b> <i>6</i></span>
-        <span class="t"><b>sports</b> <i>6</i></span>
-        <span class="t"><b>fee_rules</b> <i>11</i></span>
-        <span class="t"><b>coaches</b> <i>7</i></span>
-        <span class="t"><b>member_timeline</b> <i>220</i></span>
-        <span class="t"><b>subscriptions</b> <i>5</i></span>
-        <span class="t"><b>audit_log</b> <i>884</i></span>
-        <span class="t"><b>events</b> <i>1,555</i></span>
+    <div class="mx">
+      <div class="mx-scroll"><table id="mx"></table></div>
+      <div class="mx-foot">
+        <span class="key"><i class="dot" style="--g:var(--core)"></i> has rows</span>
+        <span class="key"><i class="dot off"></i> table exists, unused by that academy</span>
+        <span class="key" style="margin-left:auto">✻ archived &nbsp;·&nbsp; † federated — keeps its own schema</span>
       </div>
     </div>
 
-    <div class="band" style="--c:var(--violet)">
-      <h3>Modules <span class="rule">— a genuinely new noun that only some academies have</span></h3>
-      <p>Still shared tables, still <code class="mono">tenant_id</code>-scoped — but only the academies who bought
-      or enabled the module ever put rows in them. Switched on per academy in
-      <code class="mono">tenants.config.modules</code> / <code class="mono">.features</code>.</p>
-      <div class="tabs">
-        <span class="t"><b>bookings</b> <i>leo · machaxi</i></span>
-        <span class="t"><b>integrations</b> <i>3 academies</i></span>
-        <span class="t"><b>sync_jobs</b> <i>leo</i></span>
-        <span class="t"><b>sessions</b> <i>raj</i></span>
-        <span class="t"><b>attendance_records</b> <i>raj</i></span>
-        <span class="t"><b>payout_rules</b> · <b>payouts</b> <i>raj</i></span>
-        <span class="t"><b>staff_scopes</b> <i>raj</i></span>
-        <span class="t"><b>reminder_events</b> · <b>reminders_log</b></span>
-        <span class="t"><b>wa_flow_events</b> · <b>wa_webhook_events</b></span>
-        <span class="t"><b>player_progress</b> +10 more <i>matchpoint</i></span>
-      </div>
-    </div>
-
-    <div class="band" style="--c:var(--amber)">
-      <h3>Per-academy behaviour <span class="rule">— no table, no column</span></h3>
-      <p>When one academy wants something slightly different — their UPI id, whether their timetable
-      is public, which modules they bought — it goes in one jsonb settings bag on their
-      <code class="mono">tenants</code> row. Never a new column, never a new table.</p>
-      <div class="tabs"><span class="t"><b>tenants.config</b> <i>jsonb</i></span></div>
+    <div class="note" style="--c:var(--cfg)">
+      <div class="hd">Where the differences actually live</div>
+      Not in extra tables and not in extra columns. When one academy wants something slightly
+      different — their UPI id, whether their timetable is public, which modules they bought — it goes
+      in one jsonb settings bag on their <code>tenants</code> row:
+      <code>tenants.config</code>. That is the whole mechanism.
     </div>
   </section>
 
-  <!-- ============ 2 ============ -->
+  <!-- ============ 2 · ATTENDANCE ============ -->
   <section>
-    <h2><span class="num">2</span>What went wrong — "attendance"</h2>
-    <p class="sub">One word, three different facts. Two of them ended up in the same table, told apart
-    only by a text column nothing was checking. This is the case worth understanding, because it is
-    how the mistake actually happens.</p>
+    <h2><span class="num">2</span>The gap in the matrix</h2>
+    <p class="sub">Look at the highlighted rows above. <code>attendance</code> is filled for four
+    academies but not Raj; <code>attendance_records</code> is filled for Raj and nobody else. That gap
+    is one word meaning three different things.</p>
 
-    <div class="scroll">
-      <table>
-        <thead><tr>
-          <th>The fact</th><th>Lives in</th><th>Who has it</th><th>Shared functions</th>
-        </tr></thead>
-        <tbody>
-          <tr>
-            <td class="name">A coach worked that day<div style="color:var(--faint);font-weight:400;font-size:12px">payroll</div></td>
-            <td><code>attendance</code><div style="font-size:11.5px;color:var(--faint)">kind='staff'</div></td>
-            <td>mpp 130 · leo 8<br>matchpoint 2</td>
-            <td><span class="pill ok">not their job</span></td>
-          </tr>
-          <tr>
-            <td class="name">A member visited the venue<div style="color:var(--faint);font-weight:400;font-size:12px">footfall — no class behind it</div></td>
-            <td><code>attendance</code><div style="font-size:11.5px;color:var(--faint)">kind='member'</div></td>
-            <td>leo 23 · machaxi 5<br>matchpoint 3</td>
-            <td><span class="pill blind">BLIND</span></td>
-          </tr>
-          <tr>
-            <td class="name">A student was present in Tuesday's 6am batch<div style="color:var(--faint);font-weight:400;font-size:12px">a register, against an expected roster</div></td>
-            <td><code>sessions</code> +<br><code>attendance_records</code></td>
-            <td>raj 1,884 records<br>245 sessions</td>
-            <td><span class="pill ok">answers</span></td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="nouns">
+      <div class="noun" style="--c:var(--good)">
+        <div class="w">A coach worked that day</div>
+        <div class="k">payroll</div>
+        <div class="loc">attendance · kind='staff'</div>
+        <div class="who">mpp 130 · leo 8 · matchpoint 2</div>
+      </div>
+      <div class="noun" style="--c:var(--bad)">
+        <div class="w">A member visited the venue</div>
+        <div class="k">footfall — no class behind it</div>
+        <div class="loc">attendance · kind='member'</div>
+        <div class="who">leo 23 · machaxi 5 · matchpoint 3</div>
+      </div>
+      <div class="noun" style="--c:var(--core)">
+        <div class="w">A student was present in Tuesday's 6am batch</div>
+        <div class="k">a register, against an expected roster</div>
+        <div class="loc">sessions + attendance_records</div>
+        <div class="who">raj 1,884 records · 245 sessions</div>
+      </div>
     </div>
 
-    <div class="note" style="--c:var(--rose)">
+    <div class="note" style="--c:var(--bad)">
       <div class="hd">The blind spot</div>
-      <code class="mono">attendance_roster()</code>, <code class="mono">attendance_history()</code>,
-      <code class="mono">attendance_dashboard()</code> and <code class="mono">mark_attendance()</code>
-      read <b>sessions + attendance_records only</b>. They are listed in CLAUDE.md under
-      <i>"call these, do not reimplement"</i> — which reads as a promise that they answer for every academy.
-      They answer for Raj. <b>Leo has 23 rows no shared function can see</b>, and nothing said so,
-      because nothing ever asked.
+      <code>attendance_roster()</code>, <code>attendance_history()</code>,
+      <code>attendance_dashboard()</code> and <code>mark_attendance()</code> read
+      <b>sessions + attendance_records only</b>. They are listed in CLAUDE.md under
+      <i>"call these, do not reimplement"</i> — which reads as a promise that they answer for every
+      academy. They answer for Raj. <b>Leo has 23 rows no shared function can see</b>, and nothing
+      said so, because nothing ever asked.
     </div>
 
-    <div class="note" style="--c:var(--amber)">
+    <div class="note" style="--c:var(--cfg)">
       <div class="hd">Why they were not merged</div>
-      <code class="mono">attendance_records</code> requires a session <b>and</b> an enrolment, and a session
-      requires a batch — all three columns are <code class="mono">NOT NULL</code>. Leo has 231 bookings and
-      <b>zero enrolments</b>: it is a court venue, not a coaching academy. Its 23 rows cannot move into a
-      model that demands a scheduled class they never had. They are not a broken copy of class
-      attendance — they are a different fact, and forcing them together would have been the real bug.
+      <code>attendance_records</code> requires a session <b>and</b> an enrolment, and a session
+      requires a batch — all three <code>NOT NULL</code>. Leo has 231 bookings and <b>zero
+      enrolments</b>: a court venue, not a coaching academy. Its 23 rows cannot move into a model
+      demanding a scheduled class they never had. They are not a broken copy of class attendance —
+      they are a different fact, and forcing them together would have been the real bug.
     </div>
 
-    <div class="note" style="--c:var(--emerald)">
-      <div class="hd">Fixed today — migration 0041</div>
-      <b>The nouns are named.</b> <code class="mono">attendance.kind</code> now accepts only
-      <code class="mono">'staff'</code> or <code class="mono">'member'</code>; a fourth meaning is refused by the
-      database instead of quietly accepted. Each table carries a written note saying what it holds and
-      what it does not.<br><br>
-      <b>The blind spot is now watched.</b> <code class="mono">shared_fn_coverage()</code> runs hourly and
-      compares, per academy, the rows the shared functions <i>can</i> see against rows that exist where
-      they do not read. Anything unreachable writes a warning to <code class="mono">sync_log</code>.
-      Live right now: <span class="pill blind">leo · 23 rows</span>
-      <span class="pill ok">mpp ok</span> <span class="pill ok">raj ok</span>
+    <div class="note" style="--c:var(--good)">
+      <div class="hd">Fixed — migration 0041</div>
+      <b>The nouns are named.</b> <code>attendance.kind</code> now accepts only
+      <code>'staff'</code> or <code>'member'</code>; a fourth meaning is refused by the database
+      instead of quietly accepted. Each table carries a written note saying what it holds and what it
+      does not.<br><br>
+      <b>The blind spot is watched.</b> <code>shared_fn_coverage()</code> runs hourly at :37 and
+      compares, per academy, rows the shared functions <i>can</i> see against rows sitting where they
+      do not read — anything unreachable warns to <code>sync_log</code>. Live now:
+      <span class="pill blind">leo · 23 unreachable</span>
+      <span class="pill ok">mpp ok</span> <span class="pill ok">raj · 1,884 visible</span>
     </div>
   </section>
 
-  <!-- ============ 3 ============ -->
+  <!-- ============ 3 · THE RULE ============ -->
   <section>
     <h2><span class="num">3</span>The rule for the next academy</h2>
     <p class="sub">A new client arrives wanting something nobody has asked for before. Four questions,
-    in order. Stop at the first one that fits.</p>
+    in order. Stop at the first that fits.</p>
 
-    <div class="flow">
-      <div class="q">Does the platform already have this thing, meaning the same thing?
-        <small>Not the same word — whether one sentence honestly describes both. "A member attended" and
-        "a student was marked present in Tuesday's 6am batch" are not one sentence.</small></div>
-      <div class="stem"></div>
-      <div class="arm"><div class="lbl">yes</div>
-        <div class="out" style="--c:var(--sky)">
-          <div class="w">Use the existing table.</div>
-          <div class="d">Even if the client calls it something else — their word is a label, not a
-          new noun. Never a new table.
-          <div class="ex"><b>e.g.</b> Pride calls them "students", Raj calls them "members" → both are <code>members</code>.</div></div>
-        </div></div>
+    <div class="q">Does the platform already have this thing, meaning the same thing?
+      <small>Not the same word — whether one sentence honestly describes both. "A member attended" and
+      "a student was marked present in Tuesday's 6am batch" are not one sentence.</small></div>
+    <div class="stem"></div>
+    <div class="arm"><div class="lbl">yes</div>
+      <div class="out" style="--c:var(--core)">
+        <div class="w">Use the existing table.</div>
+        <div class="d">Even if the client calls it something else — their word is a label, not a new
+        noun.
+        <div class="ex"><b>e.g.</b> Pride says "students", Raj says "members" → both are <code>members</code>.</div></div>
+      </div></div>
 
-      <div class="stem"></div>
-      <div class="q">Same thing, but they want to record an extra detail on it?</div>
-      <div class="stem"></div>
-      <div class="arm"><div class="lbl">yes</div>
-        <div class="out" style="--c:var(--amber)">
-          <div class="w">A jsonb field on the existing table.</div>
-          <div class="d">Not a new column, not a parallel table. Promote it to a real column only when
-          a <i>shared</i> SQL function starts reading it, or a second academy needs it, or it needs a
-          constraint or an index.
-          <div class="ex"><b>Why:</b> the moment a shared function reads it, it has become platform vocabulary and deserves a proper column.</div></div>
-        </div></div>
+    <div class="stem"></div>
+    <div class="q">Same thing, but they want to record an extra detail on it?</div>
+    <div class="stem"></div>
+    <div class="arm"><div class="lbl">yes</div>
+      <div class="out" style="--c:var(--cfg)">
+        <div class="w">A jsonb field on the existing table.</div>
+        <div class="d">Not a new column, not a parallel table. Promote it to a real column only when a
+        <i>shared</i> SQL function starts reading it, a second academy needs it, or it needs a
+        constraint or an index.
+        <div class="ex"><b>Why:</b> once a shared function reads it, it has become platform vocabulary and deserves a proper column.</div></div>
+      </div></div>
 
-      <div class="stem"></div>
-      <div class="q">A genuinely new thing that only some academies will ever have?</div>
-      <div class="stem"></div>
-      <div class="arm"><div class="lbl">yes</div>
-        <div class="out" style="--c:var(--violet)">
-          <div class="w">Its own tables — as a module.</div>
-          <div class="d">Still <code>tenant_id</code>-scoped, still applied with <code>--scope shared</code>,
-          switched on per academy via <code>config.modules.X</code>, with RLS and
-          <code>revoke … from public</code> in the <i>first</i> migration, not a follow-up.
-          <div class="ex"><b>Done right:</b> MatchPoint's 11-table player-tracking cluster. Copy that.</div></div>
-        </div></div>
+    <div class="stem"></div>
+    <div class="q">A genuinely new thing only some academies will ever have?</div>
+    <div class="stem"></div>
+    <div class="arm"><div class="lbl">yes</div>
+      <div class="out" style="--c:var(--mod)">
+        <div class="w">Its own tables — as a module.</div>
+        <div class="d">Still <code>tenant_id</code>-scoped, still applied with <code>--scope shared</code>,
+        switched on per academy via <code>config.modules.X</code>, with RLS and
+        <code>revoke … from public</code> in the <i>first</i> migration, not a follow-up.
+        <div class="ex"><b>Done right:</b> MatchPoint's 11-table player-tracking cluster — the tall violet column above.</div></div>
+      </div></div>
 
-      <div class="stem"></div>
-      <div class="q">Same word as something we already have, but a different shape?</div>
-      <div class="stem"></div>
-      <div class="arm"><div class="lbl">stop</div>
-        <div class="out" style="--c:var(--rose)">
-          <div class="w">This is the trap. Decide out loud before writing anything.</div>
-          <div class="d">Two teams model the same-sounding thing two different ways, each inside their
-          own repo, and nobody ever sees both. What you get is a shared function that silently answers
-          for one academy and returns nothing for the others.
-          <div class="ex"><b>This is exactly what happened to attendance.</b></div></div>
-        </div></div>
-    </div>
+    <div class="stem"></div>
+    <div class="q">Same word as something we already have, but a different shape?</div>
+    <div class="stem"></div>
+    <div class="arm"><div class="lbl">stop</div>
+      <div class="out" style="--c:var(--bad)">
+        <div class="w">This is the trap. Decide out loud before writing anything.</div>
+        <div class="d">Two teams model the same-sounding thing two ways, each inside their own repo,
+        and nobody ever sees both. What you get is a shared function that silently answers for one
+        academy and returns nothing for the others.
+        <div class="ex"><b>This is exactly what happened to attendance.</b></div></div>
+      </div></div>
 
-    <div class="note" style="--c:var(--sky)">
+    <div class="note" style="--c:var(--core)">
       <div class="hd">The one question to ask before any new table</div>
       <b>Can one SQL function answer this for every academy that has the feature?</b>
       If no, you have either the wrong table or the wrong noun — and you have to say which, out loud,
@@ -309,22 +266,96 @@
       <div class="hd">Never</div>
       <ul>
         <li>A table named after an academy — <code>raj_enrollments</code>. The tenant goes in a column.</li>
-        <li>A column on a shared table that only one academy uses. That is what <code>tenants.config</code> is for.</li>
+        <li>A column on a shared table only one academy uses. That is what <code>tenants.config</code> is for.</li>
         <li>Two tables for one noun.</li>
-        <li>Shared DDL from a tenant's repo — even when it is correctly tenant-guarded. A trigger on
-        <code>members</code> fires for all six academies; the guard makes it <i>safe</i>, not <i>tenant-repo material</i>.</li>
+        <li>Shared DDL from a tenant's repo — even correctly tenant-guarded. A trigger on
+        <code>members</code> fires for all six academies; the guard makes it <i>safe</i>, not
+        <i>tenant-repo material</i>.</li>
       </ul>
     </div>
   </section>
 
   <footer>
-    Live figures read from <code>ugsklcipzyiogxynshnh</code> on 1 August 2026, after
-    <code>0041-attendance-nouns-and-coverage.sql</code>.
-    Machaxi and MatchPoint are archived, so they are excluded from the hourly coverage check;
-    GenAlpha is federated and keeps its own schema entirely.
+    Figures read live from <code>ugsklcipzyiogxynshnh</code> on 1 August 2026, after
+    <code>0041-attendance-nouns-and-coverage.sql</code>. Machaxi and MatchPoint are archived, so they
+    are excluded from the hourly coverage check; GenAlpha is federated and keeps its own schema.
     Sibling document: <code>architecture.html</code>.
   </footer>
-
 </div>
+
+<script>
+const TEN = [
+  {id:'leo',      note:''},
+  {id:'machaxi',  note:'✻'},
+  {id:'matchpnt', note:'✻'},
+  {id:'mpp',      note:''},
+  {id:'raj',      note:''},
+  {id:'genalpha', note:'†'},
+];
+const K = ['leo','machaxi','matchpoint','mpp','raj','genalpha'];
+
+const GROUPS = [
+  {name:'Core', hint:'the noun means the same thing everywhere', c:'var(--core)', rows:[
+    ['members',        ['leo','machaxi','matchpoint','mpp','raj']],
+    ['payments',       ['leo','machaxi','matchpoint','mpp','raj']],
+    ['events',         ['leo','machaxi','matchpoint','mpp','raj','genalpha']],
+    ['subscriptions',  ['leo','machaxi','mpp','raj','genalpha']],
+    ['enrollments',    ['mpp','raj']],
+    ['batches',        ['mpp','raj']],
+    ['centres',        ['mpp','raj']],
+    ['sports',         ['mpp','raj']],
+    ['fee_rules',      ['mpp','raj']],
+    ['coaches',        ['mpp','raj']],
+    ['member_timeline',['mpp','raj']],
+    ['audit_log',      ['mpp','raj']],
+  ]},
+  {name:'Attendance', hint:'one word, three facts — see below', c:'var(--bad)', hl:true, rows:[
+    ['attendance',        ['leo','machaxi','matchpoint','mpp'], 'staff + venue visits'],
+    ['sessions',          ['raj']],
+    ['attendance_records',['raj'], 'class registers'],
+  ]},
+  {name:'Booking · CourtSync', hint:'config.modules.booking', c:'var(--mod)', rows:[
+    ['bookings',    ['leo','machaxi']],
+    ['integrations',['leo','machaxi','matchpoint']],
+    ['sync_jobs',   ['leo']],
+  ]},
+  {name:'Player tracking', hint:'config.features.playerTracking', c:'var(--mod)', rows:[
+    ['player_progress',   ['matchpoint']],
+    ['skill_assessments', ['matchpoint']],
+    ['skill_catalog',     ['matchpoint']],
+    ['development_reviews',['matchpoint']],
+    ['+ 7 more',          ['matchpoint'], 'goals, notes, levels, observations'],
+  ]},
+  {name:'Reminders · WhatsApp', hint:'the fee ladder and its delivery', c:'var(--good)', rows:[
+    ['reminder_events',['mpp','raj']],
+    ['reminders_log',  ['leo','matchpoint']],
+    ['wa_flow_events', ['mpp','raj']],
+  ]},
+  {name:'Everything else', hint:'', c:'var(--cfg)', rows:[
+    ['payout_rules',['raj']],
+    ['payouts',     ['raj']],
+    ['staff_scopes',['raj']],
+    ['applications',['matchpoint','raj']],
+    ['expenses',    ['mpp']],
+    ['error_acks',  ['mpp']],
+  ]},
+];
+
+const t = document.getElementById('mx');
+let h = '<thead><tr><th class="corner">Table</th>';
+for (const x of TEN) h += `<th class="tn">${x.id}<i>${x.note||'&nbsp;'}</i></th>`;
+h += '</tr></thead><tbody>';
+for (const g of GROUPS){
+  h += `<tr class="grp" style="--g:${g.c}"><td colspan="${TEN.length+1}">${g.name}`
+     + (g.hint ? `<span>${g.hint}</span>` : '') + '</td></tr>';
+  for (const [name, has, extra] of g.rows){
+    h += `<tr class="row${g.hl?' hl':''}" style="--g:${g.c}"><td class="tbl">${name}`
+       + (extra ? ` <em>· ${extra}</em>` : '') + '</td>';
+    for (const k of K) h += `<td class="c"><i class="dot${has.includes(k)?'':' off'}"></i></td>`;
+    h += '</tr>';
+  }
+}
+t.innerHTML = h + '</tbody>';
+</script>
 </body>
 </html>
