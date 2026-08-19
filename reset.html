@@ -81,13 +81,13 @@
           <span>New password</span>
           <!-- autocomplete=new-password so a password manager offers to
                generate and store one rather than filling the old value. -->
-          <input type="password" id="pw1" autocomplete="new-password" required minlength="10" />
+          <input type="password" id="pw1" autocomplete="new-password" required />
         </label>
         <label>
           <span>Type it again</span>
-          <input type="password" id="pw2" autocomplete="new-password" required minlength="10" />
+          <input type="password" id="pw2" autocomplete="new-password" required />
         </label>
-        <div class="rules">At least 10 characters. A short phrase you will remember beats a clever short one.</div>
+        <div class="rules" id="pwRule"></div>
         <div class="msg" id="msg" role="status" aria-live="polite"></div>
         <button type="submit" class="go" id="save">Save the new password</button>
       </form>
@@ -121,6 +121,34 @@
      here and nothing is logged; the value goes straight to Supabase's
      /auth/v1/user and is then out of scope.
      ============================================================ */
+  /* THE ONE NUMBER.
+
+     Supabase's policy for this project is password_min_length = 6 with
+     no character requirements, and the SERVER is the authority. A
+     stricter rule here only rejects passwords the server would have
+     accepted — on a page someone reaches once, from a link, usually on
+     a phone, often while a class is waiting.
+
+     It had drifted to 10 here and 12 in the access-admin function,
+     matching neither the server nor each other, so "the minimum"
+     depended on which door you came through. Change this one line and
+     the two inputs, the validation and the sentence under them all
+     follow. scripts/check-reset.js fails if a second number appears. */
+  var MIN_PW = 6;
+
+  /* Applied to the DOM rather than typed into the markup, so the number
+     exists once. A minlength attribute would be a second copy, and a
+     second copy is how this drifted in the first place. */
+  (function () {
+    var r = document.getElementById("pwRule");
+    if (r) r.textContent = "At least " + MIN_PW + " characters. A short phrase you will " +
+                           "remember beats a clever short one.";
+    ["pw1", "pw2"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.setAttribute("minlength", String(MIN_PW));
+    });
+  })();
+
   (function () {
     "use strict";
     var $ = function (s) { return document.querySelector(s); };
@@ -197,8 +225,8 @@
       var a = $("#pw1").value, b = $("#pw2").value, msg = $("#msg"), btn = $("#save");
       msg.className = "msg";
 
-      if (a.length < 10) {
-        msg.textContent = "Use at least 10 characters.";
+      if (a.length < MIN_PW) {
+        msg.textContent = "Use at least " + MIN_PW + " characters.";
         msg.className = "msg error";
         return;
       }
