@@ -159,6 +159,13 @@
       var CH = { Website: "#6366f1", Playo: "#10b981", Hudle: "#f59e0b", District: "#3b82f6", "Walk-in": "#94a3b8" };
       function sportIcon(sport) { return ({ Tennis: "sports_tennis", Cricket: "sports_cricket", Football: "sports_soccer", Badminton: "sports_tennis", Swimming: "pool", "Multi-sport": "exercise" })[sport] || "exercise"; }
       function tint(sport) { return ({ Tennis: ["#0f766e", "#f0fdfa"], Cricket: ["#b45309", "#fffbeb"], Badminton: ["#7c3aed", "#f5f3ff"], Football: ["#1d4ed8", "#eff6ff"], "Multi-sport": ["#be123c", "#fff1f2"], Swimming: ["#0369a1", "#f0f9ff"] })[sport] || ["#4b5563", "#f3f4f6"]; }
+      /* Hoisted out of detailView on 2026-08-19. It lived inside that
+         function, so any OTHER view that used it threw "card is not
+         defined" the moment someone clicked — which broke the whole
+         console once already today, and again the same afternoon when a
+         second view was added. A shared helper declared inside one
+         caller is a trap that resets every time somebody adds a view. */
+      function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
       function healthStyle(h) { return ({ Active: ["#047857", "#ecfdf5"], Quiet: ["#b45309", "#fffbeb"], "At risk": ["#b91c1c", "#fef2f2"], Onboarding: ["#4338ca", "#eef2ff"], Emptied: ["#475569", "#f1f5f9"] })[h] || ["#475569", "#f1f5f9"]; }
       /* Four states, and only one of them is red.
          `overdue` used to fire on "status says overdue OR the date has
@@ -220,7 +227,7 @@
       }
 
       /* ============ state + data ============ */
-      var state = { myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
+      var state = { appsBusy: false, appsErr: "", myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { today: null, funnel: null, leads: [], ab: null, done: {},
@@ -406,9 +413,9 @@
         var sp = state.sales.today;
         var salesBadge = (sp && sp.rows && sp.rows.length) ? sp.rows.length : "";
 
-        var titles = { overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], sales: ["Sales pipeline", "Coaching academies in Hyderabad we are selling to"], settings: ["Settings", "Organization & console configuration"] };
-        var pageTitle = isDetail ? (sel ? sel.name : "") : titles[view][0];
-        var pageSub = isDetail ? (sel ? sel.sub : "") : titles[view][1];
+        var titles = { apps: ["Open apps", "Sign in once here and every academy app opens already signed in"], overview: ["Portfolio insight", "A live view of revenue, adoption and academy health"], academies: ["Academies", accts.length + " client academies on the platform"], billing: ["Billing", "Subscriptions, invoices & collections"], growth: ["Growth", "Adoption, enquiries & channel performance"], sales: ["Sales pipeline", "Coaching academies in Hyderabad we are selling to"], settings: ["Settings", "Organization & console configuration"] };
+        var pageTitle = isDetail ? (sel ? sel.name : "") : (titles[view] || titles.overview)[0];
+        var pageSub = isDetail ? (sel ? sel.sub : "") : (titles[view] || titles.overview)[1];
 
         // sidebar sync-engine card from platform_health
         var h = state.health || {};
@@ -427,6 +434,7 @@
             view === "billing" ? billingView(accts) :
             view === "growth" ? growthView(accts) :
             view === "sales" ? salesView() :
+            view === "apps" ? appsView() :
             settingsView());
 
         root.innerHTML =
@@ -444,6 +452,7 @@
                 navBtn("billing", "Billing", "receipt_long", billBadge, view === "billing" && !isDetail) +
                 navBtn("growth", "Growth", "trending_up", "", view === "growth" && !isDetail) +
                 navBtn("sales", "Sales", "campaign", salesBadge, view === "sales" && !isDetail) +
+                navBtn("apps", "Open apps", "grid_view", "", view === "apps" && !isDetail) +
                 navBtn("settings", "Settings", "settings", "", view === "settings" && !isDetail) +
               "</nav>" +
               '<div style="flex:1"></div>' +
@@ -625,6 +634,149 @@
          Four cells, in the order the operator asks the questions: am I
          paid, is money moving, are they working, and when did they last
          do anything. */
+      /* ============================================================
+         OPEN APPS — one sign-in, then every tenant app is already open.
+
+         WHY THIS WORKS AT ALL, and the constraint that shapes it:
+         every tenant app is served from THIS origin,
+         https://sujittarun.github.io, just on a different path. Same
+         origin means one localStorage, so a session written here is a
+         session those apps find. They only differ in which key they
+         read.
+
+         WHY IT ASKS FOR THE PASSWORD RATHER THAN COPYING THIS TAB'S
+         SESSION. Copying would work for about an hour and then fail in
+         a way that looks like a bug: all six apps would share one
+         refresh token, and whichever refreshed first would rotate it
+         and silently sign the other five out mid-demo. Calling the
+         password grant once per app yields six INDEPENDENT sessions,
+         which is what "stay logged in" actually requires.
+
+         The password is used and dropped. It is never stored, never
+         sent anywhere but Supabase's own token endpoint, and there is
+         no value= on the field — this file is public.
+
+         Two apps cannot be reached this way, and the card says so
+         rather than quietly omitting them: MatchPoint Pride keeps its
+         session in a PIN-encrypted vault, and GenAlpha is on its own
+         domain, which is a different origin and therefore a different
+         localStorage. */
+      var APPS = [
+        { id: "mezzo",      name: "Mezzo School of Music", key: "mz-session",
+          url: "https://sujittarun.github.io/Mezzo/" },
+        { id: "raj",        name: "Raj Sports",            key: "rs-session",
+          url: "https://sujittarun.github.io/Rajsports/" },
+        { id: "ska",        name: "Super Kings Academy",   key: "ska-cloud-session",
+          url: "https://sujittarun.github.io/SuperKingsAcademy/" },
+        { id: "leo",        name: "Leo Tennis Academy",    key: "lt-cloud-session",
+          url: "https://sujittarun.github.io/LeoTennisAcademyapp/" },
+        { id: "demo",       name: "Demo Sports Academy",   key: "amd-cloud-session",
+          url: "https://sujittarun.github.io/AcademyManagerDemo/" },
+        { id: "matchpoint", name: "MatchPoint (archived)", key: "mp-cloud-session",
+          url: "https://sujittarun.github.io/MatchPoint/" },
+      ];
+      var ELSEWHERE = [
+        { name: "Gen Alpha Cricket", url: "https://genalphaacademy.in/",
+          why: "its own domain, so a different localStorage — sign in there once and it stays" },
+        { name: "MatchPoint Pride", url: "https://sujittarun.github.io/MatchPointPride/",
+          why: "keeps its session in a PIN-encrypted vault, on purpose — open it with the PIN" },
+      ];
+
+      function appsSeeded(a) {
+        try {
+          var raw = localStorage.getItem(a.key); if (!raw) return null;
+          var s = JSON.parse(raw);
+          return s && s.access_token && s.expires_at > Date.now() ? s : null;
+        } catch (e) { return null; }
+      }
+
+      function appsView() {
+        var live = APPS.filter(appsSeeded).length;
+        var head = '<div class="page-head"><div><h1 class="page-title">Open apps</h1>' +
+          '<p class="page-sub">Sign in once here and every academy app opens already signed in. ' +
+          live + " of " + APPS.length + " ready.</p></div></div>";
+
+        var rows = APPS.map(function (a) {
+          var s = appsSeeded(a);
+          return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd3)">' +
+            '<span style="width:9px;height:9px;border-radius:50%;background:' +
+              (s ? "#16a34a" : "var(--bd2)") + '"></span>' +
+            '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">' + esc(a.name) + "</div>" +
+            '<div style="font-size:12px;color:var(--tx4)">' +
+              (s ? "signed in until " + new Date(s.expires_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+                 : "not signed in yet") + "</div></div>" +
+            '<a class="btn-g" href="' + esc(a.url) + '" target="_blank" rel="noopener"' +
+              (s ? "" : ' style="opacity:.5;pointer-events:none"') + ">Open</a>" +
+          "</div>";
+        }).join("");
+
+        var form = state.appsBusy
+          ? '<div class="muted" style="padding:14px 0">Signing in to each app…</div>'
+          : '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:14px">' +
+              '<label style="flex:1;min-width:220px"><span style="display:block;font-size:12.5px;' +
+                'color:var(--tx3);font-weight:600;margin-bottom:5px">Your password, once</span>' +
+              /* No value=, ever. This page is on the open web. */
+              '<input id="appsPw" type="password" autocomplete="current-password" ' +
+                'style="width:100%;min-height:42px;border:1px solid var(--bd);border-radius:10px;padding:0 12px;font-size:15px" /></label>' +
+              '<button class="btn-p" id="appsGo" style="min-height:42px">Sign in to all apps</button>' +
+            "</div>" +
+            '<div class="muted" style="margin-top:8px;font-size:12.5px">Used once and dropped — never stored. ' +
+              "Each app gets its own session, so refreshing one does not sign the others out.</div>";
+
+        var others = ELSEWHERE.map(function (a) {
+          return '<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--bd3)">' +
+            '<div style="flex:1"><div style="font-size:14px;font-weight:600">' + esc(a.name) + "</div>" +
+            '<div style="font-size:12px;color:var(--tx4)">' + esc(a.why) + "</div></div>" +
+            '<a class="btn-g" href="' + esc(a.url) + '" target="_blank" rel="noopener">Open</a></div>';
+        }).join("");
+
+        return head +
+          '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
+            card("Academy apps", live + " of " + APPS.length + " ready",
+                 '<div style="margin-top:8px">' + rows + "</div>" +
+                 (state.appsErr ? '<div style="margin-top:12px;color:#b91c1c;font-size:13px">' + esc(state.appsErr) + "</div>" : "") +
+                 form) +
+          "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
+            card("Signed in separately", "by design",
+                 '<div style="margin-top:8px">' + others + "</div>") +
+          "</div></div>";
+      }
+
+      /* One password grant per app. Six grants, six independent refresh
+         tokens — see the note above for why sharing one would quietly
+         break an hour into a demo. */
+      function appsSignIn(pw) {
+        /* The email comes from the console's own session — the same
+           account, so the apps end up signed in as whoever is looking at
+           this page, and there is no second identity to keep in step. */
+        var me = amSession();
+        var email = (me && me.email) || "";
+        if (!email) { state.appsErr = "Could not tell which account you are signed in as. Sign out and back in."; return render(); }
+        state.appsBusy = true; state.appsErr = ""; render();
+        var done = 0, failed = [];
+        Promise.all(APPS.map(function (a) {
+          return fetch(PROJECT + "/auth/v1/token?grant_type=password", {
+            method: "POST",
+            headers: { apikey: KEY, "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, password: pw }),
+          }).then(function (r) { return r.json(); }).then(function (j) {
+            if (!j.access_token) throw new Error(j.error_description || j.msg || "sign-in failed");
+            var meta = (j.user && j.user.app_metadata) || {};
+            localStorage.setItem(a.key, JSON.stringify({
+              access_token: j.access_token, refresh_token: j.refresh_token,
+              expires_at: Date.now() + (j.expires_in || 3600) * 1000,
+              email: j.user && j.user.email,
+              role: meta.am_role || "", tenant: meta.tenant_id || "",
+            }));
+            done += 1;
+          }).catch(function (e) { failed.push(a.name + ": " + e.message); });
+        })).then(function () {
+          state.appsBusy = false;
+          state.appsErr = failed.length ? failed.join(" · ") : "";
+          render();
+        });
+      }
+
       function academiesView(accts) {
         var order = { Active: 0, Quiet: 1, "At risk": 2, Onboarding: 3 };
         var rows = accts.slice().sort(function (x, y) {
@@ -2195,7 +2347,6 @@
           return card("Who opened it · 14d", "distinct devices, not page loads", head + list);
         }
 
-        function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
         return header +
           '<div class="kpis" style="margin-bottom:20px">' + kpis + "</div>" +
           '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
@@ -2555,6 +2706,14 @@
               state.visitors = null;                 // force a refetch on the next render
               render();
             });
+          return;
+        }
+        if (e.target.closest("#appsGo")) {
+          var pwEl = document.getElementById("appsPw");
+          var pw = pwEl ? pwEl.value : "";
+          if (!pw) { state.appsErr = "Type your password first."; return render(); }
+          appsSignIn(pw);
+          pw = null;                                   // do not keep it around
           return;
         }
         var res = e.target.closest("[data-resolve]");

@@ -40,7 +40,8 @@ let js = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"))
 const before = js.length;
 js = js.replace(/"use strict";/,
   '"use strict"; __x(function () { return { detailView: detailView, ' +
-  'mapAccount: mapAccount, academiesView: academiesView, state: state, rpc: rpc }; });');
+  'mapAccount: mapAccount, academiesView: academiesView, render: render, ' +
+  'state: state, rpc: rpc }; });');
 if (js.length === before) {
   console.error('could not inject the accessor — is "use strict" still there?');
   process.exit(1);
@@ -317,6 +318,66 @@ check("an emptied tenant is not told it recorded nothing", () => {
   api.state.data = [never];
   const h2 = api.academiesView(api.state.data);
   assert(h2.includes("nothing recorded"), "a genuinely idle tenant lost its warning");
+});
+
+/* ONE SIGN-IN, EVERY APP.
+
+   Every tenant app is on this same origin, so a session written here is
+   a session they find. The launcher's whole job is to put the right
+   token under the right key — get a key wrong and the app silently
+   stays signed out, which looks like the launcher did nothing. */
+/* Adding a nav item means adding a titles[] entry, and forgetting is
+   silent until someone clicks it: render() read titles[view][0] and
+   threw, blanking the whole console. Found by opening the page, not by
+   any check that existed at the time — so it is a check now. */
+check("every nav view has a title and none of them blanks the console", () => {
+  const api2 = getApi();
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const views = [...src.matchAll(/navBtn\("(\w+)"/g)].map((m) => m[1]);
+  assert(views.length >= 6, "only found " + views.length + " nav items");
+  /* A check that silently skips is worse than no check: the first cut of
+     this one "passed" because render was not exported, while the console
+     was genuinely broken. */
+  assert(typeof api2.render === "function", "render() is not reachable, so this check tests nothing");
+  views.forEach((v) => {
+    api2.state.view = v; api2.state.sel = null; api2.state.loaded = true;
+    api2.state.data = api2.state.data || [];
+    try { api2.render(); }
+    catch (e) { throw new Error('clicking "' + v + '" throws: ' + e.message); }
+  });
+});
+
+check("the launcher targets a real key and URL for every app", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const block = src.slice(src.indexOf("var APPS = ["), src.indexOf("var ELSEWHERE"));
+  const keys = [...block.matchAll(/key:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const urls = [...block.matchAll(/url:\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert(keys.length >= 6, "only " + keys.length + " apps are wired up");
+  assert(new Set(keys).size === keys.length, "two apps share a localStorage key — one would overwrite the other");
+  /* A cross-origin URL cannot see this origin's localStorage at all, so
+     seeding a key for it would show a green tick against an app that is
+     still signed out. */
+  urls.forEach((u) => assert(u.startsWith("https://sujittarun.github.io/"),
+    u + " is not on this origin, so seeding its session cannot work"));
+});
+
+check("the launcher signs in as whoever is looking at the console", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const fn = src.slice(src.indexOf("function appsSignIn("), src.indexOf("function academiesView("));
+  assert(/amSession\(\)/.test(fn), "it reads the email from somewhere other than the live session");
+  assert(!/state\.me/.test(fn), "state.me does not exist on this console");
+  /* Six grants, not one shared token: sharing would rotate and sign the
+     other five out about an hour into a demo. */
+  assert(/APPS\.map/.test(fn), "it does not sign in per app, so all apps would share one refresh token");
+});
+
+check("the launcher never stores the password and never prefills it", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const view = src.slice(src.indexOf("function appsView("), src.indexOf("function appsSignIn("));
+  assert(!/<input[^>]*appsPw[^>]*value=/.test(view), "the password field is prefilled — this file is public");
+  const fn = src.slice(src.indexOf("function appsSignIn("), src.indexOf("function academiesView("));
+  assert(!/localStorage\.setItem\([^)]*(pw|password)/i.test(fn), "the password is being persisted");
+  assert(!/state\.(pw|password)/.test(fn + view), "the password is kept on app state");
 });
 
 /* THE BADGE THAT CRIED WOLF.

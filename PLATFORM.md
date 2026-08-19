@@ -367,6 +367,59 @@ ref change without the gates.
   not merely delete. `Raj Sports/login.html` did exactly this; removed
   and rotated.
 
+### The operator reaches every academy, deliberately
+
+`am_role = 'operator'` is the owner's single login. As of `2026-08-19u`
+it reads **and writes** every tenant's tables.
+
+Reads and every `SECURITY DEFINER` RPC already worked before that file —
+52 of 120 policies named the operator, and `assert_staff()` passes for
+them. The gap was direct table writes: 59 policies named
+`<table>_staff_<w|u|d>` tested `auth_role() = 'staff'` and nothing more,
+so browsing a tenant app as the owner worked but "add a student" failed,
+which reads as a bug in the app rather than a permission.
+
+**The fix adds one policy per table rather than editing 59 predicates.**
+Permissive policies are OR'd, so `<table>_operator_all` grants what is
+needed and leaves every existing predicate byte-for-byte untouched.
+There is no way for it to break a tenant's own staff access — the
+failure that has taken this platform down twice. Verified by counting
+what each of the seven tenants' staff could see before and after: all
+seven unchanged, anon unchanged, `rls_audit()` still empty.
+
+Scoped `to authenticated`, never `to public`: a `public` policy also
+applies to anon, and although `auth_role()` is `''` there, a shape audit
+cannot see that.
+
+**What it costs, on the record.** An operator JWT now writes to every
+academy, and that token lives in a browser — unlike `service_role`. The
+owner already administers this database directly, so what widened is the
+exposure surface, not the authority. Decided on 2026-08-19 so six apps
+can be demonstrated without six logins.
+
+### One sign-in for every app
+
+Every tenant app is served from `https://sujittarun.github.io` on a
+different path — **one origin, therefore one localStorage**. They differ
+only in which key they read (`mz-session`, `rs-session`,
+`ska-cloud-session`, `lt-cloud-session`, `amd-cloud-session`,
+`mp-cloud-session`).
+
+The console's **Open apps** tab uses that: it asks for the password once
+and calls the token endpoint once per app, writing each session under
+that app's key. Every app then opens already signed in.
+
+**One grant per app, not one shared token.** Copying a single session
+into six keys works for about an hour and then fails in a way that looks
+like a bug: all six share one refresh token, and whichever refreshes
+first rotates it and silently signs the other five out mid-demo. Six
+password grants yield six independent refresh tokens.
+
+Two are out of reach by design and the tab says so rather than omitting
+them: **GenAlpha** is on `genalphaacademy.in`, a different origin and so
+a different localStorage; **MatchPoint Pride** keeps its session in a
+PIN-encrypted vault.
+
 ### A third role: `coach`, and the shape to copy
 
 `app_metadata.am_role = 'coach'` is attendance-only, scoped to the centres
