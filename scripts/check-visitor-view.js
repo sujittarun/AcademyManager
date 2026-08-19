@@ -133,6 +133,27 @@ function view(rows, a) {
   return api.detailView(acct);
 }
 
+/* The activity feed is a separate read (state.ev), so it has to be
+   seeded separately. `at` must be inside the 7-day window the card
+   renders or the row lands in no day bucket and disappears. */
+function ev(over) {
+  return Object.assign({
+    name: "member_added", props: { ver: "1.0.0" }, page: "index.html",
+    session_id: "s1", at: new Date(Date.now() - 36e5).toISOString(),
+    visitor: "v_synthetic1", ip: "203.0.113.1",
+  }, over || {});
+}
+function feed(events, rows, a) {
+  const acct = a || account();
+  api.state.sel = acct.id;
+  api.state.ev = api.state.ev || {};
+  api.state.ev[acct.id] = events;
+  api.state.evLoading = api.state.evLoading || {};
+  api.state.evLoading[acct.id] = false;
+  api.state.visitors = { tenant: acct.id, loading: false, rows: rows };
+  return api.detailView(acct);
+}
+
 let failed = 0;
 function check(name, fn) {
   try { fn(); console.log("  ok   " + name); }
@@ -254,6 +275,50 @@ check("opening an academy asks the database for its visitors", () => {
   assert(h.includes("Reading visitors"), "the first render does not say it is loading");
   assert(api.state.visitors && api.state.visitors.tenant === "ska",
     "no fetch was started, so the panel would stay empty forever");
+});
+
+/* The operator asked for identity on each ACTIVITY, not only a roll-up
+   per device: "was that member added by me testing, or by a real user?"
+   is a question about one row. */
+check("every activity row carries who did it", () => {
+  const h = feed([ev({ ip: "49.47.217.72", visitor: "v_a" })],
+                 [visitor({ visitor: "v_a", device: "Android phone", browser: "Chrome 127" })]);
+  assert(h.includes("49.47.217.72"), "the activity row does not show an IP");
+  assert(h.includes("Android phone Chrome 127"), "the activity row does not say which device");
+});
+
+check("the device label is not parsed a second time in the browser", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const card = src.slice(src.indexOf("function activityCard"), src.indexOf("function usageCard"));
+  ["Macintosh", "iphone", "ipad", "Chrome/", "Firefox/"].forEach((needle) => {
+    assert(!card.includes(needle),
+      "activityCard parses the user-agent itself ('" + needle + "') — that rule already lives in tenant_visitors()");
+  });
+});
+
+check("an activity from my own device is visibly not traction", () => {
+  const mineRow = feed([ev({ visitor: "v_m" })],
+                       [visitor({ visitor: "v_m", is_internal: true, label: "Sujit Mac" })]);
+  assert(mineRow.includes("opacity:.45"), "my own activity looks identical to a real user's");
+  assert(mineRow.includes("Sujit Mac"), "the label I gave the device is not shown on its activity");
+  const realRow = feed([ev({ visitor: "v_r" })], [visitor({ visitor: "v_r" })]);
+  assert(!realRow.includes("opacity:.45"), "a real user's activity is dimmed as though it were mine");
+});
+
+check("an activity still shows its IP before the visitor list arrives", () => {
+  const h = feed([ev({ ip: "49.47.217.72" })], null);
+  assert(h.includes("49.47.217.72"), "nothing identifies the row until a second request finishes");
+});
+
+check("an IP cannot inject markup into the activity feed", () => {
+  const h = feed([ev({ ip: "<img src=x onerror=alert(1)>" })], []);
+  assert(!h.includes("<img src=x"), "the activity row interpolates the IP raw");
+});
+
+check("the feed asks the database for the identity columns", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const q = src.slice(src.indexOf("function loadEvents"), src.indexOf("function usageArray"));
+  ["visitor", "ip"].forEach((c) => assert(q.includes(c), "loadEvents never selects " + c));
 });
 
 /* The click path. The Sales tab shipped a button that rendered perfectly
