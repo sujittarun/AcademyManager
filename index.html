@@ -1942,69 +1942,6 @@
          screen when the operator comes back an hour later. */
       function accessLeave() { access.link = ""; access.linkFor = ""; access.linkKind = ""; access.msg = ""; }
 
-      /* Who opened the link.
-         Built because "294 events in two days" could not answer the only
-         question that mattered after sending a link out: was any of that
-         somebody other than me. The counts alone never could — my Mac and
-         my phone are events too, and they share a home IP with anyone
-         else on that network.
-
-         So identity is per DEVICE, not per address: a durable id the app
-         keeps in localStorage, paired with an IP, user-agent, country and
-         Cloudflare edge that the SERVER reads off the request. A page
-         cannot send those — the column grant refuses the insert outright —
-         so a visitor cannot claim to be someone else, and neither can a
-         developer testing in a second browser.
-
-         "That's me" marks a device as ours and drops it out of the real
-         count, because the device you test from changes far more often
-         than anyone edits a config file. */
-      function visitorCard(a) {
-        var v = state.visitors;
-        if (!v || v.tenant !== a.id || v.loading) {
-          return card("Who opened it · 14d", "distinct devices, not page loads",
-            '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Reading visitors…</div>');
-        }
-        var rows = v.rows || [];
-        var real = rows.filter(function (r) { return !r.is_internal; });
-        var mine = rows.length - real.length;
-        var acted = real.filter(function (r) { return r.did_something; }).length;
-
-        if (!rows.length) {
-          return card("Who opened it · 14d", "distinct devices, not page loads",
-            '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Nobody has opened this tenant\'s app in 14 days.</div>');
-        }
-
-        var head = '<div style="display:flex;gap:18px;margin:14px 0 4px;flex-wrap:wrap">' +
-          '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + real.length + '</div><div style="font-size:11.5px;color:var(--tx4)">real device' + (real.length === 1 ? "" : "s") + '</div></div>' +
-          '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + acted + '</div><div style="font-size:11.5px;color:var(--tx4)">did more than look</div></div>' +
-          (mine ? '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tx4)">' + mine + '</div><div style="font-size:11.5px;color:var(--tx4)">mine, excluded</div></div>' : "") +
-          "</div>";
-
-        var list = rows.map(function (r) {
-          var who = [r.device, r.browser].filter(Boolean).join(" · ") || "Unknown device";
-          var loc = [r.country, r.edge].filter(Boolean).join(" · ");
-          var when = r.last_seen ? fmtDate(r.last_seen) : "—";
-          var did = r.actions ? esc(r.actions) : "only looked at pages";
-          return '<div style="padding:11px 0;border-top:1px solid var(--bd3);opacity:' + (r.is_internal ? ".5" : "1") + '">' +
-            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-              '<span style="font-size:13px;font-weight:600">' + esc(who) + "</span>" +
-              (r.is_internal ? '<span style="font-size:10.5px;font-weight:700;color:var(--tx4);border:1px solid var(--bd2);border-radius:5px;padding:0 5px">MINE</span>'
-                             : (r.did_something ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:5px;padding:0 5px">USED IT</span>' : "")) +
-              '<span style="flex:1"></span>' +
-              '<button data-mine="' + esc(r.visitor) + '" data-mine-on="' + (r.is_internal ? "0" : "1") + '" style="font:inherit;font-size:11.5px;font-weight:600;color:var(--tx3);background:#fff;border:1px solid var(--bd-btn);border-radius:7px;padding:3px 9px;cursor:pointer">' + (r.is_internal ? "Not me" : "That\'s me") + "</button>" +
-            "</div>" +
-            '<div style="font-size:11.5px;color:var(--tx4);margin-top:3px;font-variant-numeric:tabular-nums">' +
-              esc(r.ip || "no ip") + (loc ? " · " + esc(loc) : "") + " · " + r.visits + " visit" + (r.visits === 1 ? "" : "s") +
-              " · " + r.events + " event" + (r.events === 1 ? "" : "s") + " · last " + esc(when) +
-            "</div>" +
-            '<div style="font-size:11.5px;color:var(--tx3);margin-top:3px">' + did + "</div>" +
-          "</div>";
-        }).join("");
-
-        return card("Who opened it · 14d", "distinct devices, not page loads", head + list);
-      }
-
       function detailView(a) {
         if (!a) return "";
         var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
@@ -2045,8 +1982,12 @@
         var apct = a.actionsPrev ? Math.round((a.actions - a.actionsPrev) / a.actionsPrev * 100) : null;
         if (!state.visitors || state.visitors.tenant !== a.id) {
           state.visitors = { tenant: a.id, loading: true, rows: null };
+          /* rpc() returns null when the read FAILED. `rows || []` would
+             turn that into "Nobody has opened it" — a failure rendered as
+             a measurement, which is the one thing this console must not
+             do. Keep the null and say so. */
           rpc("tenant_visitors", { p_tenant: a.id, p_days: 14 }).then(function (rows) {
-            state.visitors = { tenant: a.id, loading: false, rows: rows || [] };
+            state.visitors = { tenant: a.id, loading: false, rows: rows };
             render();
           });
         }
@@ -2082,6 +2023,73 @@
             '<div class="billing-edit__hint">' +
               "<b>active</b> shows as Paid. A renewal already past reads Overdue whatever the status, so marking someone paid moves it on a month." +
             "</div></div>";
+        }
+
+        /* Who opened the link.
+           Built because "294 events in two days" could not answer the only
+           question that mattered after sending a link out: was any of that
+           somebody other than me. The counts alone never could — my Mac and
+           my phone are events too, and they share a home IP with anyone
+           else on that network.
+
+           So identity is per DEVICE, not per address: a durable id the app
+           keeps in localStorage, paired with an IP, user-agent, country and
+           Cloudflare edge that the SERVER reads off the request. A page
+           cannot send those — the column grant refuses the insert outright —
+           so a visitor cannot claim to be someone else, and neither can a
+           developer testing in a second browser.
+
+           "That's me" marks a device as ours and drops it out of the real
+           count, because the device you test from changes far more often
+           than anyone edits a config file. */
+        function visitorCard(a) {
+          var v = state.visitors;
+          if (!v || v.tenant !== a.id || v.loading) {
+            return card("Who opened it · 14d", "distinct devices, not page loads",
+              '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Reading visitors…</div>');
+          }
+          if (v.rows === null) {
+          return card("Who opened it · 14d", "distinct devices, not page loads",
+            '<div style="margin-top:10px;font-size:12.5px;color:var(--warn,#b45309)">Could not read visitors. This is not the same as nobody having visited.</div>');
+        }
+        var rows = v.rows;
+          var real = rows.filter(function (r) { return !r.is_internal; });
+          var mine = rows.length - real.length;
+          var acted = real.filter(function (r) { return r.did_something; }).length;
+
+          if (!rows.length) {
+            return card("Who opened it · 14d", "distinct devices, not page loads",
+              '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Nobody has opened this tenant\'s app in 14 days.</div>');
+          }
+
+          var head = '<div style="display:flex;gap:18px;margin:14px 0 4px;flex-wrap:wrap">' +
+            '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + real.length + '</div><div style="font-size:11.5px;color:var(--tx4)">real device' + (real.length === 1 ? "" : "s") + '</div></div>' +
+            '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + acted + '</div><div style="font-size:11.5px;color:var(--tx4)">did more than look</div></div>' +
+            (mine ? '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tx4)">' + mine + '</div><div style="font-size:11.5px;color:var(--tx4)">mine, excluded</div></div>' : "") +
+            "</div>";
+
+          var list = rows.map(function (r) {
+            var who = [r.device, r.browser].filter(Boolean).join(" · ") || "Unknown device";
+            var loc = [r.country, r.edge].filter(Boolean).join(" · ");
+            var when = r.last_seen ? fmtDate(r.last_seen) : "—";
+            var did = r.actions ? esc(r.actions) : "only looked at pages";
+            return '<div style="padding:11px 0;border-top:1px solid var(--bd3);opacity:' + (r.is_internal ? ".5" : "1") + '">' +
+              '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+                '<span style="font-size:13px;font-weight:600">' + esc(who) + "</span>" +
+                (r.is_internal ? '<span style="font-size:10.5px;font-weight:700;color:var(--tx4);border:1px solid var(--bd2);border-radius:5px;padding:0 5px">MINE</span>'
+                               : (r.did_something ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:5px;padding:0 5px">USED IT</span>' : "")) +
+                '<span style="flex:1"></span>' +
+                '<button data-mine="' + esc(r.visitor) + '" data-mine-on="' + (r.is_internal ? "0" : "1") + '" style="font:inherit;font-size:11.5px;font-weight:600;color:var(--tx3);background:#fff;border:1px solid var(--bd-btn);border-radius:7px;padding:3px 9px;cursor:pointer">' + (r.is_internal ? "Not me" : "That\'s me") + "</button>" +
+              "</div>" +
+              '<div style="font-size:11.5px;color:var(--tx4);margin-top:3px;font-variant-numeric:tabular-nums">' +
+                esc(r.ip || "no ip") + (loc ? " · " + esc(loc) : "") + " · " + r.visits + " visit" + (r.visits === 1 ? "" : "s") +
+                " · " + r.events + " event" + (r.events === 1 ? "" : "s") + " · last " + esc(when) +
+              "</div>" +
+              '<div style="font-size:11.5px;color:var(--tx3);margin-top:3px">' + did + "</div>" +
+            "</div>";
+          }).join("");
+
+          return card("Who opened it · 14d", "distinct devices, not page loads", head + list);
         }
 
         function card(title, meta, inner) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="display:flex;align-items:center;justify-content:space-between"><h3 style="font-size:14px;font-weight:700;letter-spacing:-0.01em">' + title + "</h3>" + (meta ? '<span style="font-size:12px;color:var(--tx4)">' + meta + "</span>" : "") + "</div>" + inner + "</div>"; }
