@@ -568,8 +568,28 @@ accident, and never because it is the most recent thing built.
 | when you want it | the same, on screen, plus per-repo git activity | `scripts/team-report.sh [days]` |
 
 Migration files are named **by date** (`2026-08-01-thing.sql`), not by
-sequence. Two sessions collided on `0038` in one afternoon; dates
-cannot collide. The runner warns on numbered names.
+sequence. Two sessions collided on `0038` in one afternoon.
+
+**Dates collide too — this file used to claim they could not.** It is the
+same-day suffix that runs out: `2026-08-01c`, `2026-08-05c`,
+`2026-08-12u`, `2026-08-12v` and `2026-08-19a` are each used by two
+different migrations, and `2026-08-14a` by three. Nothing breaks, because
+`schema_migrations` keys on the whole basename — but "re-run 12u" stops
+having one answer, and two parallel sessions can each believe they own
+the letter.
+
+So the runner checks it rather than the docs asserting it: applying a
+file whose date+letter prefix is already taken prints the file that owns
+it and suggests the next free letter. It warns rather than refuses,
+because the colliding files are applied already and must keep applying.
+It still warns on numbered names.
+
+**Renaming an applied file means renaming its ledger row in the same
+breath.** The ledger keys on the basename, so a rename alone leaves the
+runner seeing an unapplied migration and the old row pointing at nothing.
+Update `schema_migrations.filename` *and* `sha256` together, then prove
+it by running the real apply and watching it refuse. Done that way a
+rename is safe; done half-way it is how a migration gets applied twice.
 
 ### The rules teams are held to
 

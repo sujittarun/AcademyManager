@@ -127,9 +127,17 @@ SHA="$(shasum -a 256 "$SQL_FILE" | awk '{print $1}')"
 # ------------------------------------------------------------
 # Naming. Sequence numbers collide when two teams work in parallel —
 # 0038 was used twice in one afternoon, by two chat windows that could
-# not see each other. Dates cannot collide, and they say when.
-# A warning, not a refusal: the numbered files are history and must
-# keep applying.
+# not see each other. Dates say when, which numbers never did.
+#
+# But dates DO collide, and this comment used to claim they could not.
+# The suffix is the collision surface: 2026-08-01c, 2026-08-05c,
+# 2026-08-12u, 2026-08-12v and 2026-08-19a are each used by two different
+# migrations, and 2026-08-14a by three. Nothing breaks — the ledger keys
+# on the whole basename — but "re-run 12u" stops having one answer, and
+# two parallel sessions can each believe they own the letter.
+#
+# So the check below is that claim made mechanical. A warning, not a
+# refusal: the colliding files are applied already and must keep applying.
 # ------------------------------------------------------------
 case "$KEY" in
   # A date is already four digits and a dash, so it has to be excluded
@@ -143,6 +151,26 @@ case "$KEY" in
     echo "    $(date +%Y-%m-%d)-$(echo "$KEY" | sed 's/^[0-9]*-//')" >&2
     ;;
 esac
+
+# Does another migration already own this date+letter prefix?
+PREFIX="$(printf '%s' "$KEY" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}[a-z]*)-.*/\1/')"
+if [ "$PREFIX" != "$KEY" ]; then
+  MIG_DIR="$(cd "$(dirname "$SQL_FILE")" && pwd)"
+  CLASH="$(ls "$MIG_DIR" 2>/dev/null | grep -E "^${PREFIX}-" | grep -vxF "$KEY" || true)"
+  if [ -n "$CLASH" ]; then
+    DAY="$(printf '%s' "$PREFIX" | sed -E 's/[a-z]+$//')"
+    NEXT=""
+    for L in a b c d e f g h i j k l m n o p q r s t u v w x y z; do
+      if ! ls "$MIG_DIR" 2>/dev/null | grep -qE "^${DAY}${L}-"; then NEXT="${DAY}${L}"; break; fi
+    done
+    echo "⚠ prefix $PREFIX is already taken by:" >&2
+    printf '    %s\n' $CLASH >&2
+    echo "  Applying anyway — the ledger keys on the full basename." >&2
+    if [ -n "$NEXT" ]; then
+      echo "  For a NEW file prefer: ${NEXT}-$(printf '%s' "$KEY" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}[a-z]*-//')" >&2
+    fi
+  fi
+fi
 
 # ------------------------------------------------------------
 # Scope gate. A tenant-scoped file may not touch shared objects — that

@@ -1,5 +1,5 @@
 -- ============================================================
--- 2026-08-19a · The console ranked clients by instrumentation, not use
+-- 2026-08-19f · The console ranked clients by instrumentation, not use
 -- scope: shared
 --
 -- Every "usage" figure on the Academies tab is counted from the `events`
