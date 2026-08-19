@@ -359,6 +359,22 @@ check("a zero-MRR account can never show as overdue", () => {
   });
 });
 
+/* Every state must NAME itself on the card. The paying state used to
+   render an empty label, which on a dashboard is indistinguishable from
+   a value that failed to load — and it is the only good news here. */
+check("every billing state names itself on the card", () => {
+  [["paying", "2099-01-01", "Paying"], ["paying", "2020-01-01", "Overdue"],
+   ["trial", "2099-01-01", "Trial"],   ["trial", "2020-01-01", "Trial ended"],
+   ["free", null, "Free"]].forEach(function (c) {
+    const a = api.mapAccount({ tenant_id: "t", name: "T", config: {}, sub_status: c[0],
+                               renews_on: c[1], mrr: 899,
+                               last_write_at: new Date().toISOString() });
+    api.state.data = [a];
+    const h = api.academiesView(api.state.data);
+    assert(h.includes(c[2]), c[0] + " renders no label saying \"" + c[2] + "\"");
+  });
+});
+
 check("the date says which kind of date it is", () => {
   function label(st, d) {
     return api.mapAccount({ tenant_id: "t", name: "T", config: {}, sub_status: st,
