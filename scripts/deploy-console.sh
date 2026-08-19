@@ -20,14 +20,23 @@ git worktree prune
 rm -rf "$WT"
 git worktree add -q "$WT" gh-pages
 
-cp index.html "$WT/index.html"
+# Every page the console serves. A file missing from this list is a file
+# that stays invisible no matter how many times it is committed — which is
+# the whole failure this script exists to prevent, so adding a page means
+# adding it HERE too.
+PAGES=(index.html reset.html)
+
+for f in "${PAGES[@]}"; do
+  [ -f "$f" ] || { echo "✗ $f is missing from main"; exit 1; }
+  cp "$f" "$WT/$f"
+done
 
 cd "$WT"
-if git diff --quiet -- index.html; then
+if git diff --quiet -- "${PAGES[@]}"; then
   echo "→ gh-pages already matches main. Nothing to deploy."
 else
-  LINES=$(wc -l < index.html | tr -d ' ')
-  git add index.html
+  LINES=$(cat "${PAGES[@]}" | wc -l | tr -d ' ')
+  git add "${PAGES[@]}"
   git commit -q -m "deploy console (${LINES} lines)"
   git push -q origin gh-pages
   echo "✓ deployed — https://sujittarun.github.io/AcademyManager/"
