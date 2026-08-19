@@ -290,7 +290,7 @@
         if (state.ev[id] || state.evLoading[id]) return;
         state.evLoading[id] = true;
         get("/events?tenant_id=eq." + encodeURIComponent(id) + "&at=gte." + daysAgo(6) +
-          "&order=at.desc&limit=800&select=name,props,page,session_id,at")
+          "&order=at.desc&limit=800&select=name,props,page,session_id,at,visitor,ip")
           .then(function (rows) {
             state.ev[id] = rows || []; state.evLoading[id] = false;
             if (state.sel === id) render();
@@ -1402,11 +1402,36 @@
                 (evs.length ? '<span style="font-size:11.5px;color:var(--tx4);font-variant-numeric:tabular-nums">' + evs.length + " event" + (evs.length > 1 ? "s" : "") + (daySess ? " · " + daySess + " session" + (daySess > 1 ? "s" : "") : "") + "</span>" : '<span style="font-size:11.5px;color:var(--tx5)">No activity</span>') + "</div>";
               var pv = evs.filter(function (e) { return e.name === "page_view"; });
               var acts = evs.filter(function (e) { return e.name !== "page_view"; });
+              /* Who did each of these, not just how many there were.
+
+                 The device label is LOOKED UP in the visitor list rather
+                 than parsed from the user-agent here: that parse already
+                 exists once, in tenant_visitors(), and a second copy in
+                 JavaScript is how the same word ends up meaning two
+                 things. If the list has not arrived yet the row still
+                 shows its IP, which is the part the operator asked for.
+
+                 Rows from a device marked "that's me" are dimmed rather
+                 than hidden — the activity genuinely happened, it just
+                 is not traction. */
+              var vmap = {};
+              if (state.visitors && state.visitors.tenant === a.id && state.visitors.rows) {
+                state.visitors.rows.forEach(function (r) { vmap[r.visitor] = r; });
+              }
+              function whoRow(e) {
+                var v = vmap[e.visitor], bits = [];
+                if (v) bits.push([v.device, v.browser].filter(Boolean).join(" "));
+                if (e.ip) bits.push(e.ip);
+                if (v && v.is_internal) bits.push(v.label || "mine");
+                if (!bits.length) return "";
+                return '<div style="font-size:10.5px;color:var(--tx5);white-space:nowrap;overflow:hidden;' +
+                       'text-overflow:ellipsis;font-variant-numeric:tabular-nums">' + esc(bits.join(" · ")) + "</div>";
+              }
               var items = acts.slice(0, 6).map(function (e) {
                 var m = evMeta(e.name), d = evDetail(e);
-                return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0">' +
+                return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0' + ((vmap[e.visitor] || {}).is_internal ? ';opacity:.45' : '') + '">' +
                   '<div style="width:28px;height:28px;border-radius:8px;background:' + m[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:' + m[1] + '">' + m[0] + '</span></div>' +
-                  '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + "</div>" +
+                  '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + whoRow(e) + "</div>" +
                   /* An error in the feed is the one row you want to act on
                      without going anywhere. Icon only: the row is already
                      tight, and a word here would crowd the timestamp. */
