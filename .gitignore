@@ -54,3 +54,6 @@ supabase/migrations/2026-08-11m-genalpha-admissions.sql
 # ---------------------------------------------------------------
 output/
 supabase/.temp/
+
+# rendered console snapshots for local viewing — real GMV/MRR, never commit
+.preview/
