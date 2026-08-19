@@ -120,7 +120,8 @@ function visitor(over) {
   n += 1;
   return Object.assign({
     visitor: "v_synthetic" + n, ip: "203.0.113." + n, country: "IN", edge: "MAA",
-    device: "iPhone", browser: "Safari 17", visits: 2, events: 9,
+    device: "iPhone", browser: "Safari 17", os: "iOS 17", form: "phone · <400",
+    visits: 2, events: 9,
     actions: null, did_something: false, is_internal: false,
     last_seen: "2026-08-19T06:00:00+00:00",
   }, over || {});
@@ -184,8 +185,21 @@ check("identity sits beside the activity, not in a panel of its own", () => {
   assert(row.indexOf("49.47.217.72") < row.indexOf("signed in"), "the IP is not beside what they did");
 });
 
+/* The panel called the owner's Mac a phone on its first two real rows,
+   because the app's own `dev` is a viewport bucket and it won the
+   coalesce. Fixed in the database (2026-08-19k); asserted here so the
+   console never quietly starts preferring the page's opinion again. */
+check("the device is the hardware, and the page's guess is labelled as such", () => {
+  const h = view([visitor({ device: "Mac", browser: "Chrome 148", os: "macOS", form: "phone · <400" })]);
+  const row = h.slice(h.indexOf("Mac"));
+  assert(row.includes("Mac · Chrome 148"), "hardware and browser are not the headline for the row");
+  assert(row.includes("page saw phone"), "the page's own reading is missing");
+  assert(row.indexOf("Mac · Chrome 148") < row.indexOf("page saw"),
+    "the page's viewport guess is being shown as the device");
+});
+
 check("no field on the card can inject markup", () => {
-  ["ip", "country", "edge", "device", "browser", "actions", "visitor"].forEach((f) => {
+  ["ip", "country", "edge", "device", "browser", "os", "form", "actions", "visitor"].forEach((f) => {
     const h = view([visitor({ [f]: "<img src=x onerror=alert(1)>" })]);
     assert(!h.includes("<img src=x"), f + " is interpolated raw into the page");
   });

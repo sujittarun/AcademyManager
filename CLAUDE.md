@@ -27,10 +27,11 @@ scripts/check-sales-view.js  runs the Sales tab's real code in node
 index.html                   the operator console
 ```
 
-## After ANY change to the Sales tab, run the harness
+## After ANY change to the console's views, run the harnesses
 
 ```bash
 node scripts/check-sales-view.js
+node scripts/check-visitor-view.js
 ```
 
 It drives the real `salesView`, `salesOpenOne`, `salesConfirmAll` and
@@ -49,6 +50,38 @@ reading caught, and both times every shape check passed:
 The harness is mutation-tested: restore either bug and it fails with the
 symptom in the message. Add a case whenever the tab breaks again — a
 conclusion defended only by reading the source has been wrong here twice.
+
+### `check-visitor-view.js`, and why a harness can be worse than none
+
+Same idea for the academy detail view, written after the same class of
+failure hit a third time — and this one is worth reading before writing
+the next harness, because **the first version of it passed while the
+console was completely broken.**
+
+It sliced `visitorCard()` out of `index.html` and ran it against a
+stubbed `card()`. `card()` is declared *inside* `detailView`, and the new
+function was defined outside it, so the shipped console threw
+`ReferenceError: card is not defined` the moment any academy was clicked
+— no academy would open at all. Every check was green, because the stub
+satisfied precisely the reference the scope error would have exposed.
+
+**A stub for something the code under test owns does not reduce the
+blast radius of a test; it removes the test.** So the rewritten harness
+stubs only the *browser*: it loads the whole `<script>`, injects one line
+after `"use strict"` to hand back the real `detailView`, `mapAccount`,
+`state` and `rpc`, and captures the real delegated click handler off the
+document shim. Three things that cost time and are worth knowing:
+
+- The accessor must be injected at the **top**. The IIFE returns early
+  when nobody is signed in — which is every test run — so a line appended
+  at the foot never executes.
+- The `fetch` recorder must be installed **before** the script loads.
+  Swapping `ctx.fetch` afterwards recorded nothing, and because `rpc()`
+  catches its own errors and returns `null`, a fetch that never happened
+  looked exactly like one that succeeded.
+- `esc()` is `createElement("i").textContent` read back as `innerHTML`,
+  so the fake element has to escape `& < >` and leave `"` alone. Escaping
+  more than a browser does would hide a real attribute-quoting bug.
 
 ## Applying a migration
 
