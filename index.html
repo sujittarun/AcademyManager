@@ -302,7 +302,13 @@
       function mapAccount(r) {
         var cfg = r.config || {}, lastAt = r.last_event_at || null;
         var lastH = lastAt ? (Date.now() - new Date(lastAt)) / 36e5 : null;
-        var health = !lastAt ? "Onboarding" : lastH <= 48 ? "Active" : lastH <= 14 * 24 ? "Quiet" : "At risk";
+        // Health follows the last real WRITE, not the last telemetry ping.
+        // raj had its most recent event on 08-17 and its most recent row on
+        // 07-30 — people opening the app and doing nothing is a quiet
+        // account, and the old rule called it Active.
+        var wroteAt = r.last_write_at || null;
+        var writeH = wroteAt ? (Date.now() - new Date(wroteAt)) / 36e5 : null;
+        var health = !wroteAt ? "Onboarding" : writeH <= 7 * 24 ? "Active" : writeH <= 30 * 24 ? "Quiet" : "At risk";
         var renewsPast = r.renews_on && new Date(r.renews_on) < new Date();
         var st = r.sub_status || "";
         var bill = (st === "overdue" || renewsPast) ? "overdue" : (st === "active" || st === "paid") ? "paid" : "pending";
@@ -315,6 +321,8 @@
           method: cfg.billing ? "UPI · Autopay" : "—", msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
           errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
           wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
+          actions: r.actions_30d || 0, actionsPrev: r.actions_prev || 0, writeH: writeH, wroteAt: wroteAt,
+          events30: r.events_30d || 0,
           federated: !!r.federated, rollupAt: r.rollup_at || null,
           subStatus: r.sub_status || "",
           tenant: !!cfg.url, tenantUrl: cfg.url || "", mix: r.channel_mix || {}, weekly: normWeekly(r.weekly_gmv), usage: usageArray(r.usage_daily), sub: cfg.sport + " · " + (cfg.city || ""),
@@ -545,17 +553,66 @@
           '<div class="portfolio-table"><div class="table-scroll"><table><thead><tr>' + thead + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
       }
 
+      /* ============ Academies ============
+         Reorganised 2026-08-19. What changed and why:
+
+         · The 34-bar sparkline is gone. It plotted `usage_daily`, which
+           counts rows in `events` — telemetry. It ranked mpp (301 events,
+           0 members, 0 payments) above genalpha (81 paying families) for
+           the single reason that mpp's app calls track() more often. A
+           chart that rewards instrumentation on a business dashboard is
+           worse than no chart.
+
+         · "Activity · 30d" counts real writes — payments, members,
+           bookings, sessions, applications, expenses — so it means the
+           same thing for a coaching academy, a court venue and a turf
+           ground, and cannot be gamed by a chattier client.
+
+         · "Last change" is the last WRITE, not the last ping. raj's most
+           recent event is days newer than its most recent row; opening
+           the app is not using it.
+
+         · Bookings and Players are gone from the card. Three tenants have
+           no bookings and two have no enrolments, so both cells read "—"
+           more often than not. They are shape-specific and belong in the
+           detail, where the shape is known.
+
+         Four cells, in the order the operator asks the questions: am I
+         paid, is money moving, are they working, and when did they last
+         do anything. */
       function academiesView(accts) {
-        return '<div class="cardgrid">' + accts.map(function (a) {
-          var t = tint(a.sport), pct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, up = pct >= 0;
+        var order = { Active: 0, Quiet: 1, "At risk": 2, Onboarding: 3 };
+        var rows = accts.slice().sort(function (x, y) {
+          var d = (order[x.health] ?? 9) - (order[y.health] ?? 9);
+          return d !== 0 ? d : (y.actions - x.actions);
+        });
+        return '<div class="cardgrid">' + rows.map(function (a) {
+          var t = tint(a.sport);
+          var gpct = a.prev ? Math.round((a.gmv - a.prev) / a.prev * 100) : 0, gup = gpct >= 0;
+          // A tenant with no previous month is new, not collapsing.
+          var apct = a.actionsPrev ? Math.round((a.actions - a.actionsPrev) / a.actionsPrev * 100) : null;
+          var aup = apct == null || apct >= 0;
+          var bs = billStyle(a.bill);
+          function cell(label, value, note, noteColor) {
+            return '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">' + label + '</div>' +
+              '<div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + value +
+              (note ? ' <span style="font-size:11.5px;font-weight:600;color:' + (noteColor || "var(--tx4)") + '">' + note + '</span>' : "") +
+              "</div></div>";
+          }
           return '<div class="acad" data-open="' + a.id + '" style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .18s,transform .18s">' +
             '<div style="display:flex;align-items:flex-start;gap:13px"><div style="width:44px;height:44px;border-radius:12px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:24px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:12px;color:var(--tx4)">' + esc(a.sub) + "</div></div>" + pill(a.health, healthStyle(a.health), true) + "</div>" +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--bd3)">' +
-              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">MRR</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + inr(a.mrr) + "</div></div>" +
-              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">GMV · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.gmv ? inrK(a.gmv) : "—") + (a.prev ? ' <span style="font-size:11.5px;font-weight:600;color:' + (up ? "#16a34a" : "#dc2626") + '">' + (up ? "+" : "") + pct + "%</span>" : "") + "</div></div>" +
-              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Bookings · 30d</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + (a.bookings || "—") + "</div></div>" +
-              '<div><div style="font-size:11px;color:var(--tx4);font-weight:500">Players</div><div style="font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums">' + a.players + "/" + a.cap + "</div></div>" +
-            "</div><div style=\"margin-top:16px\">" + bars(a.usage, 34, 3) + "</div></div>";
+              cell("MRR", inr(a.mrr), a.bill === "paid" ? "" : bs[2], a.bill === "overdue" ? "#dc2626" : "#d97706") +
+              cell("GMV · 30d", a.gmv ? inrK(a.gmv) : "—", a.prev ? (gup ? "+" : "") + gpct + "%" : "", gup ? "#16a34a" : "#dc2626") +
+              cell("Activity · 30d", num(a.actions),
+                   apct == null ? (a.actions ? "new" : "") : (aup ? "+" : "") + apct + "%",
+                   aup ? "#16a34a" : "#dc2626") +
+              cell("Last change", a.wroteAt ? agoH(a.writeH) : "Never", "") +
+            "</div>" +
+            (a.actions === 0 && a.events30 > 0
+              ? '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd3);font-size:11.5px;color:#d97706;display:flex;align-items:center;gap:6px"><span class="mi" style="font-size:15px">info</span>App is open but nothing recorded — ' + num(a.events30) + ' app events, 0 writes</div>'
+              : "") +
+            "</div>";
         }).join("") + "</div>";
       }
 
@@ -1822,7 +1879,27 @@
 
         function facts(list) { return list.map(function (f) { return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--bd3)"><span style="font-size:12.5px;color:var(--tx3)">' + f[0] + '</span><span style="font-size:12.5px;font-weight:600;color:' + (f[2] || "#1a1d21") + ';text-align:right">' + f[1] + "</span></div>"; }).join(""); }
         var planFacts = facts([["Tier", esc(a.plan), ac], ["Subscription", inr(a.mrr) + " / mo"], ["Billing status", bs[2], bs[0]], ["Payment method", esc(a.method)], ["Next renewal", esc(a.renews), a.bill === "overdue" ? "#dc2626" : "#1a1d21"], ["Messaging · 30d", num(a.msgs) + " · " + inr(a.msgCost)]]);
-        var adoptFacts = facts([["Active days", a.activeDays + " / 30"], ["Sessions · 30d", num(a.sessions)], ["Last activity", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
+        /* Two different questions, so two different panels.
+
+           "Work recorded" counts rows this academy actually wrote, which
+           is the same measure for a coaching academy, a court venue and a
+           turf ground, and is unaffected by how chatty the client app is.
+
+           "App telemetry" is the health of the software, not of the
+           business. It stays — "is the app running and is it erroring" is
+           worth knowing — but it is labelled as what it is, and it is no
+           longer what the card ranks on. mpp reports 301 events against 0
+           writes; that combination is the point of separating them. */
+        var apct = a.actionsPrev ? Math.round((a.actions - a.actionsPrev) / a.actionsPrev * 100) : null;
+        var workFacts = facts([
+          ["Actions · 30d", num(a.actions) + (apct == null ? "" : "  (" + (apct >= 0 ? "+" : "") + apct + "% vs prev 30d)"),
+            a.actions === 0 ? "#dc2626" : (apct != null && apct < -50 ? "#d97706" : undefined)],
+          ["Actions · prev 30d", num(a.actionsPrev)],
+          ["Last change", a.wroteAt ? agoH(a.writeH) : "Never"],
+          ["Active players", a.cap ? a.players + " / " + a.cap : num(a.players)],
+          ["Sessions · 30d", num(a.sessions)],
+        ]);
+        var adoptFacts = facts([["App events · 30d", num(a.events30)], ["Active days", a.activeDays + " / 30"], ["Last ping", agoH(a.lastH)], ["App build", a.ver === "—" ? "—" : "v" + a.ver], ["Errors · 30d", String(a.errors), a.errors ? "#dc2626" : "#16a34a"]]);
         var bookFacts = facts([["Bookings · all time", num(a.totalBk)], ["Weekday / weekend", num(a.wkday) + " / " + num(a.wkend)], ["Court revenue · 90d", inr(a.courtRev)], ["Unique bookers", num(a.bookers)]]);
 
         /* Moving an academy from trial to paying used to mean opening a
@@ -1853,13 +1930,18 @@
           '<div class="kpis" style="margin-bottom:20px">' + kpis + "</div>" +
           '<div class="dgrid"><div style="display:flex;flex-direction:column;gap:20px">' +
             card("Gross volume", "weekly · last 8 weeks", '<div style="margin-top:18px">' + bars(a.weekly, 92, 8) + '</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--tx5)"><span>8 wks ago</span><span>this week</span></div>') +
-            card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
+            (a.totalBk ? card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") : "") +
             activityCard(a) +
             usageCard(a) +
           "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
+            card("Work recorded", "what the academy actually did", '<div style="margin-top:6px">' + workFacts + "</div>") +
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
-            card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
-            card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") +
+            card("App telemetry · 30d", "software health, not business volume", '<div style="margin-top:6px">' + adoptFacts + "</div>" +
+              (a.usage && a.usage.length ? '<div style="margin-top:16px">' + bars(a.usage, 34, 3) + '</div><div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--tx5)"><span>14 days ago</span><span>today</span></div>' : "")) +
+            /* Only for tenants that take bookings. raj is coaching-only and
+               genalpha has none, so this panel was four dashes on half the
+               portfolio — and a dash reads as "broken", not "not applicable". */
+            (a.totalBk ? card("Court bookings", "", '<div style="margin-top:6px">' + bookFacts + "</div>") : "") +
           "</div></div>" +
           /* Full width, directly below Plan & billing rather than inside
              it: the right-hand column is 1fr of a 1.5fr:1fr grid, and a
