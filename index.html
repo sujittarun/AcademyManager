@@ -647,11 +647,16 @@
           return '<div class="acad" data-open="' + a.id + '" style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .18s,transform .18s">' +
             '<div style="display:flex;align-items:flex-start;gap:13px"><div style="width:44px;height:44px;border-radius:12px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:24px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:12px;color:var(--tx4)">' + esc(a.sub) + "</div></div>" + pill(a.health, healthStyle(a.health), true) + "</div>" +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--bd3)">' +
-              /* Amber is for something that needs doing. A free account
-                 and a running trial need nothing, so they are grey; only
-                 a lapsed trial and a late invoice are coloured. */
-              cell("MRR", inr(a.mrr), a.bill === "paying" ? "" : bs[2],
-                   a.bill === "overdue" ? "#dc2626" : a.bill === "decide" ? "#d97706" : "#6b7280") +
+              /* Say "Paying" out loud. The old card showed no label at
+                 all when an account was paid, which was fine when that
+                 state was unremarkable — but an empty label is now
+                 indistinguishable from a bug, and this is the only real
+                 revenue the platform has. Amber still means something
+                 needs doing; green means it does not. */
+              cell("MRR", inr(a.mrr), bs[2],
+                   a.bill === "overdue" ? "#dc2626"
+                 : a.bill === "decide"  ? "#d97706"
+                 : a.bill === "paying"  ? "#047857" : "#6b7280") +
               cell("GMV · 30d", a.gmv ? inrK(a.gmv) : "—", a.prev ? (gup ? "+" : "") + gpct + "%" : "", gup ? "#16a34a" : "#dc2626") +
               cell("Activity · 30d", num(a.actions),
                    apct == null ? (a.actions ? "new" : "") : (aup ? "+" : "") + apct + "%",
