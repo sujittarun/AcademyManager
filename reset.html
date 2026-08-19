@@ -5,53 +5,101 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Choose a new password · Academy Manager</title>
   <meta name="robots" content="noindex" />
-  <link rel="stylesheet" href="assets/css/console.css" />
-<style>
-  .rs-wrap { min-height: 100svh; display: grid; place-items: center; padding: var(--gap-4); }
-  .rs-card { width: min(420px, 100%); }
-  .rs-head { text-align: center; margin-bottom: var(--gap-4); }
-  .rs-head .mark { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 12px;
-                   background: var(--gold-grad); color: #231d00; display: grid; place-items: center;
-                   font-family: var(--font-display); font-weight: 800; font-size: 19px; }
-  .rs-rules { font-size: 12px; color: var(--ink-low); margin-top: -4px; }
-  .rs-foot { text-align: center; margin-top: var(--gap-3); font-size: 13px; }
+  <style>
+  /* SELF-CONTAINED ON PURPOSE.
+     The first version reused glass.css class names — .glass, .lt-grid,
+     .field, .btn-primary — while loading console.css, which has none of
+     them. Every one was a no-op, so the page rendered as raw unstyled
+     inputs. The console and the tenant apps are two different design
+     systems and this page belongs to neither: it is one card, on its own,
+     so it carries its own dozen lines. */
+  :root {
+    --ink: #101f38; --ink-2: #5b6470; --ink-3: #8c94a0;
+    --line: rgba(16,31,56,.14); --fill: #fff; --page: #f4f6fa;
+    --gold: #f2c220; --gold-2: #d99a00; --red: #c2383f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100svh; display: grid; place-items: center;
+         padding: 24px; background: var(--page); color: var(--ink);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; }
+  .card { width: min(400px, 100%); background: var(--fill); border: 1px solid var(--line);
+          border-radius: 18px; padding: 28px 24px;
+          box-shadow: 0 1px 2px rgba(16,31,56,.05), 0 12px 32px rgba(16,31,56,.09); }
+  .head { text-align: center; margin-bottom: 22px; }
+  .mark { width: 54px; height: 54px; margin: 0 auto 14px; display: grid; place-items: center; }
+  .mark svg { border-radius: 15px; box-shadow: 0 3px 12px rgba(16,31,56,.22); }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  .who { font-size: 13px; color: var(--ink-3); margin: 6px 0 0; }
+  label { display: block; margin-bottom: 14px; }
+  label span { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .06em;
+               text-transform: uppercase; color: var(--ink-2); margin-bottom: 6px; }
+  input { width: 100%; padding: 11px 13px; font: inherit; color: var(--ink);
+          background: #fbfcfe; border: 1px solid rgba(16,31,56,.2); border-radius: 10px; }
+  input:focus { outline: none; border-color: var(--gold-2); background: #fff;
+                box-shadow: 0 0 0 3px rgba(242,194,32,.22); }
+  .rules { font-size: 12px; color: var(--ink-3); margin: -4px 0 14px; }
+  .msg { font-size: 13px; min-height: 0; margin-bottom: 12px; }
+  .msg.error { color: var(--red); }
+  button.go { width: 100%; padding: 13px; font: inherit; font-weight: 700; cursor: pointer;
+              color: #231d00; border: 0; border-radius: 999px;
+              background: linear-gradient(135deg, #ffd75e, var(--gold-2));
+              box-shadow: 0 6px 18px rgba(242,194,32,.35); }
+  button.go[disabled] { opacity: .6; cursor: default; }
+  .empty { text-align: center; padding: 8px 0 4px; }
+  .empty b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .empty span { font-size: 13px; color: var(--ink-3); }
+  .back { display: block; text-align: center; margin-top: 18px; font-size: 13px;
+          color: var(--ink-2); text-decoration: none; }
+  .back:hover { color: var(--ink); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
   
-  <main class="rs-wrap">
-    <div class="glass glass-card rs-card reveal in">
-      <div class="rs-head">
-        <div class="mark">AM</div>
-        <h1 style="font-size:21px;">Choose a new password</h1>
-        <p class="faint" id="who" style="font-size:13px;margin-top:4px;">Checking your link…</p>
+  <main>
+    <div class="card">
+      <div class="head">
+        <!-- Inline, so this page needs no stylesheet and no script to
+             show whose it is. Academy Manager's own mark, not a tenant's. -->
+        <div class="mark">
+          <svg viewBox="0 0 48 48" width="54" height="54" role="img" aria-label="Academy Manager">
+            <defs><linearGradient id="amG" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#3d5a8a"/><stop offset="1" stop-color="#101f38"/>
+            </linearGradient></defs>
+            <rect width="48" height="48" rx="12" fill="url(#amG)"/>
+            <path d="M0 12A12 12 0 0 1 12 0h24a12 12 0 0 1 12 12v5H0z" fill="#fff" opacity=".1"/>
+            <path d="M12 34V16l6 9 6-9 6 9 6-9v18" fill="none" stroke="#f2c220"
+                  stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h1>Choose a new password</h1>
+        <p class="who" id="who">Checking your link…</p>
       </div>
 
-      <form id="form" class="lt-grid" style="gap:var(--gap-3);" hidden>
-        <label class="field">
+      <form id="form" hidden>
+        <label>
           <span>New password</span>
           <!-- autocomplete=new-password so a password manager offers to
                generate and store one rather than filling the old value. -->
           <input type="password" id="pw1" autocomplete="new-password" required minlength="10" />
         </label>
-        <label class="field">
+        <label>
           <span>Type it again</span>
           <input type="password" id="pw2" autocomplete="new-password" required minlength="10" />
         </label>
-        <div class="rs-rules">At least 10 characters. A short phrase you will remember beats a clever short one.</div>
-        <div class="form-msg" id="msg" role="status" aria-live="polite" style="min-height:0;"></div>
-        <button type="submit" class="btn btn-primary btn-block btn-lg" id="save">Save the new password</button>
+        <div class="rules">At least 10 characters. A short phrase you will remember beats a clever short one.</div>
+        <div class="msg" id="msg" role="status" aria-live="polite"></div>
+        <button type="submit" class="go" id="save">Save the new password</button>
       </form>
 
       <div id="dead" hidden>
-        <div class="lt-empty">
-          <div class="lt-empty-t" id="deadT">This link cannot be used</div>
-          <div class="lt-empty-s" id="deadS"></div>
+        <div class="empty">
+          <b id="deadT">This link cannot be used</b>
+          <span id="deadS"></span>
         </div>
-        <a class="btn btn-glass btn-block" href="./" style="margin-top:var(--gap-3);">Back to the console</a>
       </div>
 
-      <div class="rs-foot"><a href="./" id="backLink">← Back to the console</a></div>
+      <a class="back" href="./" id="backLink">← Back to the console</a>
     </div>
   </main>
 
@@ -147,16 +195,16 @@
     $("#form").addEventListener("submit", function (e) {
       e.preventDefault();
       var a = $("#pw1").value, b = $("#pw2").value, msg = $("#msg"), btn = $("#save");
-      msg.className = "form-msg";
+      msg.className = "msg";
 
       if (a.length < 10) {
         msg.textContent = "Use at least 10 characters.";
-        msg.className = "form-msg error";
+        msg.className = "msg error";
         return;
       }
       if (a !== b) {
         msg.textContent = "The two passwords do not match.";
-        msg.className = "form-msg error";
+        msg.className = "msg error";
         return;
       }
 
@@ -187,7 +235,7 @@
       }).catch(function (err) {
         btn.disabled = false;
         msg.textContent = (err && err.message) || "Could not save it.";
-        msg.className = "form-msg error";
+        msg.className = "msg error";
       });
     });
   })();
