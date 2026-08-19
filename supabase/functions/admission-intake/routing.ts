@@ -14,7 +14,22 @@ type BundleMessage = {
   message_type?: string;
   text_body?: string;
   reply_to_provider_message_id?: string;
+  message_timestamp?: string;
 };
+
+/**
+ * One staff action — "New Admission" plus the form plus the payment
+ * screenshot — reaches us as several separate HTTP deliveries stamped within
+ * a second or two of each other. Anything inside this window is that single
+ * action, however far the session has already got.
+ *
+ * Deliberately shorter than the 25s the "completed review" guard is tested
+ * at, so widening the burst never quietly weakens that guard. It rolls: each
+ * attached message moves last_message_at, so a run of images sent one after
+ * another stays together while a screenshot remembered a minute later does
+ * not.
+ */
+const SAME_BURST_MS = 15_000;
 
 type ProcessingGeneration = {
   status?: string;
@@ -48,7 +63,20 @@ export function shouldContinueActiveBundle(
 
   // Unthreaded media after a complete review is more safely treated as a new
   // case. Staff can use WhatsApp Reply to attach payment proof to that review.
-  if (knownCase && session.status === "waiting_for_confirmation" && message.message_type !== "text") return false;
+  //
+  // Except when it arrived in the same burst. Extraction is fast enough that a
+  // session can reach waiting_for_confirmation before the second image of the
+  // same upload is even processed, and that is precisely the everyday case:
+  // admission form and payment screenshot sent together. On 2026-08-19 it
+  // split one admission into two half-cases — the form in one, the ₹4,000
+  // PhonePe screenshot in the other — which reads to the owner as "it could
+  // not read the document". Judged on the MESSAGE timestamps, not on now, so a
+  // slow invocation cannot turn a later screenshot into part of this burst.
+  if (knownCase && session.status === "waiting_for_confirmation" && message.message_type !== "text") {
+    const messageAt = Date.parse(String(message.message_timestamp || ""));
+    if (!Number.isFinite(messageAt)) return false;
+    if (Math.abs(messageAt - lastActivity) > SAME_BURST_MS) return false;
+  }
   return true;
 }
 

@@ -205,3 +205,50 @@ Deno.test("a superseded processing generation cannot publish", () => {
     throw new Error("A reopened bundle must supersede the older model run.");
   }
 });
+
+Deno.test("both images of one upload stay in the same case", () => {
+  // 2026-08-19: an admission form and a ₹4,000 PhonePe screenshot were sent
+  // together and Meta delivered them in the same second. Extraction was fast
+  // enough that the session had already reached waiting_for_confirmation when
+  // the second image landed, so it opened a case of its own — the owner saw a
+  // student with no payment and a payment with no student, and reported that
+  // AgentAlpha "could not read the document". Both had in fact been read.
+  const joins = shouldContinueActiveBundle({
+    status: "waiting_for_confirmation",
+    intake_type: "admission",
+    last_message_at: "2026-08-19T08:57:13.000Z",
+  }, {
+    message_type: "image",
+    text_body: "",
+    message_timestamp: "2026-08-19T08:57:13.000Z",
+  }, Date.parse("2026-08-19T08:57:14.000Z"));
+  if (!joins) throw new Error("Images sent together must land in one case.");
+});
+
+Deno.test("a screenshot remembered a minute later is still a new case", () => {
+  // The burst window must not become a general licence to merge media into a
+  // finished review; that is what WhatsApp Reply is for.
+  const joins = shouldContinueActiveBundle({
+    status: "waiting_for_confirmation",
+    intake_type: "admission",
+    last_message_at: "2026-08-19T08:57:13.000Z",
+  }, {
+    message_type: "image",
+    text_body: "",
+    message_timestamp: "2026-08-19T08:58:15.000Z",
+  }, Date.parse("2026-08-19T08:58:16.000Z"));
+  if (joins) throw new Error("Late unthreaded media must not attach to a completed review.");
+});
+
+Deno.test("media with no usable timestamp keeps the conservative behaviour", () => {
+  const joins = shouldContinueActiveBundle({
+    status: "waiting_for_confirmation",
+    intake_type: "renewal",
+    last_message_at: "2026-08-19T08:57:13.000Z",
+  }, {
+    message_type: "image",
+    text_body: "",
+    message_timestamp: "not a date",
+  }, Date.parse("2026-08-19T08:57:14.000Z"));
+  if (joins) throw new Error("Without a trustworthy timestamp we must not merge.");
+});
