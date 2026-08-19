@@ -932,7 +932,6 @@ function requiredMissingFields(intakeType: string, draft: any, match: any): stri
     const missing = [
       ["applicant_name", draft?.applicant_name],
       ["nationality", draft?.nationality],
-      ["date_of_birth", draft?.date_of_birth],
       ["gender", draft?.gender],
       ["father_guardian_name", draft?.father_guardian_name],
       ["parent_contact_no", normalizedIndianPhone(draft?.parent_contact_no).length === 10 ? draft?.parent_contact_no : ""],
@@ -942,8 +941,21 @@ function requiredMissingFields(intakeType: string, draft: any, match: any): stri
       ["join_date", draft?.join_date],
       ["time_slot", draft?.time_slot],
     ].filter(([, value]) => !value).map(([field]) => String(field));
-    const admissionAge = ageAt(String(draft?.join_date || ""), String(draft?.date_of_birth || ""));
-    if (admissionAge === null || admissionAge < 4 || admissionAge > 18) missing.push("join_date");
+    // Age arrives as EITHER a date of birth or a plain age — parents routinely
+    // fill one box and leave the other blank, and the form accepts that. So
+    // require whichever one we got, not both.
+    //
+    // This check used to push "join_date" when it failed, so a blank date of
+    // birth was reported to the manager as a missing JOINING date — a date the
+    // form had supplied and the extractor had read correctly. That is what
+    // made 2026-08-19's admission look like it needed a joining date it
+    // already had.
+    const derivedAge = ageAt(String(draft?.join_date || ""), String(draft?.date_of_birth || ""));
+    const statedAge = Number(draft?.age || 0);
+    const admissionAge = derivedAge !== null
+      ? derivedAge
+      : (Number.isFinite(statedAge) && statedAge > 0 ? statedAge : null);
+    if (admissionAge === null || admissionAge < 4 || admissionAge > 18) missing.push("date_of_birth_or_age");
     if (!draft?.consent_accepted) missing.push("consent_accepted");
     if (!draft?.terms_accepted) missing.push("terms_accepted");
 
@@ -1045,6 +1057,7 @@ function missingFieldLabel(field: string, paymentDate = ""): string {
     applicant_name: "student name",
     nationality: "nationality",
     date_of_birth: "date of birth",
+    date_of_birth_or_age: "date of birth, or the player's age",
     gender: "gender",
     father_guardian_name: "father / guardian name",
     parent_contact_no: "10-digit parent number",
