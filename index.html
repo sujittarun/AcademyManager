@@ -1902,10 +1902,14 @@
             access.usedReq = null;
             rpc("review_staff_request", {
               p_tenant: access.tenant, p_id: Number(reqId), p_status: "approved", p_by: "operator"
-            }).then(function () {
-              access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== String(reqId); });
-              render();
-            }).catch(function () { /* the account is what mattered */ });
+            }).then(function (res) {
+              /* Best-effort: the login exists either way, and a request
+                 left pending is untidy rather than broken. */
+              if (res && res.ok === true) {
+                access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== String(reqId); });
+                render();
+              }
+            });
           }
 
           accessLoad(access.tenant, true);
@@ -2306,6 +2310,52 @@
           return;
         }
         /* ---- People & access ---- */
+        /* CLICK, not change. These two were written next to the role
+           <select>'s handler and so ended up in the `change` listener — and
+           a <button> never fires change, so Use and Dismiss did nothing at
+           all. Buttons belong here. */
+        var reqUse = e.target.closest("[data-req-use]");
+        if (reqUse) {
+          var rid = reqUse.getAttribute("data-req-use");
+          var req = (access.reqs || []).filter(function (x) { return String(x.id) === rid; })[0];
+          if (req) {
+            /* Fill the form and set the role, then let the operator finish.
+               A coach still needs centres picked, and picking those is the
+               step that decides what they can see. */
+            access.form.name = req.name || "";
+            access.form.email = req.email || "";
+            access.role = req.role === "coach" ? "coach" : "staff";
+            access.usedReq = req.id;
+            render();
+            var em = document.getElementById("accEmail");
+            if (em) { try { em.scrollIntoView({ block: "center" }); em.focus(); } catch (er) {} }
+          }
+          return;
+        }
+
+        var reqDrop = e.target.closest("[data-req-dismiss]");
+        if (reqDrop) {
+          var did = reqDrop.getAttribute("data-req-dismiss");
+          reqDrop.disabled = true;
+          /* rpc() swallows every failure and resolves with null, so a
+             .catch() here would never run and a refusal would look exactly
+             like a success — the row would vanish from the screen and stay
+             pending in the database. Check the RESULT instead. */
+          rpc("review_staff_request", {
+            p_tenant: access.tenant, p_id: Number(did), p_status: "declined", p_by: "operator"
+          }).then(function (res) {
+            if (!res || res.ok !== true) {
+              reqDrop.disabled = false;
+              access.msg = "Could not dismiss that request — try again, or sign in afresh.";
+              render();
+              return;
+            }
+            access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== did; });
+            render();
+          });
+          return;
+        }
+
         var accBtn = e.target.closest("[data-acc]");
         if (accBtn) { accessDo(accBtn.getAttribute("data-acc"), accBtn.getAttribute("data-acc-email")); return; }
         var accCopy = e.target.closest("[data-acc-copy]");
@@ -2354,42 +2404,6 @@
       /* the add-someone form. Both branches sync what has been typed
          BEFORE re-rendering, because render() rebuilds the inputs. */
       document.addEventListener("change", function (e) {
-        var reqUse = e.target.closest("[data-req-use]");
-        if (reqUse) {
-          var rid = reqUse.getAttribute("data-req-use");
-          var req = (access.reqs || []).filter(function (x) { return String(x.id) === rid; })[0];
-          if (req) {
-            /* Fill the form and set the role, then let the operator finish.
-               A coach still needs centres picked, and picking those is the
-               step that decides what they can see. */
-            access.form.name = req.name || "";
-            access.form.email = req.email || "";
-            access.role = req.role === "coach" ? "coach" : "staff";
-            access.usedReq = req.id;
-            render();
-            var em = document.getElementById("accEmail");
-            if (em) { try { em.scrollIntoView({ block: "center" }); em.focus(); } catch (er) {} }
-          }
-          return;
-        }
-
-        var reqDrop = e.target.closest("[data-req-dismiss]");
-        if (reqDrop) {
-          var did = reqDrop.getAttribute("data-req-dismiss");
-          reqDrop.disabled = true;
-          rpc("review_staff_request", {
-            p_tenant: access.tenant, p_id: Number(did), p_status: "declined", p_by: "operator"
-          }).then(function () {
-            access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== did; });
-            render();
-          }).catch(function (err) {
-            reqDrop.disabled = false;
-            access.msg = (err && err.message) || "Could not dismiss that request.";
-            render();
-          });
-          return;
-        }
-
         var accRole = e.target.closest("[data-acc-role]");
         if (accRole) { accessSyncForm(); access.role = accRole.value === "coach" ? "coach" : "staff"; render(); return; }
         var accC = e.target.closest("[data-acc-centre]");
