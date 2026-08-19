@@ -469,8 +469,12 @@ Compare against known-good values: Raj publishes 5 centres, 14 batches,
 
 ## Billing: free, trial, paying, churned
 
-**Nobody is paying us as of 2026-08-19.** Every MRR figure in the
-database before that date was a placeholder invented to make the
+**Mezzo School of Music is the first paying client** — ₹899/month,
+paid 2026-08-19, `status = 'paying'`, first invoice due 19 Sep 2026. That
+is the platform's entire real revenue, and it is the only MRR figure in
+the database that anyone has actually paid.
+
+Every MRR figure before that date was a placeholder invented to make the
 dashboard look populated — Leo's ₹899 and MPP's ₹1,500 said so in their
 own `notes` — and they were adding ₹2,399 of imaginary revenue to the
 portfolio total. `2026-08-19n` zeroed them and moved the old values into
@@ -539,6 +543,7 @@ Change it from the academy's card in the console, under Plan & billing.
 |---|---|---|
 | `ska` | **trial → 1 Sep 2026** | testing through 31 Aug, going live 1 Sep. Set the contract value and flip to `paying` on the day |
 | `leo`, `raj`, `mpp` | trial | dates already behind them, so they read "Trial ended" — a decision is due on each |
+| `mezzo` | **paying — ₹899/mo** | first paying client. Next invoice 19 Sep 2026 |
 | `genalpha` | free | first client, used daily, deliberately unbilled |
 | `demo` | free | the sales demo. Never bill |
 | `matchpoint` | — | archived; no subscription row |
