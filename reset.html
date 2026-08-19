@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Choose a new password · Academy Manager</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="assets/css/console.css" />
+<style>
+  .rs-wrap { min-height: 100svh; display: grid; place-items: center; padding: var(--gap-4); }
+  .rs-card { width: min(420px, 100%); }
+  .rs-head { text-align: center; margin-bottom: var(--gap-4); }
+  .rs-head .mark { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 12px;
+                   background: var(--gold-grad); color: #231d00; display: grid; place-items: center;
+                   font-family: var(--font-display); font-weight: 800; font-size: 19px; }
+  .rs-rules { font-size: 12px; color: var(--ink-low); margin-top: -4px; }
+  .rs-foot { text-align: center; margin-top: var(--gap-3); font-size: 13px; }
+</style>
+</head>
+<body>
+  
+  <main class="rs-wrap">
+    <div class="glass glass-card rs-card reveal in">
+      <div class="rs-head">
+        <div class="mark">AM</div>
+        <h1 style="font-size:21px;">Choose a new password</h1>
+        <p class="faint" id="who" style="font-size:13px;margin-top:4px;">Checking your link…</p>
+      </div>
+
+      <form id="form" class="lt-grid" style="gap:var(--gap-3);" hidden>
+        <label class="field">
+          <span>New password</span>
+          <!-- autocomplete=new-password so a password manager offers to
+               generate and store one rather than filling the old value. -->
+          <input type="password" id="pw1" autocomplete="new-password" required minlength="10" />
+        </label>
+        <label class="field">
+          <span>Type it again</span>
+          <input type="password" id="pw2" autocomplete="new-password" required minlength="10" />
+        </label>
+        <div class="rs-rules">At least 10 characters. A short phrase you will remember beats a clever short one.</div>
+        <div class="form-msg" id="msg" role="status" aria-live="polite" style="min-height:0;"></div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="save">Save the new password</button>
+      </form>
+
+      <div id="dead" hidden>
+        <div class="lt-empty">
+          <div class="lt-empty-t" id="deadT">This link cannot be used</div>
+          <div class="lt-empty-s" id="deadS"></div>
+        </div>
+        <a class="btn btn-glass btn-block" href="./" style="margin-top:var(--gap-3);">Back to the console</a>
+      </div>
+
+      <div class="rs-foot"><a href="./" id="backLink">← Back to the console</a></div>
+    </div>
+  </main>
+
+  <script>
+  /* ============================================================
+     WHERE A PASSWORD RESET EMAIL LANDS
+
+     Supabase sends the recovery token in the URL FRAGMENT — everything
+     after the '#'. That matters twice over:
+
+       · a fragment is never sent to the server, so this token does not
+         appear in GitHub Pages' logs, in a proxy, or in a Referer header;
+       · it also means the token is sitting in the address bar, so the
+         first thing this page does after reading it is wipe it from the
+         URL with replaceState.
+
+     This page is the ONLY place in the app that takes a password, and it
+     takes one the person is choosing for themselves. Nothing is stored
+     here and nothing is logged; the value goes straight to Supabase's
+     /auth/v1/user and is then out of scope.
+     ============================================================ */
+  (function () {
+    "use strict";
+    var $ = function (s) { return document.querySelector(s); };
+
+    var PROJECT = "https://ugsklcipzyiogxynshnh.supabase.co";
+    /* The public anon key, same one index.html carries. Public by design:
+       it is the key every browser must present, and it grants nothing on
+       its own — this page's authority comes from the one-time token in the
+       link, not from this. */
+    var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnc2tsY2lwenlpb2d4eW5zaG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTUyMzksImV4cCI6MjA5ODQ3MTIzOX0.w7xkjdTkYN2qA0oxMKLUNtua0ScKVHKQzfEyIayh9eo";
+
+    function hashParams() {
+      var h = String(location.hash || "").replace(/^#/, "");
+      var out = {};
+      h.split("&").forEach(function (kv) {
+        if (!kv) return;
+        var i = kv.indexOf("=");
+        if (i < 0) return;
+        out[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+      });
+      return out;
+    }
+
+    function dead(title, detail) {
+      $("#form").hidden = true;
+      $("#dead").hidden = false;
+      $("#who").textContent = "";
+      $("#deadT").textContent = title;
+      $("#deadS").textContent = detail;
+    }
+
+    var p = hashParams();
+    var token = p.access_token || "";
+
+    /* Take the token out of the address bar immediately. A recovery link
+       left in history is a live credential in the browser's back button. */
+    if (location.hash) {
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    }
+
+    if (p.error_description || p.error) {
+      dead("That link has expired",
+           (p.error_description || p.error) + " — ask for a new one from the sign-in page.");
+      return;
+    }
+    if (!token) {
+      dead("Open this from the email",
+           "This page needs the one-time link sent to your address. Use the key icon in the console sidebar to get one.");
+      return;
+    }
+    if (p.type && p.type !== "recovery" && p.type !== "invite" && p.type !== "signup") {
+      dead("That link is not a password reset", "Ask for a new one from the console.");
+      return;
+    }
+
+    /* Ask the auth server who this token belongs to, rather than trusting
+       what the link says. It also proves the token is still valid BEFORE
+       the person types a new password into a form that would then fail. */
+    fetch(PROJECT + "/auth/v1/user", {
+      headers: { apikey: KEY, Authorization: "Bearer " + token }
+    }).then(function (r) {
+      if (!r.ok) throw new Error("expired");
+      return r.json();
+    }).then(function (u) {
+      $("#who").textContent = "for " + (u && u.email ? u.email : "your account");
+      $("#form").hidden = false;
+    }).catch(function () {
+      dead("That link has expired",
+           "Recovery links are single-use and short-lived. Ask for a new one from the console.");
+    });
+
+    $("#form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var a = $("#pw1").value, b = $("#pw2").value, msg = $("#msg"), btn = $("#save");
+      msg.className = "form-msg";
+
+      if (a.length < 10) {
+        msg.textContent = "Use at least 10 characters.";
+        msg.className = "form-msg error";
+        return;
+      }
+      if (a !== b) {
+        msg.textContent = "The two passwords do not match.";
+        msg.className = "form-msg error";
+        return;
+      }
+
+      btn.disabled = true;
+      msg.textContent = "Saving…";
+      fetch(PROJECT + "/auth/v1/user", {
+        method: "PUT",
+        headers: {
+          apikey: KEY,
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ password: a })
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "Could not save it.");
+          return j;
+        });
+      }).then(function () {
+        /* Deliberately does NOT sign them in here. The point of the next
+           screen is to prove the new password works, and finding that out
+           now beats finding out tomorrow morning. */
+        $("#form").hidden = true;
+        $("#dead").hidden = false;
+        $("#who").textContent = "";
+        $("#deadT").textContent = "Password changed";
+        $("#deadS").textContent = "Sign in to the console with the new one.";
+      }).catch(function (err) {
+        btn.disabled = false;
+        msg.textContent = (err && err.message) || "Could not save it.";
+        msg.className = "form-msg error";
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

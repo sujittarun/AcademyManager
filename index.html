@@ -1313,8 +1313,14 @@
          still works, it just lands on the project's default page. That is
          the right failure — sending a new manager to the wrong academy's
          app is worse than sending them somewhere plain. */
+      /* These are RESET/SETUP landing pages, not sign-in pages. A setup
+         link carries a recovery token in the fragment, and a sign-in page
+         has nothing that reads one — every new coach's link would have
+         landed on a login form and done nothing. SKAcademy has reset.html;
+         the apps still pointed at login.html forward the fragment there
+         when they gain one. */
       var APP_LOGIN = {
-        ska:        "https://sujittarun.github.io/SKAcademy/login.html",
+        ska:        "https://sujittarun.github.io/SKAcademy/reset.html",
         matchpoint: "https://sujittarun.github.io/MatchPoint/login.html",
         mpp:        "https://sujittarun.github.io/MatchPointPride/login.html",
         leo:        "https://sujittarun.github.io/LeoTennisAcademyapp/login.html",
@@ -1983,7 +1989,10 @@
           /* No email is sent. The function reads the caller's own address
              from the auth server — passing one would make this a button
              that mints a reset link for any account on the platform. */
-          fn("my_link", { redirectTo: location.href.split("#")[0] })
+          /* reset.html, NOT the console itself. The link used to redirect
+             back here, and nothing here understands a recovery token — so
+             clicking it landed on the dashboard and did nothing at all. */
+          fn("my_link", { redirectTo: location.href.replace(/[^/]*$/, "") + "reset.html" })
             .then(function (j) { state.myLink = (j && j.setup_link) || ""; render(); })
             .catch(function (err) { alert(err.message || "Could not create a reset link."); });
           return;
