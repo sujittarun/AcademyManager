@@ -1942,6 +1942,69 @@
          screen when the operator comes back an hour later. */
       function accessLeave() { access.link = ""; access.linkFor = ""; access.linkKind = ""; access.msg = ""; }
 
+      /* Who opened the link.
+         Built because "294 events in two days" could not answer the only
+         question that mattered after sending a link out: was any of that
+         somebody other than me. The counts alone never could — my Mac and
+         my phone are events too, and they share a home IP with anyone
+         else on that network.
+
+         So identity is per DEVICE, not per address: a durable id the app
+         keeps in localStorage, paired with an IP, user-agent, country and
+         Cloudflare edge that the SERVER reads off the request. A page
+         cannot send those — the column grant refuses the insert outright —
+         so a visitor cannot claim to be someone else, and neither can a
+         developer testing in a second browser.
+
+         "That's me" marks a device as ours and drops it out of the real
+         count, because the device you test from changes far more often
+         than anyone edits a config file. */
+      function visitorCard(a) {
+        var v = state.visitors;
+        if (!v || v.tenant !== a.id || v.loading) {
+          return card("Who opened it · 14d", "distinct devices, not page loads",
+            '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Reading visitors…</div>');
+        }
+        var rows = v.rows || [];
+        var real = rows.filter(function (r) { return !r.is_internal; });
+        var mine = rows.length - real.length;
+        var acted = real.filter(function (r) { return r.did_something; }).length;
+
+        if (!rows.length) {
+          return card("Who opened it · 14d", "distinct devices, not page loads",
+            '<div style="margin-top:10px;font-size:12.5px;color:var(--tx4)">Nobody has opened this tenant\'s app in 14 days.</div>');
+        }
+
+        var head = '<div style="display:flex;gap:18px;margin:14px 0 4px;flex-wrap:wrap">' +
+          '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + real.length + '</div><div style="font-size:11.5px;color:var(--tx4)">real device' + (real.length === 1 ? "" : "s") + '</div></div>' +
+          '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums">' + acted + '</div><div style="font-size:11.5px;color:var(--tx4)">did more than look</div></div>' +
+          (mine ? '<div><div style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tx4)">' + mine + '</div><div style="font-size:11.5px;color:var(--tx4)">mine, excluded</div></div>' : "") +
+          "</div>";
+
+        var list = rows.map(function (r) {
+          var who = [r.device, r.browser].filter(Boolean).join(" · ") || "Unknown device";
+          var loc = [r.country, r.edge].filter(Boolean).join(" · ");
+          var when = r.last_seen ? fmtDate(r.last_seen) : "—";
+          var did = r.actions ? esc(r.actions) : "only looked at pages";
+          return '<div style="padding:11px 0;border-top:1px solid var(--bd3);opacity:' + (r.is_internal ? ".5" : "1") + '">' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+              '<span style="font-size:13px;font-weight:600">' + esc(who) + "</span>" +
+              (r.is_internal ? '<span style="font-size:10.5px;font-weight:700;color:var(--tx4);border:1px solid var(--bd2);border-radius:5px;padding:0 5px">MINE</span>'
+                             : (r.did_something ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:5px;padding:0 5px">USED IT</span>' : "")) +
+              '<span style="flex:1"></span>' +
+              '<button data-mine="' + esc(r.visitor) + '" data-mine-on="' + (r.is_internal ? "0" : "1") + '" style="font:inherit;font-size:11.5px;font-weight:600;color:var(--tx3);background:#fff;border:1px solid var(--bd-btn);border-radius:7px;padding:3px 9px;cursor:pointer">' + (r.is_internal ? "Not me" : "That\'s me") + "</button>" +
+            "</div>" +
+            '<div style="font-size:11.5px;color:var(--tx4);margin-top:3px;font-variant-numeric:tabular-nums">' +
+              esc(r.ip || "no ip") + (loc ? " · " + esc(loc) : "") + " · " + r.visits + " visit" + (r.visits === 1 ? "" : "s") +
+              " · " + r.events + " event" + (r.events === 1 ? "" : "s") + " · last " + esc(when) +
+            "</div>" +
+            '<div style="font-size:11.5px;color:var(--tx3);margin-top:3px">' + did + "</div>" +
+          "</div>";
+        }).join("");
+
+        return card("Who opened it · 14d", "distinct devices, not page loads", head + list);
+      }
+
       function detailView(a) {
         if (!a) return "";
         var t = tint(a.sport), hs = healthStyle(a.health), bs = billStyle(a.bill), ac = "var(--act)";
@@ -1980,6 +2043,13 @@
            longer what the card ranks on. mpp reports 301 events against 0
            writes; that combination is the point of separating them. */
         var apct = a.actionsPrev ? Math.round((a.actions - a.actionsPrev) / a.actionsPrev * 100) : null;
+        if (!state.visitors || state.visitors.tenant !== a.id) {
+          state.visitors = { tenant: a.id, loading: true, rows: null };
+          rpc("tenant_visitors", { p_tenant: a.id, p_days: 14 }).then(function (rows) {
+            state.visitors = { tenant: a.id, loading: false, rows: rows || [] };
+            render();
+          });
+        }
         var workFacts = facts([
           ["Actions · 30d", num(a.actions) + (apct == null ? "" : "  (" + (apct >= 0 ? "+" : "") + apct + "% vs prev 30d)"),
             a.actions === 0 ? "#dc2626" : (apct != null && apct < -50 ? "#d97706" : undefined)],
@@ -2025,6 +2095,7 @@
           "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
             card("Work recorded", "what the academy actually did", '<div style="margin-top:6px">' + workFacts + "</div>") +
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
+            visitorCard(a) +
             card("App telemetry · 30d", "software health, not business volume", '<div style="margin-top:6px">' + adoptFacts + "</div>" +
               (a.usage && a.usage.length ? '<div style="margin-top:16px">' + bars(a.usage, 34, 3) + '</div><div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--tx5)"><span>14 days ago</span><span>today</span></div>' : "")) +
             /* Only for tenants that take bookings. raj is coaching-only and
@@ -2363,6 +2434,18 @@
         if (e.target.closest("[data-acc-dismiss]")) { access.link = ""; access.linkFor = ""; access.linkKind = ""; render(); return; }
         if (e.target.closest("[data-acc-create]")) { accessCreate(); return; }
 
+        var mine = e.target.closest("[data-mine]");
+        if (mine) {
+          e.stopPropagation();                       // do not also open the row
+          var on = mine.dataset.mineOn === "1";
+          mine.disabled = true;
+          rpc("mark_visitor", { p_tenant: state.sel, p_visitor: mine.dataset.mine, p_internal: on })
+            .then(function () {
+              state.visitors = null;                 // force a refetch on the next render
+              render();
+            });
+          return;
+        }
         var res = e.target.closest("[data-resolve]");
         if (res) {
           var iconOnly = res.classList.contains("act-resolve");
