@@ -204,7 +204,7 @@
       }
 
       /* ============ state + data ============ */
-      var state = { myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {},
+      var state = { myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { today: null, funnel: null, leads: [], ab: null, done: {},
@@ -212,6 +212,80 @@
                  f: { priority: "", sport: "", stage: "", q: "", callable: true } } };
 
       // per-tenant raw activity — last 7 days of app events, fetched on demand
+      /* ---------- usage, summarised by the database ----------
+         activityCard() pulls up to 800 raw event rows and counts them in
+         the browser, which answers "how many" and nothing else. This asks
+         tenant_activity() instead: the same window, aggregated server-side
+         into days, pages, devices and the actions that actually matter.
+
+         The point of the device split: a client handed a live link opens
+         it on a phone, and a layout only ever checked on a laptop is the
+         commonest way a handover goes quiet without anyone reporting a
+         bug. Counts only — the buckets cloud.js records, never a
+         user-agent or anything identifying a person. */
+      function loadActivity(id) {
+        if (state.act[id] || state.actLoading[id]) return;
+        state.actLoading[id] = true;
+        rpc("tenant_activity", { p_tenant: id, p_days: 14 })
+          .then(function (j) {
+            state.act[id] = j || {};
+            state.actLoading[id] = false;
+            if (state.sel === id) render();
+          })
+          .catch(function () {
+            /* A usage panel that cannot load must not blank the card it
+               lives in — the academy's money and access matter more. */
+            state.act[id] = { failed: true };
+            state.actLoading[id] = false;
+            if (state.sel === id) render();
+          });
+      }
+
+      function usageStrip(id) {
+        loadActivity(id);
+        var a = state.act[id];
+        if (!a) return '<div style="font-size:12.5px;color:var(--tx4);padding:10px 0">Loading usage…</div>';
+        if (a.failed) return '<div style="font-size:12.5px;color:var(--tx4);padding:10px 0">Usage could not be read.</div>';
+
+        function chips(list, empty) {
+          if (!list || !list.length) return '<span style="font-size:12px;color:var(--tx4)">' + empty + "</span>";
+          return list.map(function (x) {
+            return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;' +
+              'background:var(--fill);border:1px solid var(--bd3);border-radius:20px;padding:3px 9px;margin:0 6px 6px 0">' +
+              esc(String(x.k || x.page)) +
+              '<b style="font-variant-numeric:tabular-nums">' + num(x.n || x.views) + "</b></span>";
+          }).join("");
+        }
+
+        var act = a.actions || {};
+        var stat = [
+          ["Visits", act.sessions || 0],
+          ["Bookings tried", act.bookings || 0],
+          ["Admissions", act.admissions || 0],
+          ["Failed sign-ins", act.sign_in_failed || 0]
+        ].map(function (p) {
+          /* Failed sign-ins in red when there are any: it is the one number
+             here that means somebody is stuck right now. */
+          var red = p[0] === "Failed sign-ins" && p[1] > 0;
+          return '<div style="flex:1 1 92px"><div style="font-size:11.5px;color:var(--tx4)">' + p[0] + "</div>" +
+            '<div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:' +
+            (red ? "#b45309" : "var(--tx)") + '">' + num(p[1]) + "</div></div>";
+        }).join("");
+
+        return '<div style="border-top:1px solid var(--bd3);margin-top:14px;padding-top:14px">' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">' + stat + "</div>" +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tx4);margin-bottom:6px">Device</div>' +
+          "<div>" + chips(a.devices, "no visits yet") + "</div>" +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tx4);margin:8px 0 6px">Browser</div>' +
+          "<div>" + chips(a.browsers, "—") + "</div>" +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tx4);margin:8px 0 6px">Most opened</div>' +
+          "<div>" + chips(a.pages, "nothing opened yet") + "</div>" +
+          '<div style="font-size:11px;color:var(--tx4);margin-top:10px">Last 14 days' +
+            (a.last_seen ? " · last seen " + esc(String(a.last_seen).slice(0, 16).replace("T", " ")) + " UTC" : "") +
+          "</div>" +
+        "</div>";
+      }
+
       function loadEvents(id) {
         if (state.ev[id] || state.evLoading[id]) return;
         state.evLoading[id] = true;
@@ -1232,6 +1306,20 @@
           }).join("") + '</div></section>';
       }
 
+      /* Usage as its own card, next to the activity feed. A card rather
+         than a line inside activityCard() because it answers a different
+         question: the feed says WHAT happened, this says whether anyone is
+         there at all and on what. Both matter when a client has just been
+         handed a live link and gone quiet. */
+      function usageCard(a) {
+        return '<section style="background:var(--card);border:1px solid var(--bd);border-radius:16px;' +
+          'padding:22px 24px;box-shadow:0 1px 2px rgba(16,24,40,.04);margin-top:20px">' +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--act)">Usage</div>' +
+          '<h3 style="font-size:15px;font-weight:700;letter-spacing:-0.01em;margin-top:2px">Are they actually using it?</h3>' +
+          usageStrip(a.id) +
+          "</section>";
+      }
+
       function activityCard(a) {
         loadEvents(a.id);
         var rows = state.ev[a.id], inner, meta = "";
@@ -1719,7 +1807,7 @@
 
         if (a.health === "Onboarding") {
           var check = [["Account created & subscription active", "check_circle", "#16a34a", "#4b5563"], ["Branded app configured", a.tenant ? "check_circle" : "pending", a.tenant ? "#16a34a" : "#d97706", "#4b5563"], ["Courts & batches being set up", "pending", "#d97706", "#4b5563"], ["First booking pending", "radio_button_unchecked", "#c7ccd4", "#9aa1ad"]].map(function (c) { return '<div style="display:flex;align-items:center;gap:11px"><span class="mi fill" style="font-size:20px;color:' + c[2] + '">' + c[1] + '</span><span style="font-size:13px;font-weight:500;color:' + c[3] + '">' + c[0] + "</span></div>"; }).join("");
-          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + accessCard(a, card) + tenantErrorsCard(a);
+          return header + '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:48px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="width:60px;height:60px;border-radius:16px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto"><span class="mi" style="font-size:32px;color:var(--act)">rocket_launch</span></div><h3 style="font-size:17px;font-weight:700;margin-top:18px;letter-spacing:-0.01em">Onboarding in progress</h3><p style="font-size:13.5px;color:var(--tx3);max-width:400px;margin:8px auto 0;line-height:1.55">' + esc(a.name) + " hasn't processed any bookings yet. Metrics will appear here automatically once their app goes live.</p><div style=\"display:inline-flex;flex-direction:column;gap:11px;margin-top:26px;text-align:left\">" + check + '</div></div><div style="margin-top:20px">' + activityCard(a) + "</div>" + usageCard(a) + accessCard(a, card) + tenantErrorsCard(a);
         }
 
         function mini(label, value, sub, trend, trendColor) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12px;color:var(--tx4);font-weight:500">' + label + '</div><div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;font-variant-numeric:tabular-nums">' + value + (trend ? ' <span style="font-size:12.5px;font-weight:600;color:' + trendColor + '">' + trend + "</span>" : "") + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
@@ -1767,6 +1855,7 @@
             card("Gross volume", "weekly · last 8 weeks", '<div style="margin-top:18px">' + bars(a.weekly, 92, 8) + '</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--tx5)"><span>8 wks ago</span><span>this week</span></div>') +
             card("Booking channels · 30d", "", '<div style="margin-top:18px">' + mixBar(a.mix, 12) + '</div><div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px">' + mixLegend + "</div>") +
             activityCard(a) +
+            usageCard(a) +
           "</div><div style=\"display:flex;flex-direction:column;gap:20px\">" +
             card("Plan &amp; billing", "", '<div style="margin-top:6px">' + planFacts + "</div>" + billingControl(a)) +
             card("Adoption · 30d", "", '<div style="margin-top:6px">' + adoptFacts + "</div>") +
