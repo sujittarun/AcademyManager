@@ -1477,6 +1477,8 @@
         tenant: null,        // which academy `rows` describes
         rows: null,          // null until the first read answers
         loading: false,
+        /* People who used join.html and are waiting on a decision. */
+        reqs: null, reqsFor: "", reqsLoading: false,
         error: "",           // the read failed
         msg: "",             // a write was refused — shown verbatim
         busy: "",            // "<verb>:<email>", so one row's button can say so
@@ -1497,6 +1499,7 @@
           access.tenant = id; access.rows = null; access.error = ""; access.msg = ""; access.failed = false;
           access.link = ""; access.linkFor = ""; access.linkKind = ""; access.busy = "";
           access.role = "staff"; access.form = { name: "", email: "", centres: [] };
+          access.reqs = null; access.reqsFor = ""; access.reqsLoading = false;
         } else if (!force && (access.rows !== null || access.loading || access.failed)) {
           /* access.failed is what stops a failed read looping. Without it
              rows stays null, the guard lets the next render() call
@@ -1706,10 +1709,74 @@
       /* `card` is detailView's own card() helper, passed in so this panel
          wears the same chrome as every other card on that screen instead
          of a second copy that drifts from it. */
+      /* ---------- who has asked for a login ----------
+         join.html writes to staff_requests and, until now, nothing read
+         it: someone could fill the form and the operator would never know.
+         The requests belong HERE, above the people who already have
+         logins, because that is the same job — deciding who gets in.
+
+         "Use this" only PREFILLS the form below. It deliberately does not
+         create the account: the operator still picks the role and, for a
+         coach, the centres, and presses the button themselves. A public
+         form must never be one click from a working login. */
+      function requestsBlock(id) {
+        requestsLoad(id);
+        var rs = access.reqs;
+        if (rs === null) return "";                    // still reading; say nothing
+        var pending = rs.filter(function (r) { return r.status === "pending"; });
+        if (!pending.length) return "";                // silent when there is nothing
+
+        return '<div style="margin:14px 0 4px;padding:12px 14px;border:1px solid #fde68a;' +
+          'background:#fffbeb;border-radius:12px">' +
+          '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#b45309">' +
+            (pending.length === 1 ? "1 person has asked for a login" : pending.length + " people have asked for a login") +
+          "</div>" +
+          pending.map(function (r) {
+            var when = String(r.created_at || "").slice(0, 10);
+            return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;' +
+              'border-bottom:1px solid #fde68a">' +
+              '<div style="min-width:170px;flex:1 1 200px">' +
+                '<div style="font-size:13px;font-weight:600">' + esc(r.name || r.email) +
+                  ' <span style="font-weight:500;color:var(--tx3)">· ' + esc(r.role === "staff" ? "Manager" : "Coach") + "</span></div>" +
+                '<div style="font-size:12px;color:var(--tx4);word-break:break-word">' + esc(r.email) +
+                  (r.phone ? " · " + esc(r.phone) : "") + " · asked " + esc(when) + "</div>" +
+                (r.note ? '<div style="font-size:12px;color:var(--tx3);margin-top:2px">“' + esc(r.note) + '”</div>' : "") +
+              "</div>" +
+              '<button class="btn-g" data-req-use="' + esc(String(r.id)) + '" ' +
+                'style="background:#fff;border:1px solid var(--bd-btn);border-radius:8px;padding:6px 11px;' +
+                'font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">Use this</button>' +
+              '<button class="btn-g" data-req-dismiss="' + esc(String(r.id)) + '" ' +
+                'style="background:none;border:0;padding:6px 8px;font:inherit;font-size:12.5px;' +
+                'color:var(--tx4);cursor:pointer">Dismiss</button>' +
+            "</div>";
+          }).join("") +
+          '<div style="font-size:11.5px;color:var(--tx4);margin-top:8px;line-height:1.5">' +
+            '“Use this” fills the form below with their details. You still choose the role and press Add.' +
+          "</div></div>";
+      }
+
+      function requestsLoad(id) {
+        if (!id) return;
+        if (access.reqsFor === id && (access.reqs !== null || access.reqsLoading)) return;
+        access.reqsFor = id; access.reqsLoading = true; access.reqs = null;
+        get("/staff_requests?tenant_id=eq." + encodeURIComponent(id) +
+            "&status=eq.pending&order=created_at.desc&limit=20" +
+            "&select=id,name,email,phone,role,note,status,created_at")
+          .then(function (rows) {
+            access.reqs = rows || []; access.reqsLoading = false;
+            if (state.sel === id) render();
+          })
+          .catch(function () {
+            /* An unreadable request list must not take the access card with
+               it — the people who already have logins matter more. */
+            access.reqs = []; access.reqsLoading = false;
+          });
+      }
+
       function accessCard(a, card) {
         accessLoad(a.id);
         accessCentres(a.id);
-        var rows = access.rows, inner = "";
+        var rows = access.rows, inner = requestsBlock(a.id);
 
         if (access.msg) {
           inner += '<div style="margin-top:12px;padding:11px 13px;border:1px solid #fecaca;background:#fef2f2;border-radius:11px;font-size:12.5px;line-height:1.5;color:#b91c1c">' + esc(access.msg) + "</div>";
@@ -1823,6 +1890,24 @@
           access.link = (j && j.setup_link) || "";
           if (!access.link) access.msg = "The account was created, but no setup link came back. Use Send setup link on their row.";
           access.form = { name: "", email: "", centres: [] };
+
+          /* If this person came from the join page, close their request.
+             Without this the account exists AND the request still shows as
+             pending, so the list only ever grows and its count stops
+             meaning anything — which is how a panel becomes wallpaper.
+             Best-effort: the login is made either way, and a request stuck
+             at pending is a tidiness problem, not an access one. */
+          if (access.usedReq) {
+            var reqId = access.usedReq;
+            access.usedReq = null;
+            rpc("review_staff_request", {
+              p_tenant: access.tenant, p_id: Number(reqId), p_status: "approved", p_by: "operator"
+            }).then(function () {
+              access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== String(reqId); });
+              render();
+            }).catch(function () { /* the account is what mattered */ });
+          }
+
           accessLoad(access.tenant, true);
           render();
         }).catch(function (err) {
@@ -2269,6 +2354,42 @@
       /* the add-someone form. Both branches sync what has been typed
          BEFORE re-rendering, because render() rebuilds the inputs. */
       document.addEventListener("change", function (e) {
+        var reqUse = e.target.closest("[data-req-use]");
+        if (reqUse) {
+          var rid = reqUse.getAttribute("data-req-use");
+          var req = (access.reqs || []).filter(function (x) { return String(x.id) === rid; })[0];
+          if (req) {
+            /* Fill the form and set the role, then let the operator finish.
+               A coach still needs centres picked, and picking those is the
+               step that decides what they can see. */
+            access.form.name = req.name || "";
+            access.form.email = req.email || "";
+            access.role = req.role === "coach" ? "coach" : "staff";
+            access.usedReq = req.id;
+            render();
+            var em = document.getElementById("accEmail");
+            if (em) { try { em.scrollIntoView({ block: "center" }); em.focus(); } catch (er) {} }
+          }
+          return;
+        }
+
+        var reqDrop = e.target.closest("[data-req-dismiss]");
+        if (reqDrop) {
+          var did = reqDrop.getAttribute("data-req-dismiss");
+          reqDrop.disabled = true;
+          rpc("review_staff_request", {
+            p_tenant: access.tenant, p_id: Number(did), p_status: "declined", p_by: "operator"
+          }).then(function () {
+            access.reqs = (access.reqs || []).filter(function (x) { return String(x.id) !== did; });
+            render();
+          }).catch(function (err) {
+            reqDrop.disabled = false;
+            access.msg = (err && err.message) || "Could not dismiss that request.";
+            render();
+          });
+          return;
+        }
+
         var accRole = e.target.closest("[data-acc-role]");
         if (accRole) { accessSyncForm(); access.role = accRole.value === "coach" ? "coach" : "staff"; render(); return; }
         var accC = e.target.closest("[data-acc-centre]");
