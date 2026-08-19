@@ -461,24 +461,81 @@ Compare against known-good values: Raj publishes 5 centres, 14 batches,
 
 ---
 
-## Billing: pending, paid, overdue
+## Billing: free, trial, paying, churned
 
-The console derives the badge (`index.html:166`), it is not stored:
+**Nobody is paying us as of 2026-08-19.** Every MRR figure in the
+database before that date was a placeholder invented to make the
+dashboard look populated — Leo's ₹899 and MPP's ₹1,500 said so in their
+own `notes` — and they were adding ₹2,399 of imaginary revenue to the
+portfolio total. `2026-08-19n` zeroed them and moved the old values into
+`notes`, so the real contract value can be set against what was assumed.
+
+### The four statuses
+
+`subscriptions.status` is one of four, and a CHECK constraint refuses
+anything else:
+
+| status | what it means | what `renews_on` means |
+|---|---|---|
+| `free` | used, deliberately never billed | nothing; ignored |
+| `trial` | evaluating | when the trial **ends** |
+| `paying` | real money | when the next invoice **falls due** |
+| `churned` | stopped | nothing; ignored |
+
+**`overdue` is not a status.** It cannot be stored. It is derived, and
+only a `paying` account can be it.
+
+### The badge, derived from status *and* date together
 
 | shows | when |
 |---|---|
-| **overdue** | `status = 'overdue'`, **or** `renews_on` is in the past |
-| **paid** | `status` is `active` or `paid` |
-| **pending** | anything else — `trial`, `pilot`, `cancelled` |
+| **Paying** | `paying`, invoice date ahead |
+| **Overdue** | `paying`, invoice date behind — the only red badge |
+| **Trial** | `trial`, end date ahead — "Trial ends 1 Sep" |
+| **Trial ended** | `trial`, end date behind — a decision is due, not a debt |
+| **Free** / **Churned** | grey, needs nothing |
 
-So "move an academy to paid" is: set the status to `active` **and**
-make sure the renewal is not behind you, or the badge flips to overdue
-instead. `set_subscription()` does both — it rolls a past renewal
-forward a month when you mark someone paid.
+### Why it used to be wrong, which is the part worth keeping
+
+The old rule was *"`status = 'overdue'` **or** `renews_on` is in the
+past"*, and it read the date without the status. Two faults compounded:
+
+1. **Six statuses, three meanings.** `active` and `paid` did the same
+   job; `trial` and `pilot` did the same job; `overdue` was both a stored
+   status and a derived one, so the same fact had two homes that could
+   disagree.
+2. **One date, two jobs.** `renews_on` meant "next invoice" for a paying
+   account and "pilot review date" for everyone else. Every tenant was a
+   pilot whose review date had passed, so **every tenant showed red** —
+   money late on accounts that had never been invoiced. That is the
+   *same word, different shape* trap from the table-choice rules, in the
+   billing column.
+
+A red badge that is always on tells you nothing, and this one was always
+on. If you find yourself reading `renews_on` without also reading
+`status`, you are re-introducing it.
+
+### Changing it
+
+`set_subscription(tenant, status, plan, mrr, renews_on)` — operator only,
+every change written to `sync_log`, and a tenant's own staff cannot mark
+themselves paying. The old words (`active`, `paid`, `pilot`, `cancelled`,
+`overdue`) still map rather than erroring, because the point was to stop
+anyone needing to know six of them. Marking someone `paying` with a date
+already behind them rolls the date forward a month, so the change cannot
+show as overdue a second after you make it.
 
 Change it from the academy's card in the console, under Plan & billing.
-Operator only, and every change is written to `sync_log`. A tenant's own
-staff cannot mark themselves paid.
+
+### Who is what, 2026-08-19
+
+| | | |
+|---|---|---|
+| `ska` | **trial → 1 Sep 2026** | testing through 31 Aug, going live 1 Sep. Set the contract value and flip to `paying` on the day |
+| `leo`, `raj`, `mpp` | trial | dates already behind them, so they read "Trial ended" — a decision is due on each |
+| `genalpha` | free | first client, used daily, deliberately unbilled |
+| `demo` | free | the sales demo. Never bill |
+| `matchpoint` | — | archived; no subscription row |
 
 ## Federated tenants
 

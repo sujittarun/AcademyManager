@@ -277,6 +277,58 @@ check("opening an academy asks the database for its visitors", () => {
     "no fetch was started, so the panel would stay empty forever");
 });
 
+/* THE BADGE THAT CRIED WOLF.
+
+   Every tenant was a pilot whose review date had passed, and the rule
+   was "status says overdue OR the date is behind us", so the console
+   showed money as late on six accounts that had never been invoiced —
+   including two whose own subscription notes read "placeholder MRR".
+   A red badge that is always on tells you nothing.
+
+   The rule now needs BOTH: a paying account AND a date behind it. These
+   cases are the whole contract, one row each, because the failure was
+   not a typo — it was a rule that read one field and needed two. */
+const BILL = [
+  ["paying",  "2099-01-01", "paying",  "real money, invoice not yet due"],
+  ["paying",  "2020-01-01", "overdue", "real money, invoice date passed"],
+  ["trial",   "2099-01-01", "trial",   "evaluating, still inside the window"],
+  ["trial",   "2020-01-01", "decide",  "trial ran out — a decision is due, not a debt"],
+  ["free",    "2020-01-01", "free",    "never billed, so a past date means nothing"],
+  ["free",    null,         "free",    "never billed, no date at all"],
+  ["churned", "2020-01-01", "churned", "gone; not a debt either"],
+  [null,      "2020-01-01", "free",    "no subscription row yet"],
+];
+check("only a paying account with a date behind it is overdue", () => {
+  BILL.forEach(function (c) {
+    const a = api.mapAccount({ tenant_id: "t", name: "T", config: {},
+                               sub_status: c[0], renews_on: c[1], mrr: 0,
+                               last_write_at: new Date().toISOString() });
+    assert(a.bill === c[2],
+      c[3] + " → expected " + c[2] + ", got " + a.bill);
+  });
+});
+
+check("a zero-MRR account can never show as overdue", () => {
+  ["trial", "free", "churned", null].forEach(function (st) {
+    const a = api.mapAccount({ tenant_id: "t", name: "T", config: {}, sub_status: st,
+                               renews_on: "2020-01-01", mrr: 0,
+                               last_write_at: new Date().toISOString() });
+    assert(a.bill !== "overdue", st + " with a past date reads as money owed");
+  });
+});
+
+check("the date says which kind of date it is", () => {
+  function label(st, d) {
+    return api.mapAccount({ tenant_id: "t", name: "T", config: {}, sub_status: st,
+                            renews_on: d, mrr: 0,
+                            last_write_at: new Date().toISOString() }).renews;
+  }
+  assert(/^Trial ends /.test(label("trial", "2099-09-01")), "a running trial: " + label("trial", "2099-09-01"));
+  assert(/^Trial ended /.test(label("trial", "2020-01-01")), "a lapsed trial: " + label("trial", "2020-01-01"));
+  assert(/^Overdue since /.test(label("paying", "2020-01-01")), "a late invoice: " + label("paying", "2020-01-01"));
+  assert(label("free", "2020-01-01") === "—", "a free account shows a date it does not have: " + label("free", "2020-01-01"));
+});
+
 /* raj and matchpoint have no config.sport, and the strapline
    concatenated it raw: "undefined · Hyderabad" on the live console for
    two of six academies. The word "undefined" on an operator dashboard

@@ -160,7 +160,23 @@
       function sportIcon(sport) { return ({ Tennis: "sports_tennis", Cricket: "sports_cricket", Football: "sports_soccer", Badminton: "sports_tennis", Swimming: "pool", "Multi-sport": "exercise" })[sport] || "exercise"; }
       function tint(sport) { return ({ Tennis: ["#0f766e", "#f0fdfa"], Cricket: ["#b45309", "#fffbeb"], Badminton: ["#7c3aed", "#f5f3ff"], Football: ["#1d4ed8", "#eff6ff"], "Multi-sport": ["#be123c", "#fff1f2"], Swimming: ["#0369a1", "#f0f9ff"] })[sport] || ["#4b5563", "#f3f4f6"]; }
       function healthStyle(h) { return ({ Active: ["#047857", "#ecfdf5"], Quiet: ["#b45309", "#fffbeb"], "At risk": ["#b91c1c", "#fef2f2"], Onboarding: ["#4338ca", "#eef2ff"] })[h] || ["#475569", "#f1f5f9"]; }
-      function billStyle(b) { return ({ paid: ["#047857", "#ecfdf5", "Paid"], pending: ["#b45309", "#fffbeb", "Pending"], overdue: ["#b91c1c", "#fef2f2", "Overdue"] })[b] || ["#b45309", "#fffbeb", "Pending"]; }
+      /* Four states, and only one of them is red.
+         `overdue` used to fire on "status says overdue OR the date has
+         passed", and every tenant was a pilot whose review date had
+         passed — so the console showed money as late on accounts that
+         had never been invoiced. Red now requires a PAYING account whose
+         invoice date is behind it; a ₹0 account cannot be overdue,
+         because nobody owes ₹0 late. `2026-08-19n`. */
+      function billStyle(b) {
+        return ({
+          paying:   ["#047857", "#ecfdf5", "Paying"],
+          overdue:  ["#b91c1c", "#fef2f2", "Overdue"],
+          trial:    ["#1d4ed8", "#eff6ff", "Trial"],
+          decide:   ["#b45309", "#fffbeb", "Trial ended"],
+          free:     ["#4b5563", "#f3f4f6", "Free"],
+          churned:  ["#4b5563", "#f3f4f6", "Churned"],
+        })[b] || ["#4b5563", "#f3f4f6", "Free"];
+      }
 
       function bars(vals, h, gap) {
         var max = Math.max.apply(null, vals.concat([1]));
@@ -311,7 +327,15 @@
         var health = !wroteAt ? "Onboarding" : writeH <= 7 * 24 ? "Active" : writeH <= 30 * 24 ? "Quiet" : "At risk";
         var renewsPast = r.renews_on && new Date(r.renews_on) < new Date();
         var st = r.sub_status || "";
-        var bill = (st === "overdue" || renewsPast) ? "overdue" : (st === "active" || st === "paid") ? "paid" : "pending";
+        /* status and date together, never either alone. The date means
+           different things per status — for a trial it is when the trial
+           ENDS, for a paying account when the invoice FALLS DUE — which
+           is exactly why reading it without the status produced a red
+           badge for everyone. */
+        var bill = st === "paying"  ? (renewsPast ? "overdue" : "paying")
+                 : st === "trial"   ? (renewsPast ? "decide"  : "trial")
+                 : st === "churned" ? "churned"
+                 : "free";
         /* Two tenants have no config.sport — raj and the archived
            matchpoint — and `sub` built the strapline by concatenating it
            raw, so their card read "undefined · Hyderabad" on the live
@@ -324,7 +348,7 @@
           owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, health: health,
           gmv: r.gmv_30d || 0, prev: r.gmv_prev || 0, bookings: r.bookings_30d || 0, enq: r.apps_30d || 0,
           players: r.active_players || 0, cap: r.player_cap || 0, sessions: r.sessions_30d || 0, activeDays: r.active_days_30d || 0,
-          lastH: lastH, bill: bill, renews: bill === "overdue" ? "Overdue" : (r.renews_on ? fmtDate(r.renews_on) : "—"),
+          lastH: lastH, bill: bill, renews: !r.renews_on || bill === "free" || bill === "churned" ? "—" : (bill === "overdue" ? "Overdue since " + fmtDate(r.renews_on) : bill === "decide"   ? "Trial ended " + fmtDate(r.renews_on) : bill === "trial"    ? "Trial ends " + fmtDate(r.renews_on) : fmtDate(r.renews_on)),
           method: cfg.billing ? "UPI · Autopay" : "—", msgs: r.msgs_30d || 0, msgCost: r.msg_cost_30d || 0,
           errors: r.errors_30d || 0, ver: r.app_ver || "—", totalBk: r.total_bookings || 0, wkday: r.weekday_bookings || 0,
           wkend: r.weekend_bookings || 0, courtRev: r.booker_rev_90d || 0, bookers: r.contacts_count || 0,
@@ -359,7 +383,10 @@
         var accts = state.data, isDetail = !!state.sel, view = state.view;
         var sel = isDetail ? accts.filter(function (a) { return a.id === state.sel; })[0] : null;
         var overdue = accts.filter(function (a) { return a.bill === "overdue"; }).length;
-        var pendingC = accts.filter(function (a) { return a.bill === "pending"; }).length;
+        /* A trial that has run out needs a decision; a free account
+           needs nothing. "pending" used to lump both together and count
+           six accounts as billing work. */
+        var pendingC = accts.filter(function (a) { return a.bill === "decide"; }).length;
         var billBadge = (overdue + pendingC) || "";
         /* How many leads need a human TODAY — the only sales number worth
            interrupting the operator for. It used to count untouched hot
@@ -609,7 +636,11 @@
           return '<div class="acad" data-open="' + a.id + '" style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .18s,transform .18s">' +
             '<div style="display:flex;align-items:flex-start;gap:13px"><div style="width:44px;height:44px;border-radius:12px;background:' + t[1] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:24px;color:' + t[0] + '">' + a.icon + '</span></div><div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div><div style="font-size:12px;color:var(--tx4)">' + esc(a.sub) + "</div></div>" + pill(a.health, healthStyle(a.health), true) + "</div>" +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--bd3)">' +
-              cell("MRR", inr(a.mrr), a.bill === "paid" ? "" : bs[2], a.bill === "overdue" ? "#dc2626" : "#d97706") +
+              /* Amber is for something that needs doing. A free account
+                 and a running trial need nothing, so they are grey; only
+                 a lapsed trial and a late invoice are coloured. */
+              cell("MRR", inr(a.mrr), a.bill === "paying" ? "" : bs[2],
+                   a.bill === "overdue" ? "#dc2626" : a.bill === "decide" ? "#d97706" : "#6b7280") +
               cell("GMV · 30d", a.gmv ? inrK(a.gmv) : "—", a.prev ? (gup ? "+" : "") + gpct + "%" : "", gup ? "#16a34a" : "#dc2626") +
               cell("Activity · 30d", num(a.actions),
                    apct == null ? (a.actions ? "new" : "") : (aup ? "+" : "") + apct + "%",
@@ -625,7 +656,14 @@
 
       function billingView(accts) {
         var collected = 0, pending = 0, overdue = 0;
-        accts.forEach(function (a) { if (a.bill === "paid") collected += a.mrr; else if (a.bill === "pending") pending += a.mrr; else overdue += a.mrr; });
+        /* Only a paying account contributes revenue. The old version
+           swept every non-paid account's placeholder MRR into "pending"
+           or "overdue", so the strip reported ₹2,399 of money that had
+           never been quoted, let alone invoiced. */
+        accts.forEach(function (a) {
+          if (a.bill === "paying") collected += a.mrr;
+          else if (a.bill === "overdue") overdue += a.mrr;
+        });
         var od = accts.filter(function (a) { return a.bill === "overdue"; }).length;
         function sum(label, value, sub, color) { return '<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)"><div style="font-size:12.5px;font-weight:600;color:#6b7280">' + label + '</div><div style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin-top:10px;font-variant-numeric:tabular-nums;color:' + color + '">' + value + '</div><div style="font-size:12px;color:var(--tx4);margin-top:2px">' + sub + "</div></div>"; }
         var summary = sum("Collected · MRR", inr(collected), "auto-billed this cycle", "#16a34a") + sum("Pending", inr(pending), "awaiting payment", "#d97706") + sum("Overdue", inr(overdue), od + " account" + (od === 1 ? "" : "s") + " past due", "#dc2626") + sum("Total MRR", inr(collected + pending + overdue), accts.length + " subscriptions", "#1a1d21");
