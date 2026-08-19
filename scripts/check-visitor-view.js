@@ -40,7 +40,7 @@ let js = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"))
 const before = js.length;
 js = js.replace(/"use strict";/,
   '"use strict"; __x(function () { return { detailView: detailView, ' +
-  'mapAccount: mapAccount, state: state, rpc: rpc }; });');
+  'mapAccount: mapAccount, academiesView: academiesView, state: state, rpc: rpc }; });');
 if (js.length === before) {
   console.error('could not inject the accessor — is "use strict" still there?');
   process.exit(1);
@@ -275,6 +275,48 @@ check("opening an academy asks the database for its visitors", () => {
   assert(h.includes("Reading visitors"), "the first render does not say it is loading");
   assert(api.state.visitors && api.state.visitors.tenant === "ska",
     "no fetch was started, so the panel would stay empty forever");
+});
+
+/* "No rows" had two causes sharing one label.
+
+   MPP was provisioned, used for a week, and deliberately emptied for
+   handover — and then read "Onboarding" for three weeks, which says we
+   are midway through setting them up. Row counts cannot tell "never
+   started" from "started, then cleared": both are zero. The events table
+   can, because it is append-only and survived the wipe. */
+const HEALTH = [
+  [null, 0,   "Onboarding", "no rows and nothing ever happened — genuinely new"],
+  [null, 123, "Emptied",    "no rows, but real work is on record — cleared, not new"],
+  [2,    123, "Active",     "wrote something two hours ago"],
+  [24*10,0,   "Quiet",      "wrote ten days ago"],
+  [24*40,0,   "At risk",    "wrote forty days ago"],
+];
+check("an emptied tenant is not an onboarding one", () => {
+  HEALTH.forEach(function (c) {
+    const a = api.mapAccount({
+      tenant_id: "t", name: "T", config: {},
+      last_write_at: c[0] === null ? null : new Date(Date.now() - c[0] * 36e5).toISOString(),
+      action_events_ever: c[1],
+    });
+    assert(a.health === c[2], c[3] + " → expected " + c[2] + ", got " + a.health);
+  });
+});
+
+check("an emptied tenant is not told it recorded nothing", () => {
+  const emptied = api.mapAccount({ tenant_id: "mpp", name: "MPP", config: {},
+    last_write_at: null, action_events_ever: 123, events_30d: 302,
+    last_action_at: "2026-08-04T17:14:00+00:00" });
+  api.state.data = [emptied];
+  const h = api.academiesView(api.state.data);
+  assert(!h.includes("nothing recorded"), "an emptied tenant is told it never recorded anything");
+  assert(h.includes("Emptied"), "the card does not say it was emptied");
+  assert(h.includes("123"), "the work it did do is not shown");
+
+  const never = api.mapAccount({ tenant_id: "new", name: "New", config: {},
+    last_write_at: null, action_events_ever: 0, events_30d: 12 });
+  api.state.data = [never];
+  const h2 = api.academiesView(api.state.data);
+  assert(h2.includes("nothing recorded"), "a genuinely idle tenant lost its warning");
 });
 
 /* THE BADGE THAT CRIED WOLF.

@@ -4,6 +4,21 @@ Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-12**.
 
 `mpp` — a separate app for the Pride venue owner.
 
+## Reads "Emptied" on the console, not "Onboarding"
+
+Until `2026-08-19p` the console called MPP **Onboarding**, because health
+keyed on `last_write_at` and MPP has no rows. That said we were midway
+through setting them up, three weeks after they were handed over.
+
+`operator_portfolio()` now also reports `action_events_ever`, so the
+console can tell "never started" (no rows, no actions — Onboarding) from
+"worked, then cleared" (no rows, actions on record — **Emptied**). MPP's
+123 action events survived the wipe because `events` is append-only and
+was not part of it.
+
+If you see MPP as Onboarding again, the events are gone or the key is
+not being read — not that the tenant reverted.
+
 ## State — provisioned, cut over, not yet used
 
 **0 members, 0 enrollments, 0 payments, 0 bookings.** The console shows
