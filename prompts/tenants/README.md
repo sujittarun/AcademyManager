@@ -13,9 +13,10 @@ These files do. Open the chat **inside that tenant's folder**, paste
 | `genalpha.md` | `genalpha` | **yes — 81 families, live WhatsApp money** |
 | `raj.md` | `raj` | yes — 104 members, coaching only |
 | `leo.md` | `leo` | yes — venue, 231 bookings |
-| `matchpoint.md` | `matchpoint` | lightly |
+| `matchpoint.md` | `matchpoint` | **archived** — `config.archived = true`, so absent from the console. 10 members and 1 payment remain, and it still logged events on 2026-08-19 |
 | `mpp.md` | `mpp` | not yet — empty |
-| `demo.md` | `demo` | synthetic |
+| `ska.md` | `ska` | yes — newest, the visitor-tracking testbed |
+| `demo.md` | `demo` | synthetic — "Demo Sports Academy" since `2026-08-19m` |
 
 Machaxi is **retired**. Its repo stays private because its git history
 holds real member names and phone numbers.

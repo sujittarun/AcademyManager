@@ -64,11 +64,28 @@ org **`hudpirjhvxqbkhcefabj`** (*AcademyManager*), Pro, region
 ap-northeast-1. `ozjhyhhnmixvjlfnrree` (*Academy Manager — staging*) is
 the empty second org, kept for a staging project.
 
-Live tenants, as `tenants.id`: `leo`, `matchpoint`, `mpp`, `raj`,
-`genalpha`, `demo`. Every row carries `tenant_id text`.
+Live tenants, as `tenants.id`: `leo`, `mpp`, `raj`, `genalpha`, `demo`,
+`ska`. Every row carries `tenant_id text`.
 
-`machaxi` was retired; do not add it back to a list from memory. The id
-is `demo`, not `demo-courts`.
+**`matchpoint` is archived, not live.** `0012` set
+`config.archived = true`, and `operator_portfolio()` filters on it, so it
+is absent from the console by design — its absence is not a bug to chase.
+The row, its 10 members and its 1 payment all remain, and it was still
+logging events on 2026-08-19, so the app is not gone either. Treat it as
+present in the database and retired from the business.
+
+`machaxi` was retired harder — the repo is kept private and there is no
+tenant row. Do not add either back to a list from memory. The id is
+`demo`, not `demo-courts`.
+
+The demo tenant is named **Demo Sports Academy** (`2026-08-19m`). It was
+"Sports Academy", which read like a real client on a dashboard sitting
+between two real ones. `0012` decided it stays visible rather than
+hidden, so it has to be legible as a demo from the name alone. Its
+`config.brand` still says "Crescent Sports Academy" and the demo app's
+own title is still "Sports Academy" — deliberately, because the word
+"Demo" belongs on the operator's screen and not in the product a
+prospect is being shown.
 
 **Blast radius.** A change to a shared table or function reaches every
 live tenant, including client-facing apps in daily use. Dry-run first,
@@ -642,7 +659,10 @@ GenAlphaApp/       Android client for 'genalpha', plus GenAlpha-era SQL.
 LeoTennis/         tenant 'leo'      — venue + members + bookings
 Machaxi/           RETIRED tenant. Repo kept private: its git history
                    holds real member names and phone numbers.
-MatchPoint/        tenant 'matchpoint' — badminton, player tracking
+MatchPoint/        ARCHIVED tenant 'matchpoint' — badminton, player
+                   tracking. config.archived = true, so it is absent from
+                   the console; the rows and the 11-table player cluster
+                   are all still there.
 MatchPointPride/   tenant 'mpp'      — separate app for the Pride venue owner
 Raj Sports/        tenant 'raj'      — coaching only, NO bookings
 RajSportsApp/      Android client for 'raj'
@@ -660,7 +680,7 @@ Two prompts, kept in `AcademyManager/prompts/`:
 
 | | |
 |---|---|
-| `EXISTING-TENANT.md` | Leo, Raj, Machaxi, MatchPoint, MPP |
+| `EXISTING-TENANT.md` | Leo, Raj, GenAlpha, MPP, SKA, Demo |
 | `NEW-TENANT.md` | onboarding a new client |
 
 Paste the whole thing into a chat opened inside that tenant's folder.

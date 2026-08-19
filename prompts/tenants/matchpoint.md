@@ -1,8 +1,24 @@
 # MatchPoint — paste into a chat opened in `MatchPoint/`
 
-Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-12**.
+Paste `prompts/EXISTING-TENANT.md` first. Current as of **2026-08-19**.
 
 `matchpoint` — badminton, with the player-tracking cluster.
+
+## Archived — read this before anything else
+
+`config.archived = true`, set by `0012`, and `operator_portfolio()`
+filters on it. **MatchPoint does not appear on the operator console, and
+that is correct.** Its absence is not a broken integration; do not
+"fix" it, and do not conclude the tenant was deleted.
+
+What is still true: the tenant row exists, 10 members and 1 payment are
+in the shared tables, the 11-table player-tracking cluster is intact —
+and it was **still logging events on 2026-08-19**, so something is
+opening the app. Archived describes the business relationship, not the
+data and not the traffic.
+
+If it ever comes back, the flag is the whole switch: clear
+`config.archived` and it returns to the console with its history.
 
 ## State
 
