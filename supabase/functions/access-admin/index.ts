@@ -476,10 +476,22 @@ async function setSecret(p: any, by: string) {
     throw new Error("That person belongs to another academy.");
   }
 
+  /* THE ONE NUMBER, and it is the server's.
+
+     Supabase's policy for this project is password_min_length = 6.
+     This function used to demand 12 while reset.html demanded 10 and the
+     server accepted 6 — three answers to one question, so which minimum
+     applied depended on which door a person came through, and the owner
+     kept having to "fix" whichever one he hit that day.
+
+     A GENERATED secret is still long: generateSecret() produces 16
+     characters, and that is the right place for strength, because nobody
+     has to remember or say it. What a person CHOOSES is their business
+     and the server's floor. */
+  const MIN_SECRET = 6;
   const supplied = typeof p.secret === "string" ? p.secret.trim() : "";
-  if (supplied && supplied.length < 12) {
-    /* Supabase's own floor is 6, which is not a credential. */
-    throw new Error("Use at least 12 characters, or leave it blank for a generated one.");
+  if (supplied && supplied.length < MIN_SECRET) {
+    throw new Error(`Use at least ${MIN_SECRET} characters, or leave it blank for a generated one.`);
   }
   const secret = supplied || generateSecret();
 
