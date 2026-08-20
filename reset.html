@@ -136,6 +136,61 @@
      follow. scripts/check-reset.js fails if a second number appears. */
   var MIN_PW = 6;
 
+  /* ONE RESET PAGE FOR EVERY ACADEMY.
+
+     Setup links used to point at each app's own login.html. A sign-in
+     page has nothing that reads a recovery fragment, so the link landed
+     on a form and did nothing — and two of them did not even exist:
+     MatchPointPride is a single-page app with no login.html, and
+     genalphaacademy.in/login.html is a 404. A link to nowhere is worse
+     than a generic page, because the person cannot tell whether they
+     did something wrong.
+
+     So every academy comes here, and the page wears their name and
+     colour instead of pretending to be neutral. `?t=<tenant>` selects
+     it; an unknown or missing id falls back to Academy Manager rather
+     than erroring, because a reset must never be the thing that breaks.
+
+     The tenant id only affects what is DISPLAYED and where the finish
+     button points. It grants nothing — the recovery token in the
+     fragment is the only thing that lets anyone set a password here, so
+     a forged ?t= just shows the wrong colour to someone who already
+     holds a valid link. */
+  var BRANDS = {
+    mezzo:      { name: "Mezzo School of Music", tint: "#4B3F72",
+                  app: "https://sujittarun.github.io/mezzo-school-of-music/" },
+    mpp:        { name: "MatchPoint Pride",      tint: "#0f766e",
+                  app: "https://sujittarun.github.io/MatchPointPride/" },
+    ska:        { name: "Super Kings Academy",   tint: "#b45309",
+                  app: "https://sujittarun.github.io/SKAcademy/" },
+    raj:        { name: "Raj Sports",            tint: "#b91c1c",
+                  app: "https://sujittarun.github.io/Rajsports/" },
+    leo:        { name: "Leo Tennis Academy",    tint: "#0f766e",
+                  app: "https://sujittarun.github.io/LeoTennisAcademyapp/" },
+    demo:       { name: "Demo Sports Academy",   tint: "#4b5563",
+                  app: "https://sujittarun.github.io/AcademyManagerDemo/" },
+    matchpoint: { name: "MatchPoint",            tint: "#7c3aed",
+                  app: "https://sujittarun.github.io/MatchPoint/" },
+    genalpha:   { name: "Gen Alpha Cricket Academy", tint: "#b45309",
+                  app: "https://genalphaacademy.in/" },
+  };
+  var BRAND = (function () {
+    var t = "";
+    try { t = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
+    return BRANDS[t] || { name: "Academy Manager", tint: "#101f38", app: "./" };
+  })();
+
+  (function () {
+    document.title = "Choose a new password · " + BRAND.name;
+    var b = document.getElementById("backLink");
+    if (b) { b.textContent = "← Go to " + BRAND.name; b.href = BRAND.app; }
+    var h = document.querySelector(".head h1");
+    if (h) h.insertAdjacentHTML("afterend",
+      '<p class="acad" style="margin:2px 0 0;font-size:13.5px;font-weight:600;color:' +
+      BRAND.tint + '">' + BRAND.name.replace(/[<>&]/g, "") + "</p>");
+  })();
+
+
   /* Applied to the DOM rather than typed into the markup, so the number
      exists once. A minlength attribute would be a second copy, and a
      second copy is how this drifted in the first place. */

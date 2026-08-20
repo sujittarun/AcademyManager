@@ -667,8 +667,8 @@
            were wrong here because they were inferred from the local folder
            name rather than fetched — and a launcher pointing at a 404 is
            worse than no launcher, because the session IS seeded and the
-           only broken part is the link. APP_LOGIN below already had
-           SKAcademy right; this list contradicted it. */
+           only broken part is the link. The setup links below already
+           had SKAcademy right; this list contradicted it. */
         { id: "mezzo",      name: "Mezzo School of Music", key: "mz-session",
           url: "https://sujittarun.github.io/mezzo-school-of-music/" },
         { id: "raj",        name: "Raj Sports",            key: "rs-session",
@@ -1714,37 +1714,28 @@
          still works, it just lands on the project's default page. That is
          the right failure — sending a new manager to the wrong academy's
          app is worse than sending them somewhere plain. */
-      /* These are RESET/SETUP landing pages, not sign-in pages. A setup
-         link carries a recovery token in the fragment, and a sign-in page
-         has nothing that reads one — every new coach's link would have
-         landed on a login form and done nothing. SKAcademy has reset.html;
-         the apps still pointed at login.html forward the fragment there
-         when they gain one. */
-      var APP_LOGIN = {
-        ska:        "https://sujittarun.github.io/SKAcademy/reset.html",
-        matchpoint: "https://sujittarun.github.io/MatchPoint/login.html",
-        mpp:        "https://sujittarun.github.io/MatchPointPride/login.html",
-        leo:        "https://sujittarun.github.io/LeoTennisAcademyapp/login.html",
-        raj:        "https://sujittarun.github.io/Rajsports/login.html",
-        genalpha:   "https://genalphaacademy.in/login.html",
-        /* Mezzo and Demo have no setup page of their own yet, so a link
-           for them would land on a screen with nothing to read the
-           recovery fragment. Until each app has its own, they come here:
-           this page DOES read the fragment, and the person can sign into
-           their academy normally afterwards. Falling through to nothing
-           was worse — Supabase then used its Site URL, which is the
-           operator console's sign-in gate, so a new Mezzo login was
-           invited into Academy Manager. */
-        mezzo:      "https://sujittarun.github.io/AcademyManager/reset.html",
-        demo:       "https://sujittarun.github.io/AcademyManager/reset.html",
-      };
+      /* EVERY SETUP LINK LANDS ON THE SAME PAGE, wearing the academy's
+         name and colour. `?t=<tenant>` picks the branding.
+
+         It used to be one destination per app, pointing at each app's
+         login.html — and a sign-in page has nothing that reads a
+         recovery fragment, so the link landed on a form and did nothing.
+         Two of them were not even pages: MatchPointPride is a
+         single-page app with no login.html, and genalphaacademy.in has
+         none either. Both returned 404, which is how "reset is not
+         working for MPP" looked from the outside.
+
+         One page, because the alternative is a reset page per app and
+         eight chances for one of them to rot unnoticed. reset.html is on
+         this origin, is deployed with the console, and demonstrably
+         reads the fragment. SKAcademy has its own working reset.html;
+         it is no longer linked from here, deliberately, so there is one
+         mechanism rather than two. */
+      var RESET_PAGE = "https://sujittarun.github.io/AcademyManager/reset.html";
+      function appLoginFor(id) { return RESET_PAGE + "?t=" + encodeURIComponent(id || ""); }
 
       /* Say out loud when an academy has no setup page of its own, rather
          than quietly sending its people somewhere generic. */
-      function appLoginIsOwn(id) {
-        var u = APP_LOGIN[id] || "";
-        return !!u && u.indexOf("/AcademyManager/") < 0;
-      }
 
       var access = {
         tenant: null,        // which academy `rows` describes
@@ -2089,7 +2080,7 @@
         if (!id || !email) return;
         var body = { tenant: id, email: email };
         if (verb === "link") {
-          if (APP_LOGIN[id]) body.redirectTo = APP_LOGIN[id];
+          body.redirectTo = appLoginFor(id);
         } else if (verb === "suspend" || verb === "restore") {
           /* set_staff_scope OVERWRITES centre_ids with whatever this call
              sends, and access-admin passes the request's `centres` straight
@@ -2155,7 +2146,7 @@
         }
 
         var body = { tenant: id, email: email, name: name, role: role, centres: centres };
-        if (APP_LOGIN[id]) body.redirectTo = APP_LOGIN[id];
+        body.redirectTo = appLoginFor(id);
         access.busy = "create"; access.msg = ""; render();
         fn("create", body).then(function (j) {
           access.busy = "";
