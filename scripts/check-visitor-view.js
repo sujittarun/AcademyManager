@@ -361,6 +361,47 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* The console never refreshed. loadEvents cached per tenant forever,
+   the portfolio was read once at boot, and there was no polling, no
+   realtime and no focus handler — so clicking out of an academy and
+   back in showed the rows from sign-in. The operator was reloading the
+   page by hand without knowing that was the only thing that worked. */
+check("re-entering an academy re-reads it instead of serving the cache", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const fn = src.slice(src.indexOf("function loadEvents(id"), src.indexOf("function usageArray"));
+  assert(/function loadEvents\(id, force\)/.test(fn), "loadEvents cannot be forced to re-read");
+  assert(/state\.ev\[id\] && !force/.test(fn), "the cache is still unconditional");
+  const open = src.slice(src.indexOf('var open = e.target.closest("[data-open]")'),
+                         src.indexOf('var open = e.target.closest("[data-open]")') + 700);
+  assert(/loadEvents\(state\.sel, true\)/.test(open),
+    "opening an academy does not force a re-read, so clicking in and out shows stale rows");
+});
+
+/* The two reads cost very different amounts — 421ms for the portfolio
+   against 0.5ms for one tenant's events — so one interval for both would
+   be either wasteful or too slow. Measured, not guessed. */
+check("the expensive read polls less often than the cheap one", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const m = src.match(/var LIVE = \{ events: (\d+), portfolio: (\d+)/);
+  assert(m, "the live refresher is gone");
+  const ev = +m[1], port = +m[2];
+  assert(ev >= 5000, "events poll every " + ev + "ms — that is a request storm");
+  assert(port > ev, "the 421ms portfolio read polls as often as the 0.5ms one");
+  /* A console left open on a second monitor must cost nothing. */
+  assert(/document\.hidden/.test(src.slice(src.indexOf("function liveTick"), src.indexOf("function liveStart"))),
+    "it keeps polling while the tab is hidden");
+  /* Coming back to the tab is the strongest signal something happened. */
+  assert(/visibilitychange/.test(src), "returning to the tab does not refresh");
+});
+
+check("the page says when it last read anything", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  assert(/function liveAgo\(/.test(src), "there is no last-updated indicator");
+  assert(/data-refresh="1"/.test(src), "there is no way to force a refresh by hand");
+  const h = src.slice(src.indexOf("data-refresh=\"1\""), src.indexOf("data-refresh=\"1\"") + 700);
+  assert(/liveAgo\(\)/.test(h), "the indicator does not show the age of the data");
+});
+
 /* The detail line fell back to the page filename, so a single-page app
    showed "app.html" against every row — six identical lines of nothing.
    It stays for multi-page apps, where the page IS the information. */

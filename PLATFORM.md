@@ -314,6 +314,31 @@ payments recoverable from WhatsApp records. Declined on 2026-08-11 with
 that arithmetic on the table, not overlooked. Revisit when a tenant
 takes money at a volume where a lost day cannot be re-entered by hand.
 
+### The console refreshes itself
+
+It did not, until 2026-08-24. `loadEvents` cached a tenant's events
+**forever**, the portfolio was read once at boot, and there was no
+polling, no realtime and no focus handler — so clicking out of an
+academy and back in served the rows from sign-in. The only thing that
+worked was a full page reload, and nothing on screen said so.
+
+Two reads, two very different costs, measured before choosing anything:
+
+| | |
+|---|---|
+| `operator_portfolio()` | **421 ms** — 40 subqueries across 7 tenants |
+| one tenant's events, 7d | **0.5 ms** |
+| `tenant_visitors()` | 43 ms |
+
+So they poll at different rates: the open academy's activity every 15 s,
+the portfolio every 90 s, both **only while the tab is visible**, plus an
+immediate refresh on `visibilitychange` — the moment an operator actually
+wants it, having just done something in a tenant app in another tab.
+Re-entering an academy forces a re-read. The header chip shows how old
+the data is and refreshes everything when clicked.
+
+A console left open on a second monitor overnight costs nothing.
+
 ## Latency, and why the project ref must not change casually
 
 The database is not slow. Measured 2026-08-12: the roster reads in 5 ms,
