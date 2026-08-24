@@ -1549,12 +1549,29 @@
         attendance_marked: ["fact_check", "#047857", "#ecfdf5", "Attendance marked"],
       };
       function evMeta(n) { return EVMETA[n] || ["bolt", "#4b5563", "#f3f4f6", String(n || "").replace(/_/g, " ")]; }
+        /* An ABSENT amount is not a zero.
+
+           Telemetry carries counts, never money — PLATFORM.md forbids
+           amounts in events and the tenant apps obey it. This read
+           `inr(p.amount)` regardless, and inr(undefined) is "₹0", so
+           Mezzo's 62 real payments each showed as "Payment recorded ·
+           ₹0" on the activity feed: an academy that had collected
+           ₹48,750 reading as one that had collected nothing.
+
+           Money belongs in the Gross volume and Work recorded panels,
+           which read the `payments` rows and were right all along. The
+           feed says WHAT happened; the panels say how much. */
+        function money(v) { return v == null || v === "" ? "" : inr(v); }
       function evDetail(e) {
         var p = e.props || {};
         switch (e.name) {
-          case "payment_recorded": return inr(p.amount) + (p.mode ? " · " + p.mode : "");
-          case "expense_recorded": return (p.category ? p.category + " · " : "") + inr(p.amount);
-          case "booking_submitted": return [p.venue, p.hours ? p.hours + "h" : "", p.amount ? inr(p.amount) : ""].filter(Boolean).join(" · ");
+          case "payment_recorded": return [money(p.amount), p.mode].filter(Boolean).join(" · ");
+          /* Tenants disagree on the verb: Mezzo emits expense_added, the
+               older apps expense_recorded. Same event; neither should
+               fall through to the page name. */
+            case "expense_added":
+            case "expense_recorded": return [p.category, money(p.amount)].filter(Boolean).join(" · ");
+          case "booking_submitted": return [p.venue, p.hours ? p.hours + "h" : "", money(p.amount)].filter(Boolean).join(" · ");
           case "staff_booking_added": return [p.source, p.venue].filter(Boolean).join(" · ");
           case "admission_submitted": return [p.program, p.venue].filter(Boolean).join(" · ");
           case "reminder_sent": return p.daysTo != null ? "fee due in " + p.daysTo + "d" : "";
@@ -1658,8 +1675,15 @@
                 return '<div style="font-size:10.5px;color:var(--tx5);white-space:nowrap;overflow:hidden;' +
                        'text-overflow:ellipsis;font-variant-numeric:tabular-nums">' + esc(bits.join(" · ")) + "</div>";
               }
+              /* evDetail falls back to the page name, which is useful for
+                 a multi-page app (raj: attendance.html, fees.html) and pure
+                 noise for a single-page one — every Mezzo row read
+                 "app.html". Show it only when it distinguishes anything. */
+              var onePage = evs.length > 1 &&
+                evs.every(function (x) { return (x.page || "") === (evs[0].page || ""); });
               var items = acts.slice(0, 6).map(function (e) {
                 var m = evMeta(e.name), d = evDetail(e);
+                if (onePage && d === e.page) d = "";
                 return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0' + ((vmap[e.visitor] || {}).is_internal ? ';opacity:.45' : '') + '">' +
                   '<div style="width:28px;height:28px;border-radius:8px;background:' + m[2] + ';display:flex;align-items:center;justify-content:center;flex:none"><span class="mi" style="font-size:16px;color:' + m[1] + '">' + m[0] + '</span></div>' +
                   '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m[3]) + '</div>' + (d ? '<div style="font-size:11.5px;color:var(--tx4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d) + "</div>" : "") + whoRow(e) + "</div>" +

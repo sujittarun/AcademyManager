@@ -361,6 +361,40 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* The detail line fell back to the page filename, so a single-page app
+   showed "app.html" against every row — six identical lines of nothing.
+   It stays for multi-page apps, where the page IS the information. */
+check("the page name is shown only when it tells them apart", () => {
+  /* One page for every row: the filename is noise. */
+  let h = feed([ev({ name: "attendance_marked", page: "app.html", props: {} }),
+                ev({ name: "student_added",     page: "app.html", props: {} })], []);
+  assert(!h.includes("app.html"), "a single-page app still shows its filename on every row");
+
+  /* Different pages: the filename is the only thing telling them apart. */
+  h = feed([ev({ name: "attendance_marked", page: "attendance.html", props: {} }),
+            ev({ name: "student_added",     page: "students.html",   props: {} })], []);
+  assert(h.includes("attendance.html") || h.includes("students.html"),
+    "a multi-page app lost the page name, which is what distinguishes its rows");
+});
+
+/* Telemetry carries counts, never money — the tenant apps are right to
+   omit amounts. The console then printed inr(undefined), which is "₹0",
+   so an academy that had collected ₹48,750 showed sixty-two lines of
+   "Payment recorded · ₹0". A fabricated zero is worse than a blank: it
+   is a number, and it is wrong. */
+check("an event with no amount shows no amount, not zero", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const fn = src.slice(src.indexOf("function evDetail(e) {"), src.indexOf("function evTime("));
+  assert(/function money\(/.test(src.slice(src.indexOf("An ABSENT amount"), src.indexOf("function evDetail(e) {") + 200)),
+    "the money() guard is gone");
+  assert(!/inr\(p\.amount\)/.test(fn),
+    "evDetail still calls inr() on a possibly-absent amount, which renders zero");
+  /* Every tenant's word for the same event must be handled, or it falls
+     through to showing the page filename. */
+  ["expense_added", "expense_recorded"].forEach((n) =>
+    assert(fn.includes('case "' + n + '"'), n + " falls through to the default branch"));
+});
+
 /* A setup link must land on a page that can READ a recovery fragment.
    Pointing at each app's login.html meant landing on a sign-in form that
    ignores it — and for MatchPointPride and GenAlpha there was no such
