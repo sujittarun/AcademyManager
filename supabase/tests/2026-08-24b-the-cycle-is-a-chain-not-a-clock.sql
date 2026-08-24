@@ -33,8 +33,12 @@ begin
     values ('mezzo', v_mem, v_centre, 'Keyboard', 1, '2026-08-24', '2026-08-24', 'active') returning id into v_enr;
   perform record_fee_payment('mezzo', v_enr, 1500, 1, 'UPI', 'renewal', '2026-08-27');
   select period_from, period_to into v_from, v_to from payments where enrollment_id = v_enr;
-  if (v_from, v_to) is distinct from (date '2026-08-24', date '2026-09-24') then
-    raise exception 'C2 pays 3 days after joining: got % -> % (should start at the joining day)', v_from, v_to;
+  -- 2026-08-24d: the FIRST fee sets the cycle, so it runs from the day the
+  -- money arrived, not from the day he was typed into the app. That is the
+  -- "payment day as the joining day" rule, and it is what makes backfilling
+  -- an existing student work.
+  if (v_from, v_to) is distinct from (date '2026-08-27', date '2026-09-27') then
+    raise exception 'C2 first fee 3 days after joining: got % -> % (should run from the payment day)', v_from, v_to;
   end if;
 
   -- ---------- C3: backfilled student, joined 1 Jun, first fee 24 Aug ----------
