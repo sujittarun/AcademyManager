@@ -57,3 +57,49 @@ Deno.test("admission form media is not payment proof", () => {
     throw new Error("Renewal payment media should remain proof.");
   }
 });
+
+import { normalizeAgeAndDateOfBirth } from "./admission_rules.ts";
+
+function dobCase(input: Record<string, unknown>, expected: { dob: string; age: number }) {
+  const draft: Record<string, unknown> = { age: 0, join_date: "2026-08-18", ...input };
+  const out = normalizeAgeAndDateOfBirth(draft);
+  if (out.date_of_birth !== expected.dob || Number(out.age) !== expected.age) {
+    throw new Error(
+      `${JSON.stringify(input)} -> dob=${out.date_of_birth} age=${out.age}, ` +
+        `expected dob=${expected.dob} age=${expected.age}`,
+    );
+  }
+}
+
+Deno.test("an age written in the date-of-birth box becomes the age", () => {
+  // KARTHIK - WUYYURU: the parent wrote 11 where the date belongs.
+  dobCase({ date_of_birth: "11" }, { dob: "", age: 11 });
+  dobCase({ date_of_birth: " 11 years " }, { dob: "", age: 11 });
+  dobCase({ date_of_birth: "7" }, { dob: "", age: 7 });
+});
+
+Deno.test("a birth year on its own gives an age, never an invented date", () => {
+  dobCase({ date_of_birth: "2015" }, { dob: "", age: 11 });
+  // The day and month are not knowable, so no date of birth is stored.
+});
+
+Deno.test("a real date of birth is left untouched", () => {
+  dobCase({ date_of_birth: "2015-07-08" }, { dob: "2015-07-08", age: 0 });
+});
+
+Deno.test("an age the form already gave is never overwritten", () => {
+  // The age box wins; the date box only fills a gap.
+  dobCase({ date_of_birth: "11", age: 9 }, { dob: "", age: 9 });
+});
+
+Deno.test("something that is neither a date nor an age is cleared", () => {
+  // Storing a half-parsed string as a date of birth is worse than storing
+  // nothing: the intake will simply ask for what is missing.
+  dobCase({ date_of_birth: "n/a" }, { dob: "", age: 0 });
+  dobCase({ date_of_birth: "--" }, { dob: "", age: 0 });
+  dobCase({ date_of_birth: "1899" }, { dob: "", age: 0 });
+});
+
+Deno.test("an empty date-of-birth box changes nothing", () => {
+  dobCase({ date_of_birth: "" }, { dob: "", age: 0 });
+});
