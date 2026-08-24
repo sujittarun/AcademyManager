@@ -309,8 +309,14 @@
         "</div>";
       }
 
-      function loadEvents(id) {
-        if (state.ev[id] || state.evLoading[id]) return;
+      function loadEvents(id, force) {
+        /* The cache used to be permanent: once a tenant's events were
+           read, nothing ever read them again. Opening the academy, going
+           back and opening it again showed the same rows as at sign-in,
+           so the only way to see new activity was a full page reload —
+           and the operator had no way to know that. `force` is what the
+           live refresh and re-entering a tenant use. */
+        if ((state.ev[id] && !force) || state.evLoading[id]) return;
         state.evLoading[id] = true;
         get("/events?tenant_id=eq." + encodeURIComponent(id) + "&at=gte." + daysAgo(6) +
           "&order=at.desc&limit=800&select=name,props,page,session_id,at,visitor,ip")
@@ -318,6 +324,73 @@
             state.ev[id] = rows || []; state.evLoading[id] = false;
             if (state.sel === id) render();
           });
+      }
+
+      /* ============================================================
+         LIVE REFRESH
+
+         Measured before choosing the intervals, because the two reads
+         cost wildly different amounts:
+
+             operator_portfolio()        421 ms   (40 subqueries x 7 tenants)
+             events for one tenant       0.5 ms
+             tenant_visitors()            43 ms
+
+         So they poll at different rates. The open academy's activity is
+         effectively free and refreshes often; the portfolio is expensive
+         and refreshes rarely, plus whenever the tab regains focus —
+         which is the moment an operator actually wants it, having just
+         done something in a tenant app in another tab.
+
+         Nothing polls while the tab is hidden. A console left open on a
+         second monitor overnight should cost nothing. */
+      var LIVE = { events: 15000, portfolio: 90000, timer: null,
+                   portfolioAt: 0, at: 0, busy: false };
+
+      function liveRefreshPortfolio() {
+        if (LIVE.busy) return Promise.resolve();
+        LIVE.busy = true;
+        return rpc("operator_portfolio").then(function (rows) {
+          if (rows) {
+            state.data = rows.map(mapAccount).sort(function (x, y) { return y.gmv - x.gmv; });
+            LIVE.portfolioAt = Date.now();
+            LIVE.at = Date.now();
+          }
+        }).catch(function () {}).then(function () { LIVE.busy = false; render(); });
+      }
+
+      function liveRefreshOpen() {
+        var id = state.sel;
+        if (!id) return;
+        loadEvents(id, true);
+        /* The visitor list is its own read and its own cache; clearing
+           the tenant marker is what makes detailView fetch it again. */
+        if (state.visitors && state.visitors.tenant === id) state.visitors = null;
+        LIVE.at = Date.now();
+      }
+
+      function liveTick() {
+        if (typeof document !== "undefined" && document.hidden) return;
+        if (!amSession()) return;
+        if (state.sel) liveRefreshOpen();
+        if (Date.now() - LIVE.portfolioAt > LIVE.portfolio) liveRefreshPortfolio();
+      }
+
+      function liveStart() {
+        if (LIVE.timer) return;
+        LIVE.timer = setInterval(liveTick, LIVE.events);
+        /* Coming back to the tab is the strongest signal that something
+           happened elsewhere — he has just been in a tenant app. */
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) { liveRefreshOpen(); liveRefreshPortfolio(); }
+        });
+        window.addEventListener("focus", function () { liveTick(); });
+      }
+
+      function liveAgo() {
+        if (!LIVE.at) return "";
+        var s = Math.round((Date.now() - LIVE.at) / 1000);
+        return s < 5 ? "just now" : s < 60 ? s + "s ago" : Math.round(s / 60) + "m ago";
       }
 
       function usageArray(byDay) { var out = []; for (var i = 13; i >= 0; i--) out.push((byDay || {})[daysAgo(i)] || 0); return out; }
@@ -479,6 +552,16 @@
                 '<div style="min-width:0"><h1 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageTitle) + '</h1><div style="font-size:12.5px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(pageSub) + "</div></div>" +
                 '<div style="flex:1"></div>' +
                 '<div class="am-search" style="display:flex;align-items:center;gap:8px;background:var(--page);border:1px solid var(--bd);border-radius:9px;padding:8px 12px;width:230px;color:var(--tx3)"><span class="mi" style="font-size:18px">search</span><span style="font-size:13px">Search academies…</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;border:1px solid #dde0e5;border-radius:5px;padding:0 5px;background:#fff">⌘K</span></div>' +
+                /* Says when the numbers were last read. Without it the
+                   operator cannot tell a quiet academy from a stale page,
+                   which is the whole reason he was reloading by hand. */
+                '<span title="Refreshes on its own. Click to read everything again now." data-refresh="1"' +
+                  ' style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;' +
+                  'color:var(--tx3);background:var(--fill);border:1px solid var(--bd2);border-radius:20px;' +
+                  'padding:5px 11px 5px 9px;cursor:pointer;margin-right:8px">' +
+                  '<span style="width:6px;height:6px;border-radius:50%;background:' +
+                    (LIVE.busy ? "#d97706" : "#14b8a6") + '"></span>' +
+                  (LIVE.busy ? "Refreshing…" : "Live · " + (liveAgo() || "now")) + "</span>" +
                 '<span class="am-prod" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
                 '<button class="notif" style="width:38px;height:38px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative"><span class="mi" style="font-size:20px;color:#5b6470">notifications</span>' + (engineBad || overdue ? '<span style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#f43f5e;border:1.5px solid #fff"></span>' : "") + "</button>" +
               "</header>" +
@@ -2613,7 +2696,16 @@
           render(); scrollTop(); return;
         }
         var open = e.target.closest("[data-open]");
-        if (open) { accessLeave(); state.sel = open.getAttribute("data-open"); render(); scrollTop(); return; }
+        if (open) {
+          accessLeave();
+          state.sel = open.getAttribute("data-open");
+          /* Re-entering an academy re-reads it. This is the habit the
+             operator already had — clicking in and out to check for
+             updates — and it used to show the cache every time. */
+          loadEvents(state.sel, true);
+          if (state.visitors) state.visitors = null;
+          render(); scrollTop(); return;
+        }
         if (e.target.closest("[data-back]")) { accessLeave(); state.sel = null; render(); scrollTop(); return; }
         var sort = e.target.closest("[data-sort]");
         if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
@@ -2755,6 +2847,11 @@
           pw = null;                                   // do not keep it around
           return;
         }
+        if (e.target.closest("[data-refresh]")) {
+          liveRefreshOpen();
+          liveRefreshPortfolio();
+          return;
+        }
         var res = e.target.closest("[data-resolve]");
         if (res) {
           var iconOnly = res.classList.contains("act-resolve");
@@ -2871,7 +2968,10 @@
         state.data = rows.map(mapAccount).sort(function (a, b) { return b.gmv - a.gmv; });
         state.health = Object.assign({}, h, { gap_count: (rec && rec.gap_count) || 0 });
         state.loaded = true;
+        LIVE.portfolioAt = Date.now();
+        LIVE.at = Date.now();
         render();
+        liveStart();
       });
     })();
   </script>
