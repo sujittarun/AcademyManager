@@ -13,11 +13,22 @@ const { chromium } = require("playwright");
 const localiseSource = require("/tmp/vid/localise.js");
 const injectCaption = require("/tmp/vid/caption.js");
 
-/* 4K, the right way. Recording with a 3840-wide VIEWPORT makes the app lay
-   out for a 3840px screen, and its max-width container then floats tiny in a
-   sea of background — tested, and it looks worse than 1080p. Instead the page
-   lays out at 1920 CSS px and renders at deviceScaleFactor 2, so the video is
-   3840x2160 of genuine retina pixels at the intended layout. */
+/* 4K, and the two ways to get it wrong — both of which were shipped once.
+
+   WRONG 1: a 3840-wide VIEWPORT. The app lays out for a 3840px screen and its
+   max-width container then floats tiny in a sea of background. Worse than 1080p.
+
+   WRONG 2: viewport 1920 + context `deviceScaleFactor: 2` + recordVideo 3840.
+   The container really is 3840x2160 and a SCREENSHOT really is full-res, so it
+   measures as correct — but deviceScaleFactor does not apply to video capture.
+   The page paints 1920x1080 into the top-left QUARTER of the frame and the rest
+   is background. That is what shipped: verified as "3840x2160" without ever
+   checking the content filled it.
+
+   RIGHT: force the browser's actual device scale factor at launch. innerWidth
+   stays 1920 so the layout is the intended one, dpr is 2, and the capture is a
+   full 3840x2160. verify.js asserts the content bbox fills the frame, because
+   resolution alone is not evidence. */
 const W = 1920, H = 1080;          // CSS layout size
 const VW = 3840, VH = 2160;        // recorded pixel size
 const DPR = 2;
@@ -44,7 +55,11 @@ const SHOTS = [
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch({ channel: "chrome", args: ["--hide-scrollbars"] });
+  const browser = await chromium.launch({
+    channel: "chrome",
+    // this is the line that makes the capture genuinely 4K, not the context option
+    args: ["--hide-scrollbars", `--force-device-scale-factor=${DPR}`],
+  });
 
   for (const [id, url, kicker, caption, secs, scrollTo] of SHOTS) {
     const ctx = await browser.newContext({
