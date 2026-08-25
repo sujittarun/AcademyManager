@@ -22,8 +22,34 @@ spends the credits again.
 ```bash
 cd <a folder with playwright installed>          # see "Dependencies"
 node   record.js        # records 9 shots -> /tmp/vid/shots/*.webm
-python3 assemble.py     # trims, crossfades, encodes the mp4
+python3 assemble.py     # trims, crossfades, encodes the silent mp4
+python3 sync_vo.py      # spreads the narration across the cut (optional)
 ```
+
+Two cuts ship, on purpose:
+
+| File | Use |
+|---|---|
+| `academy-manager-international-90s.mp4` | **silent, captions only.** LinkedIn, email, anywhere it autoplays muted — which is most places. |
+| `academy-manager-international-90s-voiceover.mp4` | narrated. A call, a deck, a landing page where the viewer chose to press play. |
+
+### Why the narration is cut up and re-placed
+
+The generated read is **63.6s against a 90s picture** — it would finish 26
+seconds early and leave the last third in silence. Stretching it with `atempo`
+needs 0.74x, which sounds draggy. So `sync_vo.py` splits the read at its own
+natural pauses (`silencedetect`), places each segment at the shot it describes,
+and keeps the pauses as breathing room. Narration then spans 1.0s → 85.7s, and
+the script asserts it does not overrun the picture.
+
+Audio is normalised to **-16 LUFS / -1.5 dBTP** — web standard. A raw gain
+boost peaked at -0.5 dB, close enough to clipping to matter on phone speakers.
+
+**There is no music.** The generation toolset here does speech only; no
+standalone music or sound-effects model is available, so a bed would have to
+come from a licensed library and be mixed in separately. The AI opener arrives
+with its own 5s ambience track, which is dropped — five seconds of room tone
+under an otherwise silent film reads as a mistake.
 
 ## Why this cut exists, and what is deliberately absent
 
