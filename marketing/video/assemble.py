@@ -13,6 +13,7 @@ dropped on purpose: the rest of the film is silent, and five seconds of ambience
 at the top reads as a mistake rather than a choice.
 """
 import glob
+import json
 import subprocess
 
 OUT = "/tmp/vid/academy-manager-international-90s-4k.mp4"
@@ -22,18 +23,21 @@ TARGET = 90.0
 
 # (source, trim-start, length).  A bare path is used as-is; a bare id is
 # resolved to the newest webm Playwright wrote for that shot.
-# Playwright's clip lengths vary run to run (it records setup time too), so
-# these are checked against the real files below rather than trusted.
+# Playwright's clip lengths AND their page-load time both vary run to run, so
+# neither is trusted: lengths are checked against the real files, and every
+# trim-start is checked against firstpaint.json from verify.js. One clip was
+# still blank 3s in while another had painted by 0.5s, and a fixed offset put
+# dead frames in the edit.
 PLAN = [
     ("/tmp/vid/cards/opener.mp4", 0.15,  4.80),
-    ("01-title",                  0.50,  5.00),
-    ("02-brand",                  5.40, 10.50),
-    ("03-dash",                   1.00, 13.85),
-    ("04-members",                1.00, 12.60),
-    ("05-attend",                 1.00, 13.30),
-    ("06-fees",                   1.00, 14.00),
-    ("07-alerts",                 1.00, 11.40),
-    ("08-end",                    0.50,  8.80),
+    ("01-title",                  1.20,  5.00),
+    ("02-brand",                  5.60, 10.50),   # also skips the 5s intro overlay
+    ("03-dash",                   1.80, 14.50),
+    ("04-members",                4.30, 12.60),   # this page paints late
+    ("05-attend",                 1.20, 12.90),
+    ("06-fees",                   1.20, 14.60),
+    ("07-alerts",                 1.80, 11.40),
+    ("08-end",                    0.80,  8.60),
 ]
 
 
@@ -42,6 +46,11 @@ def dur(path):
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", path]).strip())
 
+
+try:
+    FIRST = json.load(open("/tmp/vid/firstpaint.json"))
+except FileNotFoundError:
+    raise SystemExit("run `node verify.js` first — it writes firstpaint.json")
 
 srcs = []
 for src, ss, length in PLAN:
@@ -56,6 +65,11 @@ for src, ss, length in PLAN:
     # happily hand back fewer frames and the runtime would drift.
     assert ss + length <= have + 0.05, \
         f"{src}: want {ss}+{length}s but the clip is only {have:.2f}s"
+    # Never cut from before the page painted, or the edit opens on a blank frame
+    fp = FIRST.get(src, {}).get("first_paint")
+    if fp is not None:
+        assert ss >= fp, (f"{src}: trim starts at {ss}s but the page does not "
+                          f"paint until {fp}s — that would edit in blank frames")
     srcs.append((path, ss, length))
 
 runtime = sum(l for _, _, l in srcs) - XF * (len(srcs) - 1)
@@ -70,7 +84,6 @@ starts, at = [], 0.0
 for i, (_, _, length) in enumerate(srcs):
     starts.append(round(at, 3))
     at += length - (XF if i < len(srcs) - 1 else 0)
-import json
 with open(TIMING, "w") as fh:
     json.dump({"xfade": XF, "runtime": round(runtime, 3),
                "shots": [{"id": PLAN[i][0], "start": starts[i],
