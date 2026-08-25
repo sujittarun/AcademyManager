@@ -1,0 +1,33 @@
+<!doctype html><meta charset=utf-8><title>Academy Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Inter:wght@500;700&display=swap" rel=stylesheet>
+<style>
+ *{margin:0;box-sizing:border-box}
+ body{width:1920px;height:1080px;overflow:hidden;background:#05070f;color:#fff;
+   font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;position:relative}
+ .glow{position:absolute;inset:-20%;background:
+   radial-gradient(ellipse 58% 48% at 68% 40%,rgba(255,197,82,.20),transparent 60%),
+   radial-gradient(ellipse 52% 44% at 28% 66%,rgba(56,189,248,.18),transparent 62%)}
+ .w{position:relative;text-align:center;padding:0 90px}
+ h1{font:800 clamp(58px,5.4vw,96px)/1.06 Outfit;letter-spacing:-.02em;
+   background:linear-gradient(104deg,#fff 8%,#ffd98a 50%,#f5a524 96%);
+   -webkit-background-clip:text;background-clip:text;color:transparent;
+   opacity:0;animation:up .9s ease-out .1s forwards}
+ .row{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:52px 0 0;
+   opacity:0;animation:up .9s ease-out .45s forwards}
+ .chip{font:700 23px/1 Inter;padding:19px 30px;border-radius:99px;
+   border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.055);color:#e9eeff}
+ p{font:500 27px/1.5 Inter;color:rgba(233,238,255,.66);margin:56px auto 0;max-width:960px;
+   opacity:0;animation:up .9s ease-out .8s forwards}
+ @keyframes up{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+</style>
+<div class=glow></div>
+<div class=w>
+  <h1>Your academy. Your brand.<br>Your own app.</h1>
+  <div class=row>
+    <span class=chip>Multi-venue</span>
+    <span class=chip>Any sport</span>
+    <span class=chip>Any currency</span>
+    <span class=chip>Web &amp; mobile</span>
+  </div>
+  <p>Set up in days, not months — with your students, your fees and your branding.</p>
+</div>

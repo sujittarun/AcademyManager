@@ -1,0 +1,33 @@
+<!doctype html><meta charset=utf-8><title>Academy Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Inter:wght@500;700&display=swap" rel=stylesheet>
+<style>
+ *{margin:0;box-sizing:border-box}
+ body{width:1920px;height:1080px;overflow:hidden;background:#05070f;color:#fff;
+   font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;position:relative}
+ .glow{position:absolute;inset:-20%;background:
+   radial-gradient(ellipse 60% 50% at 30% 40%,rgba(255,197,82,.20),transparent 60%),
+   radial-gradient(ellipse 55% 45% at 72% 62%,rgba(124,58,237,.24),transparent 62%)}
+ .grid{position:absolute;inset:0;opacity:.30;background-image:
+   linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+   linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);background-size:78px 78px}
+ .w{position:relative;text-align:center;padding:0 90px}
+ .k{font:700 19px/1 Inter;letter-spacing:.4em;text-transform:uppercase;color:#ffc552;
+   opacity:0;animation:up .8s ease-out .15s forwards}
+ h1{font:800 clamp(66px,6.4vw,116px)/1.03 Outfit;letter-spacing:-.02em;margin:30px 0 26px;
+   background:linear-gradient(104deg,#fff 6%,#ffd98a 45%,#f5a524 96%);
+   -webkit-background-clip:text;background-clip:text;color:transparent;
+   opacity:0;animation:up .9s ease-out .35s forwards}
+ p{font:500 30px/1.5 Inter;color:rgba(233,238,255,.74);max-width:1080px;margin:0 auto;
+   opacity:0;animation:up .9s ease-out .62s forwards}
+ .rule{width:132px;height:5px;border-radius:9px;margin:40px auto 0;
+   background:linear-gradient(90deg,#ffc552,#f0851f);opacity:0;animation:up .7s ease-out .9s forwards}
+ @keyframes up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+</style>
+<div class=glow></div><div class=grid></div>
+<div class=w>
+  <div class=k>Academy Manager</div>
+  <h1>Run the academy,<br>not the spreadsheet.</h1>
+  <p>Members, batches, attendance, fees and automatic parent alerts —
+     one app, branded as yours.</p>
+  <div class=rule></div>
+</div>
