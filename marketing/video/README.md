@@ -36,16 +36,34 @@ which is sharper than recording at 1080p natively.
 | `…-1080p-voiceover.mp4` | narrated, for anywhere 4K is overkill. |
 | `…-1080p.mp4` | **silent + captions** — LinkedIn, email, anywhere it autoplays muted, which is most places. Send this one by default. |
 
-### 4K: viewport vs pixel ratio
+### 4K, and the two ways to get it wrong — both of which shipped once
 
-Recording with a 3840-wide **viewport** is the obvious approach and it is wrong:
-the app lays out for a 3840px screen and its max-width container then floats
-tiny in a sea of background — tested, and it looks worse than 1080p. Instead the
-page lays out at **1920 CSS px** and renders at **deviceScaleFactor 2**, so the
-frame is 3840×2160 of genuine retina pixels at the intended layout.
+**Wrong 1: a 3840-wide viewport.** The app lays out for a 3840px screen and its
+max-width container floats tiny in a sea of background. Worse than 1080p.
 
-The AI opener is 1280×720 and is the one thing that must be upscaled; it gets a
-light `unsharp` pass so it does not read as soft against native-4K UI.
+**Wrong 2: viewport 1920 + context `deviceScaleFactor: 2` + `recordVideo` 3840.**
+This one is nastier because it *measures* as correct: `ffprobe` reports
+3840×2160 and `page.screenshot()` really does return a full-res image. But
+**`deviceScaleFactor` does not apply to video capture** — the page paints
+1920×1080 into the top-left **quarter** of the frame and the rest is background.
+A cut shipped like that, verified as "3840×2160" without anyone checking the
+content filled it.
+
+**Right:** force the browser's real device scale factor at launch —
+`--force-device-scale-factor=2`. `innerWidth` stays 1920 so the layout is the
+intended one, `devicePixelRatio` is 2, and the capture is a full 3840×2160.
+
+```bash
+node verify.js     # run after every record.js
+```
+
+`verify.js` decodes a frame from each clip, trims it against the background
+colour, and fails if the content bbox is not the full frame. Resolution alone is
+not evidence — that is the whole lesson. It reported `1920x1080+0+0 · 25% of
+the frame` on all eight broken clips.
+
+The AI opener is 1280×720 and is the one thing that must genuinely be upscaled;
+it gets a light `unsharp` pass so it does not read as soft against native-4K UI.
 
 ### Why the narration is one file per line
 
