@@ -6,6 +6,19 @@ on-screen captions. Cut for prospects **outside India**.
 Re-runnable. Nothing here is hand-edited footage: every frame is recorded
 from the live demo app, so re-rendering after a UI change is two commands.
 
+**The .mp4 files are NOT in git, on purpose.** The repo's `.gitignore` excludes
+rendered media because 1.6 GB of mp4/webm/wav once lived in this history, and
+this output is regenerable by definition — that is what the pipeline is for.
+The rendered file sits untracked next to this README:
+
+    marketing/video/academy-manager-international-90s.mp4   (16 MB, 90.0s)
+    marketing/video/cards/opener.mp4                        (1 MB, the paid 5s)
+
+`cards/opener.mp4` is the one piece that is **not** free to regenerate — it cost
+32.5 Seedance credits. Keep a copy somewhere durable (a Release asset or Drive)
+before wiping a working tree, or the next render either loses the opener or
+spends the credits again.
+
 ```bash
 cd <a folder with playwright installed>          # see "Dependencies"
 node   record.js        # records 9 shots -> /tmp/vid/shots/*.webm
