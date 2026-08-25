@@ -13,7 +13,14 @@ const { chromium } = require("playwright");
 const localiseSource = require("/tmp/vid/localise.js");
 const injectCaption = require("/tmp/vid/caption.js");
 
-const W = 1920, H = 1080;
+/* 4K, the right way. Recording with a 3840-wide VIEWPORT makes the app lay
+   out for a 3840px screen, and its max-width container then floats tiny in a
+   sea of background — tested, and it looks worse than 1080p. Instead the page
+   lays out at 1920 CSS px and renders at deviceScaleFactor 2, so the video is
+   3840x2160 of genuine retina pixels at the intended layout. */
+const W = 1920, H = 1080;          // CSS layout size
+const VW = 3840, VH = 2160;        // recorded pixel size
+const DPR = 2;
 const OUT = "/tmp/vid/shots";
 const D = "https://sujittarun.github.io/AcademyManagerDemo";
 
@@ -41,8 +48,8 @@ const SHOTS = [
 
   for (const [id, url, kicker, caption, secs, scrollTo] of SHOTS) {
     const ctx = await browser.newContext({
-      viewport: { width: W, height: H }, deviceScaleFactor: 1,
-      recordVideo: { dir: `${OUT}/${id}`, size: { width: W, height: H } },
+      viewport: { width: W, height: H }, deviceScaleFactor: DPR,
+      recordVideo: { dir: `${OUT}/${id}`, size: { width: VW, height: VH } },
       colorScheme: "dark",
     });
     const page = await ctx.newPage();

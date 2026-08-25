@@ -15,22 +15,25 @@ at the top reads as a mistake rather than a choice.
 import glob
 import subprocess
 
-OUT = "/tmp/vid/academy-manager-international-90s.mp4"
+OUT = "/tmp/vid/academy-manager-international-90s-4k.mp4"
+TIMING = "/tmp/vid/shots.json"     # written for sync_vo.py to read
 XF = 0.6          # crossfade seconds
 TARGET = 90.0
 
 # (source, trim-start, length).  A bare path is used as-is; a bare id is
 # resolved to the newest webm Playwright wrote for that shot.
+# Playwright's clip lengths vary run to run (it records setup time too), so
+# these are checked against the real files below rather than trusted.
 PLAN = [
-    ("/tmp/vid/cards/opener.mp4", 0.15,  4.8),
-    ("01-title",                  0.50,  5.0),
-    ("02-brand",                  6.00, 13.5),
-    ("03-dash",                   1.00, 14.0),
-    ("04-members",                1.00, 12.8),
-    ("05-attend",                 1.00, 12.4),
-    ("06-fees",                   1.00, 13.0),
-    ("07-alerts",                 1.00, 11.3),
-    ("08-end",                    0.50,  8.0),
+    ("/tmp/vid/cards/opener.mp4", 0.15,  4.80),
+    ("01-title",                  0.50,  5.00),
+    ("02-brand",                  5.40, 10.50),
+    ("03-dash",                   1.00, 13.85),
+    ("04-members",                1.00, 12.60),
+    ("05-attend",                 1.00, 13.30),
+    ("06-fees",                   1.00, 14.00),
+    ("07-alerts",                 1.00, 11.40),
+    ("08-end",                    0.50,  8.80),
 ]
 
 
@@ -59,6 +62,21 @@ runtime = sum(l for _, _, l in srcs) - XF * (len(srcs) - 1)
 print(f"  {len(srcs)} shots -> {runtime:.1f}s (target {TARGET:.0f}s)")
 assert abs(runtime - TARGET) < 2.0, f"runtime {runtime:.1f}s has drifted from {TARGET}s"
 
+# Where each shot BEGINS in the finished cut. Every crossfade overlaps the
+# outgoing shot by XF, so shot n starts XF earlier than a naive sum implies.
+# sync_vo.py reads this: the first version hardcoded these numbers, they drifted
+# from the real edit, and a third of the narration played over the wrong shots.
+starts, at = [], 0.0
+for i, (_, _, length) in enumerate(srcs):
+    starts.append(round(at, 3))
+    at += length - (XF if i < len(srcs) - 1 else 0)
+import json
+with open(TIMING, "w") as fh:
+    json.dump({"xfade": XF, "runtime": round(runtime, 3),
+               "shots": [{"id": PLAN[i][0], "start": starts[i],
+                          "length": srcs[i][2]} for i in range(len(srcs))]}, fh, indent=1)
+print(f"  shot starts: {', '.join(f'{x:.1f}' for x in starts)}")
+
 cmd = ["ffmpeg", "-y", "-v", "error", "-stats"]
 for path, ss, length in srcs:
     cmd += ["-ss", str(ss), "-t", str(length), "-i", path]
@@ -68,9 +86,14 @@ for i in range(len(srcs)):
     # one normalise chain for every input, so xfade never sees a mismatch in
     # size, rate, sar or pixel format
     fc.append(
-        f"[{i}:v]fps=30,scale=1920:1080:force_original_aspect_ratio=decrease,"
-        f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=#05070f,setsar=1,"
-        f"format=yuv420p[v{i}]")
+        # The AI opener is 1280x720; everything else is native 3840x2160.
+        # Upscaling it is unavoidable, so it gets a light unsharp pass to stop
+        # it reading as soft next to genuinely crisp UI.
+        (f"[{i}:v]fps=30,scale=3840:2160:flags=lanczos,unsharp=5:5:0.8,"
+         f"setsar=1,format=yuv420p[v{i}]" if i == 0 else
+         f"[{i}:v]fps=30,scale=3840:2160:force_original_aspect_ratio=decrease,"
+         f"pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=#05070f,setsar=1,"
+         f"format=yuv420p[v{i}]"))
 
 prev, acc = "v0", srcs[0][2]
 for i in range(1, len(srcs)):
@@ -81,7 +104,7 @@ for i in range(1, len(srcs)):
 fc.append(f"[{prev}]format=yuv420p[vout]")
 
 cmd += ["-filter_complex", ";".join(fc), "-map", "[vout]", "-an",
-        "-c:v", "libx264", "-preset", "slow", "-crf", "20",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19",
         "-profile:v", "high", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", "-r", "30", OUT]
 subprocess.check_call(cmd)

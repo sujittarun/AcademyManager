@@ -26,30 +26,53 @@ python3 assemble.py     # trims, crossfades, encodes the silent mp4
 python3 sync_vo.py      # spreads the narration across the cut (optional)
 ```
 
-Two cuts ship, on purpose:
+Four files ship. The 4K is the master; the 1080p cuts are downscaled from it,
+which is sharper than recording at 1080p natively.
 
 | File | Use |
 |---|---|
-| `academy-manager-international-90s.mp4` | **silent, captions only.** LinkedIn, email, anywhere it autoplays muted — which is most places. |
-| `academy-manager-international-90s-voiceover.mp4` | narrated. A call, a deck, a landing page where the viewer chose to press play. |
+| `…-4k-voiceover.mp4` | master. Narrated, 3840×2160. |
+| `…-4k.mp4` | master, silent + captions. |
+| `…-1080p-voiceover.mp4` | narrated, for anywhere 4K is overkill. |
+| `…-1080p.mp4` | **silent + captions** — LinkedIn, email, anywhere it autoplays muted, which is most places. Send this one by default. |
 
-### Why the narration is cut up and re-placed
+### 4K: viewport vs pixel ratio
 
-The generated read is **63.6s against a 90s picture** — it would finish 26
-seconds early and leave the last third in silence. Stretching it with `atempo`
-needs 0.74x, which sounds draggy. So `sync_vo.py` splits the read at its own
-natural pauses (`silencedetect`), places each segment at the shot it describes,
-and keeps the pauses as breathing room. Narration then spans 1.0s → 85.7s, and
-the script asserts it does not overrun the picture.
+Recording with a 3840-wide **viewport** is the obvious approach and it is wrong:
+the app lays out for a 3840px screen and its max-width container then floats
+tiny in a sea of background — tested, and it looks worse than 1080p. Instead the
+page lays out at **1920 CSS px** and renders at **deviceScaleFactor 2**, so the
+frame is 3840×2160 of genuine retina pixels at the intended layout.
+
+The AI opener is 1280×720 and is the one thing that must be upscaled; it gets a
+light `unsharp` pass so it does not read as soft against native-4K UI.
+
+### Why the narration is one file per line
+
+The first attempt generated the whole script as a single 63.6s read and split it
+at its seven largest silences, assuming those matched the sentence groups. They
+did not — the first segment came out **28.8 seconds long**, so a third of the
+narration played across the opener, the title card and the brand shot while
+describing the dashboard. The voice was audibly on the wrong screen.
+
+Now each line is its own generation, placed at the shot it describes, and the
+shot start times are **read from `shots.json`** which `assemble.py` writes from
+the real edit. Nothing restates a timing that lives somewhere else; that
+duplication is exactly what drifted. `sync_vo.py` refuses to run if a line
+overruns its shot by more than 1.5s — the fix for that is shorter copy, not a
+time-stretched voice (one line hit 15.7s in a 13.3s slot and was rewritten
+rather than sped up).
 
 Audio is normalised to **-16 LUFS / -1.5 dBTP** — web standard. A raw gain
 boost peaked at -0.5 dB, close enough to clipping to matter on phone speakers.
 
-**There is no music.** The generation toolset here does speech only; no
-standalone music or sound-effects model is available, so a bed would have to
-come from a licensed library and be mixed in separately. The AI opener arrives
-with its own 5s ambience track, which is dropped — five seconds of room tone
-under an otherwise silent film reads as a mistake.
+### The background bed
+
+**There is no music model here** — this toolset does speech only. So the bed is
+the AI opener's own room tone, looped across the full runtime, low-passed to
+900 Hz so nothing in it competes with the voice, and sat about 26 dB under the
+narration. It reads as air in a room rather than as a backing track. If you want
+real music it has to come from a licensed library and be mixed in separately.
 
 ## Why this cut exists, and what is deliberately absent
 
