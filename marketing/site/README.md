@@ -51,8 +51,8 @@ platform database, not estimated:
 no number. There are no testimonials, no logos-of-companies-you-do-not-have,
 and no invented customer counts; the gallery is the proof.
 
-`hello@academymanager.in` is a **placeholder** and appears in four places.
-Replace it with a real inbox before the domain goes live.
+`academymanager@outlook.in` is the live contact address, set 2026-08-25. It
+appears in four places on the page.
 
 ## The eight academy screenshots
 
