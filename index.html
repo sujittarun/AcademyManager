@@ -227,7 +227,7 @@
       }
 
       /* ============ state + data ============ */
-      var state = { appsBusy: false, appsErr: "", myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
+      var state = { openDays: {}, appsBusy: false, appsErr: "", myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { today: null, funnel: null, leads: [], ab: null, done: {},
@@ -1764,7 +1764,13 @@
                  "app.html". Show it only when it distinguishes anything. */
               var onePage = evs.length > 1 &&
                 evs.every(function (x) { return (x.page || "") === (evs[0].page || ""); });
-              var items = acts.slice(0, 6).map(function (e) {
+              /* "+14 more actions" used to be a line of dead text: six
+                 rows shown, the rest counted and unreachable, on the one
+                 panel whose job is to say what happened. The count was
+                 right and the operator still could not see them. */
+              var dayKey = a.id + "|" + dstr;
+              var showAll = !!state.openDays[dayKey];
+              var items = (showAll ? acts : acts.slice(0, 6)).map(function (e) {
                 var m = evMeta(e.name), d = evDetail(e);
                 if (onePage && d === e.page) d = "";
                 return '<div class="act-row" style="display:flex;align-items:center;gap:11px;padding:7px 0' + ((vmap[e.visitor] || {}).is_internal ? ';opacity:.45' : '') + '">' +
@@ -1783,7 +1789,13 @@
                     : "") +
                   '<span style="font-size:11px;color:var(--tx5);white-space:nowrap;font-variant-numeric:tabular-nums">' + evTime(e.at) + "</span></div>";
               }).join("");
-              if (acts.length > 6) items += '<div style="font-size:11.5px;color:var(--tx4);padding:4px 0 2px 39px">+' + (acts.length - 6) + " more actions</div>";
+              if (acts.length > 6) {
+                items += '<button data-moreday="' + esc(dayKey) + '" style="font:inherit;' +
+                  'font-size:11.5px;font-weight:600;color:var(--act);background:none;border:0;' +
+                  'padding:6px 0 2px 39px;cursor:pointer;text-align:left;width:100%">' +
+                  (showAll ? "Show fewer" : "Show all " + acts.length + " — " + (acts.length - 6) + " more") +
+                  "</button>";
+              }
               if (pv.length) {
                 var pages = {};
                 pv.forEach(function (e) { var pg = (e.page || "").replace(".html", ""); if (pg) pages[pg] = (pages[pg] || 0) + 1; });
@@ -2845,6 +2857,13 @@
           if (!pw) { state.appsErr = "Type your password first."; return render(); }
           appsSignIn(pw);
           pw = null;                                   // do not keep it around
+          return;
+        }
+        var moreDay = e.target.closest("[data-moreday]");
+        if (moreDay) {
+          var dk = moreDay.getAttribute("data-moreday");
+          state.openDays[dk] = !state.openDays[dk];
+          render();
           return;
         }
         if (e.target.closest("[data-refresh]")) {

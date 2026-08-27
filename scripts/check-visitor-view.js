@@ -361,6 +361,36 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* "+14 more actions" was a line of dead text: six rows rendered, the
+   rest counted and unreachable, on the one panel whose job is to say
+   what happened. The count was right and the operator still could not
+   see them. */
+check("a day with more than six actions can be opened", () => {
+  const many = [];
+  for (let i = 0; i < 20; i++) many.push(ev({ name: "payment_recorded", props: {} }));
+  const acct = account();
+
+  let h = feed(many, [], acct);
+  assert(/Show all 20/.test(h), "there is no way to see the rest: " + (h.match(/\+\d+ more[^<]*/) || ["nothing"])[0]);
+  assert(!/>\+14 more actions</.test(h), "the dead text is back");
+
+  /* Six rows collapsed, twenty when opened. Counting the rows is the
+     only way to know the button does anything. */
+  const rowsOf = (html) => (html.match(/class="act-row"/g) || []).length;
+  const collapsed = rowsOf(h);
+  api.state.openDays[acct.id + "|" + api.state.day] = true;
+  const key = Object.keys(api.state.openDays)[0];
+  api.state.openDays = {};
+  /* Drive it through the real click handler rather than setting state. */
+  onClick({ target: { closest: (s) => (s === "[data-moreday]"
+    ? { getAttribute: () => (h.match(/data-moreday="([^"]+)"/) || [])[1] } : null) },
+    stopPropagation() {} });
+  const opened = rowsOf(api.detailView(acct));
+  assert(opened > collapsed,
+    "clicking showed " + opened + " rows, same as the collapsed " + collapsed);
+  assert(opened === 20, "expected all 20 rows, got " + opened);
+});
+
 /* The console never refreshed. loadEvents cached per tenant forever,
    the portfolio was read once at boot, and there was no polling, no
    realtime and no focus handler — so clicking out of an academy and
