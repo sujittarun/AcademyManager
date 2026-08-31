@@ -361,6 +361,34 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* Activity is what the operator opens the page for, and it sat third,
+   below two charts. Expanding a busy day then made the card so tall the
+   panels beside it were a page away — so it goes first AND scrolls
+   inside itself. */
+check("activity comes first and keeps its own height", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const grid = src.slice(src.indexOf('<div class="dgrid">'), src.indexOf('card("Work recorded"'));
+  const act = grid.indexOf("activityCard(a)");
+  const gross = grid.indexOf('card("Gross volume"');
+  assert(act >= 0 && gross >= 0, "could not find the left column's panels");
+  assert(act < gross, "activity is still below the charts");
+
+  /* The list scrolls, not the card: the heading and day counts must stay
+     put, or expanding 56 rows scrolls the title out of view. */
+  /* Strip comments before asserting. The first cut of this check
+     matched the word "overscroll-behavior:contain" in the comment ABOVE
+     the code and passed while the style itself had been removed — a
+     check that reads its own explanation is not a check. */
+  const fn = src.slice(src.indexOf("function activityCard(a)"), src.indexOf("function detailView(a)"))
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert(/max-height:\d+px;overflow-y:auto/.test(fn),
+    "the activity list has no height cap, so a busy day makes the page enormous");
+  assert(/overscroll-behavior:contain/.test(fn),
+    "a flick past the end of the list will jump the whole page");
+  const cap = +(fn.match(/max-height:(\d+)px/) || [0, 0])[1];
+  assert(cap >= 260 && cap <= 700, "a " + cap + "px window is the wrong size to read a day in");
+});
+
 /* "+14 more actions" was a line of dead text: six rows rendered, the
    rest counted and unreachable, on the one panel whose job is to say
    what happened. The count was right and the operator still could not
