@@ -92,3 +92,58 @@ Deno.test("a Pay Now click without proof is described as an attempt, not a payme
     );
   }
 });
+
+Deno.test("a stale Pay Now conversation does not claim a new screenshot", () => {
+  // karthikeya, 2026-08-31: he tapped Pay Now on 21 July and never finished,
+  // and six weeks later his screenshot was attached to that July reminder
+  // instead of the August one. The August cycle then read "renewal overdue"
+  // while the pending payment sat on a cycle already paid.
+  const now = Date.parse("2026-08-31T14:31:00Z");
+  const selected = selectPaymentConversationReminder([
+    {
+      id: "2929",
+      status: "delivered",
+      created_at: "2026-08-31T09:30:00Z",
+      due_date: "2026-08-21",
+    },
+    {
+      id: "2633",
+      status: "payment_attempted",
+      payment_attempted_at: "2026-07-21T12:00:00Z",
+      created_at: "2026-07-28T09:30:00Z",
+      due_date: "2026-07-21",
+    },
+  ], now);
+  if (selected?.id !== "2929") {
+    throw new Error(`Expected the current reminder 2929, got ${selected?.id}`);
+  }
+});
+
+Deno.test("a Pay Now tap an hour ago still claims the screenshot", () => {
+  // The case the preference exists for: the parent opened payment, the daily
+  // cron then created a newer reminder, and the proof belongs to the tap.
+  const now = Date.parse("2026-08-31T14:31:00Z");
+  const selected = selectPaymentConversationReminder([
+    { id: "new", status: "delivered", created_at: "2026-08-31T09:30:00Z" },
+    {
+      id: "tapped",
+      status: "payment_attempted",
+      payment_attempted_at: "2026-08-31T13:30:00Z",
+      created_at: "2026-08-30T09:30:00Z",
+    },
+  ], now);
+  if (selected?.id !== "tapped") {
+    throw new Error(`Expected the active conversation, got ${selected?.id}`);
+  }
+});
+
+Deno.test("with nothing active the newest reminder is used", () => {
+  const now = Date.parse("2026-08-31T14:31:00Z");
+  const selected = selectPaymentConversationReminder([
+    { id: "old", status: "delivered", created_at: "2026-07-01T09:30:00Z" },
+    { id: "new", status: "delivered", created_at: "2026-08-31T09:30:00Z" },
+  ], now);
+  if (selected?.id !== "new") {
+    throw new Error(`Expected the newest reminder, got ${selected?.id}`);
+  }
+});
