@@ -11,6 +11,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/console.css?v=16" />
+  <!-- Realtime only. Everything else in this console is raw fetch, and
+       stays that way. Guarded everywhere: if this fails to load the page
+       works and falls back to a five minute heartbeat. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
   <!-- operator sign-in.
@@ -227,7 +232,7 @@
       }
 
       /* ============ state + data ============ */
-      var state = { openDays: {}, appsBusy: false, appsErr: "", myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
+      var state = { showQuiet: false, openDays: {}, appsBusy: false, appsErr: "", myLink: "", view: "overview", sel: null, sortKey: "gmv", sortDir: "desc", data: [], health: null, loaded: false, ev: {}, evLoading: {}, act: {}, actLoading: {},
         // sales pipeline — loaded lazily the first time the tab is opened,
         // so the console's boot cost is unchanged for everyone not selling.
         sales: { today: null, funnel: null, leads: [], ab: null, done: {},
@@ -327,25 +332,45 @@
       }
 
       /* ============================================================
-         LIVE REFRESH
+         LIVE, WITHOUT ASKING
 
-         Measured before choosing the intervals, because the two reads
-         cost wildly different amounts:
+         The first version polled: every 15 s for the open academy, every
+         90 s for the portfolio. It worked and it was wasteful — hundreds
+         of requests an hour to be told nothing had happened. Postgres
+         already knows the moment a row lands; the console just was not
+         listening.
 
-             operator_portfolio()        421 ms   (40 subqueries x 7 tenants)
-             events for one tenant       0.5 ms
-             tenant_visitors()            43 ms
+         So it listens. Supabase Realtime carries an INSERT on the tables
+         that mean something — payments, members, attendance_records,
+         enrollments, expenses, reminder_events, and events — over one
+         WebSocket, and the console refreshes only when one arrives.
+         `2026-08-25a` added `events` to the publication; the rest were
+         already there.
 
-         So they poll at different rates. The open academy's activity is
-         effectively free and refreshes often; the portfolio is expensive
-         and refreshes rarely, plus whenever the tab regains focus —
-         which is the moment an operator actually wants it, having just
-         done something in a tenant app in another tab.
+         RLS still applies. Realtime evaluates the same policies per
+         subscriber, and `events_op_r` restricts telemetry to operators,
+         so this socket shows nothing a REST read would not.
 
-         Nothing polls while the tab is hidden. A console left open on a
-         second monitor overnight should cost nothing. */
-      var LIVE = { events: 15000, portfolio: 90000, timer: null,
-                   portfolioAt: 0, at: 0, busy: false };
+         WHAT REMAINS OF POLLING, and why it is not zero: a WebSocket can
+         drop — a laptop sleeps, a tunnel dies, Supabase restarts — and a
+         silent dead socket looks exactly like a quiet academy. A five
+         minute heartbeat is the difference between "nothing happened"
+         and "I stopped being told". It is 12 requests an hour instead of
+         240.
+
+         Bursts are debounced: marking a register writes a row per
+         student, and twenty rows must not be twenty refreshes. */
+      var LIVE = {
+        heartbeat: 300000,        // safety net only — realtime does the work
+        debounce: 1200,           // a register mark writes many rows at once
+        timer: null, debounceTimer: null, channel: null, channelFor: null,
+        at: 0, portfolioAt: 0, busy: false, connected: false, changes: 0,
+      };
+
+      /* Tables worth waking up for. `events` is what the activity feed
+         reads; the others are what the academy actually did. */
+      var LIVE_TABLES = ["events", "payments", "members", "attendance_records",
+                         "enrollments", "expenses", "reminder_events"];
 
       function liveRefreshPortfolio() {
         if (LIVE.busy) return Promise.resolve();
@@ -353,8 +378,7 @@
         return rpc("operator_portfolio").then(function (rows) {
           if (rows) {
             state.data = rows.map(mapAccount).sort(function (x, y) { return y.gmv - x.gmv; });
-            LIVE.portfolioAt = Date.now();
-            LIVE.at = Date.now();
+            LIVE.portfolioAt = Date.now(); LIVE.at = Date.now();
           }
         }).catch(function () {}).then(function () { LIVE.busy = false; render(); });
       }
@@ -363,24 +387,84 @@
         var id = state.sel;
         if (!id) return;
         loadEvents(id, true);
-        /* The visitor list is its own read and its own cache; clearing
-           the tenant marker is what makes detailView fetch it again. */
         if (state.visitors && state.visitors.tenant === id) state.visitors = null;
         LIVE.at = Date.now();
+      }
+
+      /* One change is usually the first of several. Wait a moment, then
+         read once. */
+      function liveNudge() {
+        LIVE.changes += 1;
+        clearTimeout(LIVE.debounceTimer);
+        LIVE.debounceTimer = setTimeout(function () {
+          liveRefreshOpen();
+          liveRefreshPortfolio();
+        }, LIVE.debounce);
+      }
+
+      /* The realtime client is the ONE external dependency this console
+         has, loaded from a CDN in the head. If it fails to load the page
+         is unaffected — everything below checks for it and the five
+         minute heartbeat carries on. A console that breaks because a CDN
+         is down would be a worse trade than polling. */
+      var SB = null;
+      function liveClient() {
+        if (SB) return SB;
+        if (!window.supabase || !window.supabase.createClient) return null;
+        try { SB = window.supabase.createClient(PROJECT, KEY, { auth: { persistSession: false } }); }
+        catch (e) { SB = null; }
+        return SB;
+      }
+
+      /* Subscribe to the OPEN academy only. Watching all seven would mean
+         being woken by academies nobody is looking at.
+
+         THE SOCKET MUST CARRY THE OPERATOR'S TOKEN. Realtime applies the
+         same RLS as a REST read, and `events_op_r` restricts telemetry to
+         `auth_role() = 'operator'`. An unauthenticated socket connects
+         perfectly and then delivers nothing — indistinguishable from a
+         quiet academy, which is the failure this whole change exists to
+         avoid. setAuth first, subscribe second. */
+      function liveSubscribe(id) {
+        var sb = liveClient();
+        if (!sb || LIVE.channelFor === id) return;
+        liveUnsubscribe();
+        if (!id) return;
+        LIVE.channelFor = id;                       // claim it before the await
+        bearerTok().then(function (tok) {
+          if (LIVE.channelFor !== id) return;       // he moved on while we waited
+          try {
+            sb.realtime.setAuth(tok);
+            var ch = sb.channel("console:" + id);
+            LIVE_TABLES.forEach(function (t) {
+              ch.on("postgres_changes",
+                { event: "*", schema: "public", table: t, filter: "tenant_id=eq." + id },
+                function () { liveNudge(); });
+            });
+            ch.subscribe(function (status) {
+              LIVE.connected = (status === "SUBSCRIBED");
+              render();
+            });
+            LIVE.channel = ch;
+          } catch (e) { LIVE.connected = false; }
+        }).catch(function () { LIVE.connected = false; });
+      }
+
+      function liveUnsubscribe() {
+        try { if (LIVE.channel && SB) SB.removeChannel(LIVE.channel); } catch (e) {}
+        LIVE.channel = null; LIVE.channelFor = null; LIVE.connected = false;
       }
 
       function liveTick() {
         if (typeof document !== "undefined" && document.hidden) return;
         if (!amSession()) return;
-        if (state.sel) liveRefreshOpen();
-        if (Date.now() - LIVE.portfolioAt > LIVE.portfolio) liveRefreshPortfolio();
+        liveRefreshOpen();
+        liveRefreshPortfolio();
       }
 
       function liveStart() {
         if (LIVE.timer) return;
-        LIVE.timer = setInterval(liveTick, LIVE.events);
-        /* Coming back to the tab is the strongest signal that something
-           happened elsewhere — he has just been in a tenant app. */
+        LIVE.timer = setInterval(liveTick, LIVE.heartbeat);
         document.addEventListener("visibilitychange", function () {
           if (!document.hidden) { liveRefreshOpen(); liveRefreshPortfolio(); }
         });
@@ -436,7 +520,7 @@
         var sport = cfg.sport || "Multi-sport";
         return {
           id: r.tenant_id, name: r.name, sport: sport, icon: sportIcon(cfg.sport), city: cfg.city || "",
-          owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, health: health, didWork: didWork, lastActionAt: r.last_action_at || null, actionsEver: r.action_events_ever || 0,
+          owner: cfg.owner || "", plan: r.plan || r.tier || "Starter", mrr: r.mrr || 0, watch: cfg.watch !== false, health: health, didWork: didWork, lastActionAt: r.last_action_at || null, actionsEver: r.action_events_ever || 0,
           gmv: r.gmv_30d || 0, prev: r.gmv_prev || 0, bookings: r.bookings_30d || 0, enq: r.apps_30d || 0,
           players: r.active_players || 0, cap: r.player_cap || 0, sessions: r.sessions_30d || 0, activeDays: r.active_days_30d || 0,
           lastH: lastH, bill: bill, renews: !r.renews_on || bill === "free" || bill === "churned" ? "—" : (bill === "overdue" ? "Overdue since " + fmtDate(r.renews_on) : bill === "decide"   ? "Trial ended " + fmtDate(r.renews_on) : bill === "trial"    ? "Trial ends " + fmtDate(r.renews_on) : fmtDate(r.renews_on)),
@@ -555,13 +639,19 @@
                 /* Says when the numbers were last read. Without it the
                    operator cannot tell a quiet academy from a stale page,
                    which is the whole reason he was reloading by hand. */
-                '<span title="Refreshes on its own. Click to read everything again now." data-refresh="1"' +
+                '<span title="' + (LIVE.connected
+                    ? "Connected. Updates the moment something happens in this academy."
+                    : "Not connected to live updates — checking every five minutes. Click to read now.") +
+                  '" data-refresh="1"' +
                   ' style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;' +
                   'color:var(--tx3);background:var(--fill);border:1px solid var(--bd2);border-radius:20px;' +
                   'padding:5px 11px 5px 9px;cursor:pointer;margin-right:8px">' +
                   '<span style="width:6px;height:6px;border-radius:50%;background:' +
-                    (LIVE.busy ? "#d97706" : "#14b8a6") + '"></span>' +
-                  (LIVE.busy ? "Refreshing…" : "Live · " + (liveAgo() || "now")) + "</span>" +
+                    (LIVE.busy ? "#d97706" : LIVE.connected ? "#14b8a6" : "#94a3b8") + '"></span>' +
+                  (LIVE.busy ? "Refreshing…"
+                     : LIVE.connected ? "Live · " + (liveAgo() || "now")
+                     : state.sel ? "Checking · " + (liveAgo() || "now")
+                     : "Updated " + (liveAgo() || "now")) + "</span>" +
                 '<span class="am-prod" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:20px;padding:5px 11px 5px 9px"><span style="width:6px;height:6px;border-radius:50%;background:#14b8a6"></span>Production</span>' +
                 '<button class="notif" style="width:38px;height:38px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative"><span class="mi" style="font-size:20px;color:#5b6470">notifications</span>' + (engineBad || overdue ? '<span style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#f43f5e;border:1.5px solid #fff"></span>' : "") + "</button>" +
               "</header>" +
@@ -867,7 +957,15 @@
         });
       }
 
+      /* Two academies are in daily use; the rest are real tenants with
+         real history that nobody is checking. They fold away behind a
+         count rather than disappearing — `config.watch = false`, which
+         is deliberately NOT `archived`. Archived means retired, and
+         `demo` and `ska` are neither. `2026-08-25a`. */
       function academiesView(accts) {
+        var quiet = accts.filter(function (a) { return !a.watch; });
+        if (!state.showQuiet) accts = accts.filter(function (a) { return a.watch; });
+
         var order = { Active: 0, Quiet: 1, "At risk": 2, Onboarding: 3 };
         var rows = accts.slice().sort(function (x, y) {
           var d = (order[x.health] ?? 9) - (order[y.health] ?? 9);
@@ -920,7 +1018,18 @@
                 "</div>"
               : "") +
             "</div>";
-        }).join("") + "</div>";
+        }).join("") + "</div>" +
+          /* Folded, not hidden. The count is always on screen so nobody
+             wonders where Leo went, and one tap brings them back. */
+          (quiet.length
+            ? '<button data-quiet="1" style="font:inherit;font-size:12.5px;font-weight:600;' +
+              'color:var(--tx3);background:none;border:0;padding:14px 2px 2px;cursor:pointer">' +
+              (state.showQuiet
+                 ? "Hide the " + quiet.length + " not in use"
+                 : "+ " + quiet.length + " not in use · " +
+                   quiet.map(function (q) { return esc(q.name); }).join(", ")) +
+              "</button>"
+            : "");
       }
 
       function billingView(accts) {
@@ -2719,7 +2828,7 @@
         }
 
         if (nav) {
-          accessLeave(); state.view = nav.getAttribute("data-nav"); state.sel = null;
+          accessLeave(); liveUnsubscribe(); state.view = nav.getAttribute("data-nav"); state.sel = null;
           if (state.view === "sales" && !state.sales.loaded) loadSales();
           render(); scrollTop(); return;
         }
@@ -2732,9 +2841,10 @@
              updates — and it used to show the cache every time. */
           loadEvents(state.sel, true);
           if (state.visitors) state.visitors = null;
+          liveSubscribe(state.sel);
           render(); scrollTop(); return;
         }
-        if (e.target.closest("[data-back]")) { accessLeave(); state.sel = null; render(); scrollTop(); return; }
+        if (e.target.closest("[data-back]")) { accessLeave(); liveUnsubscribe(); state.sel = null; render(); scrollTop(); return; }
         var sort = e.target.closest("[data-sort]");
         if (sort) { var k = sort.getAttribute("data-sort"); if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc"; else { state.sortKey = k; state.sortDir = k === "name" ? "asc" : "desc"; } render(); return; }
         if (e.target.closest("[data-my-link]")) {
@@ -2875,6 +2985,7 @@
           pw = null;                                   // do not keep it around
           return;
         }
+        if (e.target.closest("[data-quiet]")) { state.showQuiet = !state.showQuiet; render(); return; }
         var moreDay = e.target.closest("[data-moreday]");
         if (moreDay) {
           var dk = moreDay.getAttribute("data-moreday");
