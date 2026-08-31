@@ -361,6 +361,36 @@ check("the launcher targets a real key and URL for every app", () => {
     u + " is not on this origin, so seeding its session cannot work"));
 });
 
+/* Two academies are in daily use; four are real tenants nobody checks.
+   They fold behind a count rather than vanishing — and crucially they
+   are NOT archived, because archived means retired and `demo` is the
+   sales demo (0012 decided it stays visible) and `ska` had not started. */
+check("only the watched academies are on the board, and the rest fold", () => {
+  const watched = api.mapAccount({ tenant_id: "mezzo", name: "Mezzo", config: { watch: true },
+                                   last_write_at: new Date().toISOString() });
+  const quiet   = api.mapAccount({ tenant_id: "leo", name: "Leo Tennis", config: { watch: false },
+                                   last_write_at: new Date().toISOString() });
+  /* A tenant with no flag at all must stay visible: absent is not false,
+     and a new academy must not be invisible on the day it is created. */
+  const unflagged = api.mapAccount({ tenant_id: "new", name: "Brand New", config: {},
+                                     last_write_at: new Date().toISOString() });
+  assert(watched.watch === true && quiet.watch === false && unflagged.watch === true,
+    "the watch flag is not read correctly: " + JSON.stringify([watched.watch, quiet.watch, unflagged.watch]));
+
+  api.state.showQuiet = false;
+  api.state.data = [watched, quiet, unflagged];
+  let h = api.academiesView(api.state.data);
+  assert(h.includes("Mezzo") && h.includes("Brand New"), "a watched academy is missing");
+  assert(!/data-open="leo"/.test(h), "an unwatched academy is still on the board");
+  assert(/1 not in use/.test(h) && h.includes("Leo Tennis"),
+    "the folded academy is not counted or named, so it just looks gone");
+
+  api.state.showQuiet = true;
+  h = api.academiesView(api.state.data);
+  assert(/data-open="leo"/.test(h), "unfolding does not bring it back");
+  api.state.showQuiet = false;
+});
+
 /* Activity is what the operator opens the page for, and it sat third,
    below two charts. Expanding a busy day then made the card so tall the
    panels beside it were a page away — so it goes first AND scrolls
@@ -435,21 +465,59 @@ check("re-entering an academy re-reads it instead of serving the cache", () => {
     "opening an academy does not force a re-read, so clicking in and out shows stale rows");
 });
 
-/* The two reads cost very different amounts — 421ms for the portfolio
-   against 0.5ms for one tenant's events — so one interval for both would
-   be either wasteful or too slow. Measured, not guessed. */
-check("the expensive read polls less often than the cheap one", () => {
+/* Polling was replaced by listening. The console subscribes to the open
+   academy's tables over one WebSocket and refreshes when a row actually
+   lands; the interval that remains is a safety net for a dead socket,
+   not the mechanism. */
+check("the console listens instead of polling", () => {
   const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
-  const m = src.match(/var LIVE = \{ events: (\d+), portfolio: (\d+)/);
+  const m = src.match(/heartbeat:\s*(\d+)/);
   assert(m, "the live refresher is gone");
-  const ev = +m[1], port = +m[2];
-  assert(ev >= 5000, "events poll every " + ev + "ms — that is a request storm");
-  assert(port > ev, "the 421ms portfolio read polls as often as the 0.5ms one");
-  /* A console left open on a second monitor must cost nothing. */
-  assert(/document\.hidden/.test(src.slice(src.indexOf("function liveTick"), src.indexOf("function liveStart"))),
-    "it keeps polling while the tab is hidden");
-  /* Coming back to the tab is the strongest signal something happened. */
-  assert(/visibilitychange/.test(src), "returning to the tab does not refresh");
+  const hb = +m[1];
+  /* 15s polling was the complaint. A safety net should be minutes. */
+  assert(hb >= 120000, "the heartbeat is every " + hb / 1000 + "s — that is still polling");
+
+  assert(/postgres_changes/.test(src), "nothing subscribes to database changes");
+  assert(/LIVE_TABLES/.test(src), "no table list to subscribe to");
+  /* events is what the activity feed reads; without it a page_view or a
+     payment would not wake the feed. */
+  const tbl = src.slice(src.indexOf("var LIVE_TABLES"), src.indexOf("var LIVE_TABLES") + 320);
+  ["events", "payments", "attendance_records", "members"].forEach((t) =>
+    assert(tbl.includes('"' + t + '"'), t + " is not subscribed to"));
+
+  /* Marking a register writes a row per student. Twenty rows must not be
+     twenty refreshes — so the nudge must CANCEL the pending read and
+     restart it, not just mention the word "debounce". */
+  const nudge = src.slice(src.indexOf("function liveNudge()"), src.indexOf("function liveSubscribe"))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  assert(/clearTimeout\(LIVE\.debounceTimer\)/.test(nudge),
+    "a burst of writes is not collapsed: each row would trigger its own refresh");
+  assert(/setTimeout\(/.test(nudge), "the nudge never schedules the read it cancelled");
+});
+
+check("the realtime socket carries the operator's token", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const fn = src.slice(src.indexOf("function liveSubscribe(id)"), src.indexOf("function liveUnsubscribe"))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  /* Realtime applies the same RLS as a REST read, and events_op_r is
+     operator-only. An unauthenticated socket connects fine and then
+     delivers nothing — which looks exactly like a quiet academy. */
+  assert(/setAuth/.test(fn), "the socket is never authenticated, so RLS will deliver nothing");
+  assert(/bearerTok\(\)/.test(fn), "it does not fetch a token before subscribing");
+  const authAt = fn.indexOf("setAuth"), subAt = fn.indexOf(".subscribe(");
+  assert(authAt >= 0 && subAt >= 0 && authAt < subAt, "it subscribes before authenticating");
+  /* One academy, not all seven. */
+  assert(/tenant_id=eq\./.test(fn), "the subscription is not scoped to one tenant");
+});
+
+check("a missing realtime library does not break the console", () => {
+  const src = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  const fn = src.slice(src.indexOf("function liveClient()"), src.indexOf("function liveSubscribe"));
+  assert(/!window\.supabase/.test(fn), "it assumes the CDN script loaded");
+  /* The heartbeat has to survive the client being absent, or a CDN
+     outage silently stops all updates. */
+  const tick = src.slice(src.indexOf("function liveTick()"), src.indexOf("function liveStart()"));
+  assert(!/supabase/.test(tick), "the fallback heartbeat depends on the realtime client");
 });
 
 check("the page says when it last read anything", () => {
