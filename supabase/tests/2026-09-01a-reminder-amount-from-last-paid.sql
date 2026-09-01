@@ -200,5 +200,49 @@ begin
     end if;
   end;
 
-  raise notice 'all seven hold';
+  ---------------------------------------------------------------- 8
+  -- AN ADMISSION FEE IS NOT A MONTHLY RATE.
+  --
+  -- Mezzo has taken sixty-three payments and every one is a renewal, so
+  -- nothing in the live data can tell a filtered query from an
+  -- unfiltered one. GenAlpha has forty admissions up to 29,000 and Raj
+  -- seven up to 9,000 — the same shared function serves them, and the
+  -- day Mezzo takes its first admission fee is the day a one-off would
+  -- silently become "what this family pays every month".
+  declare
+    v_enrol bigint;
+    v_mid   bigint;
+    v_quote numeric;
+    v_src   text;
+  begin
+    select q.enrollment_id, q.member_id into v_enrol, v_mid
+      from reminder_queue('mezzo') q
+     where not exists (select 1 from payments p
+                        where p.tenant_id='mezzo' and p.enrollment_id = q.enrollment_id
+                          and p.status <> 'void')
+     order by q.enrollment_id
+     limit 1;
+    if v_enrol is null then
+      raise exception 'no unpaid mezzo enrolment to build the admission case on';
+    end if;
+
+    /* a renewal at 2,000, then a much larger admission fee after it */
+    insert into payments (tenant_id, member_id, enrollment_id, amount, months,
+                          on_date, mode, kind, status)
+    values ('mezzo', v_mid, v_enrol, 2000,  1, ist_today() - 20, 'UPI', 'renewal',   'paid'),
+           ('mezzo', v_mid, v_enrol, 25000, 1, ist_today() - 2,  'UPI', 'admission', 'paid');
+
+    select q.amount, q.fee_source into v_quote, v_src
+      from reminder_queue('mezzo') q where q.enrollment_id = v_enrol;
+
+    if v_quote is distinct from 2000 then
+      raise exception 'a 25,000 admission fee is being quoted as the monthly rate (got %)',
+        coalesce(v_quote::text, 'null');
+    end if;
+    if v_src <> 'last_paid' then
+      raise exception 'the renewal behind the admission was lost, source is %', v_src;
+    end if;
+  end;
+
+  raise notice 'all eight hold';
 end $$;
