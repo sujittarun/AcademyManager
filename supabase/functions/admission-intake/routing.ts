@@ -80,6 +80,53 @@ export function shouldContinueActiveBundle(
   return true;
 }
 
+/**
+ * An attachment replied to a review is evidence, not an answer.
+ *
+ * The review asks for the payment screenshot; the owner replies to it with
+ * the screenshot. That reached classifyReplyIntent as a message whose text
+ * was empty, the text rules found nothing, the model was asked to classify
+ * an empty string and answered "unknown", and the agent wrote back "I'm not
+ * fully sure what you want me to do" — with the proof it had asked for
+ * sitting unread in the thread. The CONFIRM that followed then failed on
+ * the missing proof. That was GACA-AI-2026-0090, 2026-09-22.
+ *
+ * Only what the extraction model actually reads counts: image and document.
+ * A voice note is still a reply to be understood, not evidence to re-read.
+ */
+export function isEvidenceAttachment(messageType: string): boolean {
+  return messageType === "image" || messageType === "document";
+}
+
+type InFlightReview = {
+  status?: string;
+  updated_at?: string;
+};
+
+/**
+ * A CONFIRM that lands while the review is being rebuilt must not be told
+ * the review has ended. After evidence is attached the session goes back to
+ * collecting, waits out the debounce, and spends a few seconds in
+ * processing; a CONFIRM typed in that window found no waiting review and
+ * got "That AgentAlpha review has ended. Send the form again." — which is
+ * exactly what it looks like when the agent is broken. The rebuilt summary
+ * is seconds away, so the right answer is "wait for it".
+ */
+export function selectReviewInFlight<T extends InFlightReview>(
+  rows: T[],
+  now = Date.now(),
+  windowMs = 3 * 60_000,
+): T | null {
+  const inFlight = rows
+    .filter((row) => {
+      const updatedAt = Date.parse(String(row.updated_at || ""));
+      return (row.status === "collecting" || row.status === "processing") &&
+        Number.isFinite(updatedAt) && now - updatedAt >= 0 && now - updatedAt <= windowMs;
+    })
+    .sort((a, b) => Date.parse(String(b.updated_at)) - Date.parse(String(a.updated_at)));
+  return inFlight[0] || null;
+}
+
 export function isSameProcessingGeneration(
   claimed: ProcessingGeneration,
   current: ProcessingGeneration,

@@ -252,3 +252,36 @@ Deno.test("media with no usable timestamp keeps the conservative behaviour", () 
   }, Date.parse("2026-08-19T08:57:14.000Z"));
   if (joins) throw new Error("Without a trustworthy timestamp we must not merge.");
 });
+
+import { isEvidenceAttachment, selectReviewInFlight } from "./routing.ts";
+
+Deno.test("a screenshot replied to a review is evidence, not a question", () => {
+  // GACA-AI-2026-0090: the review asked for the payment proof, the owner
+  // replied to it with the screenshot, and the agent asked what they meant.
+  if (!isEvidenceAttachment("image")) throw new Error("an image reply must be treated as evidence");
+  if (!isEvidenceAttachment("document")) throw new Error("a document reply must be treated as evidence");
+  // What the extraction model does not read is still a reply to understand.
+  if (isEvidenceAttachment("text")) throw new Error("text is classified, not attached");
+  if (isEvidenceAttachment("audio")) throw new Error("a voice note is not evidence the model reads");
+  if (isEvidenceAttachment("video")) throw new Error("a video is not evidence the model reads");
+});
+
+Deno.test("a CONFIRM typed while the review is being rebuilt waits for the new summary", () => {
+  const now = Date.parse("2026-09-22T11:44:55Z");
+  const seconds = (n: number) => new Date(now - n * 1000).toISOString();
+  const rebuilding = { id: "s1", status: "collecting", updated_at: seconds(24) };
+  const processing = { id: "s2", status: "processing", updated_at: seconds(5) };
+  const waiting = { id: "s3", status: "waiting_for_confirmation", updated_at: seconds(1) };
+  const expired = { id: "s4", status: "expired", updated_at: seconds(2) };
+  const stale = { id: "s5", status: "collecting", updated_at: seconds(4 * 60) };
+
+  const picked = selectReviewInFlight([rebuilding, processing, waiting, expired], now);
+  if (picked?.id !== "s2") throw new Error(`expected the newest in-flight review, got ${picked?.id}`);
+  if (selectReviewInFlight([waiting, expired], now) !== null) {
+    throw new Error("a waiting or expired review is not in flight; the ordinary routing owns it");
+  }
+  if (selectReviewInFlight([stale], now) !== null) {
+    throw new Error("a collecting session abandoned minutes ago is not a rebuild in progress");
+  }
+  if (selectReviewInFlight([], now) !== null) throw new Error("nothing in flight");
+});

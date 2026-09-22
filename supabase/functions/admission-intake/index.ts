@@ -1,6 +1,8 @@
 import {
+  isEvidenceAttachment,
   isSameProcessingGeneration,
   selectRecentExpiredReviewCandidate,
+  selectReviewInFlight,
   selectWaitingReviewCandidate,
   shouldContinueActiveBundle,
   shouldTargetWaitingReview,
@@ -369,6 +371,18 @@ async function createGroupSession(message: ReturnType<typeof normalizeMessage>) 
   return existing[0];
 }
 
+async function findReviewInFlight(message: ReturnType<typeof normalizeMessage>) {
+  const since = new Date(Date.now() - 3 * 60_000).toISOString();
+  const rows = await rest(
+    `admission_intake_sessions?select=id,status,updated_at&channel=in.(whatsapp,whatsapp_group)` +
+      `&source_chat_id=eq.${encodeURIComponent(message.source_chat_id)}` +
+      `&source_sender_id=eq.${encodeURIComponent(message.source_sender_id)}` +
+      `&status=in.(collecting,processing)&updated_at=gte.${encodeURIComponent(since)}` +
+      `&order=updated_at.desc&limit=5`,
+  );
+  return selectReviewInFlight(rows || []);
+}
+
 async function findRecentlyConfirmedSession(message: ReturnType<typeof normalizeMessage>) {
   if (confirmationIntent(message.text_body) !== "confirm") return null;
   const since = new Date(Date.now() - 30 * 60_000).toISOString();
@@ -426,6 +440,18 @@ async function ingestMessage(input: any, channel = "whatsapp") {
   }
   const replySession = replyRouting;
   if (!replySession && explicitReviewDecision && channel !== "web") {
+    const inFlight = await findReviewInFlight(message);
+    if (inFlight) {
+      await sendWhatsappSummary({
+        channel,
+        source_chat_id: message.source_chat_id,
+        source_sender_id: message.source_sender_id,
+      }, [
+        "⏳ *I'm still updating that review* with what you just sent.",
+        "The new summary is on its way — reply *CONFIRM* to that one.",
+      ].join("\n"));
+      return { ignored: true, reason: "The review is being rebuilt; confirm the next summary." };
+    }
     await sendWhatsappSummary({
       channel,
       source_chat_id: message.source_chat_id,
@@ -1480,13 +1506,18 @@ async function finalizeConfirmedSession(session: any, confirmationMessageId: str
 }
 
 async function classifyReplyIntent(session: any, message: any) {
-  const deterministicIntent = confirmationIntent(message.text_body);
+  // Evidence first. An image or document replied to the review is the thing
+  // the review asked for; it is never a question to put to the text model.
+  const attachment = isEvidenceAttachment(message.message_type);
+  const deterministicIntent: ReplyIntent = attachment ? "correction" : confirmationIntent(message.text_body);
   const mentionedPlan = statedRenewalPlan(message.text_body);
   let modelIntent: ReplyIntent | "" = "";
   let finalIntent: ReplyIntent = deterministicIntent;
   let confidence = deterministicIntent === "unknown" ? 0 : 1;
   let containsNewFacts = deterministicIntent === "correction";
-  let reason = deterministicIntent === "unknown" ? "No unambiguous deterministic phrase matched." : "Matched a guarded deterministic rule.";
+  let reason = attachment
+    ? `A ${message.message_type} replied to the review is new evidence; the review is rebuilt with it.`
+    : deterministicIntent === "unknown" ? "No unambiguous deterministic phrase matched." : "Matched a guarded deterministic rule.";
   let model = "";
   let responseId = "";
   let usage: Record<string, unknown> = {};
@@ -1604,7 +1635,7 @@ async function handleReply(ingested: any) {
     body: JSON.stringify({
       session_id: session.id,
       provider_message_id: ingested.message.provider_message_id,
-      correction_text: ingested.message.text_body,
+      correction_text: ingested.message.text_body || `[${ingested.message.message_type} attached]`,
       before_draft: beforeDraft,
       patch: {},
       after_draft: beforeDraft,
