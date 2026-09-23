@@ -1,4 +1,11 @@
 import {
+  inferRenewalPlanFromAmount,
+  type PlanPrices,
+  reconcileAdmissionAmount,
+  reconcileRenewalAmount,
+  STANDARD_PLAN_MONTHS,
+} from "./amount_rules.ts";
+import {
   isEvidenceAttachment,
   isSameProcessingGeneration,
   selectRecentExpiredReviewCandidate,
@@ -884,29 +891,46 @@ function normalizeRenewalDraft(draft: any) {
   return normalized;
 }
 
-function applyDeterministicRenewalPlan(draft: any, match: any) {
-  const validPlans = ["monthly", "quarterly", "halfyearly", "special", "custom"];
-  if (validPlans.includes(String(draft?.plan_type || "").toLowerCase())) return null;
-  const amount = Number(draft?.payment?.amount || 0);
-  const standardPlans: Record<string, { amount: number; months: number }> = {
-    monthly: { amount: 3500, months: 1 },
-    quarterly: { amount: 9975, months: 3 },
-    halfyearly: { amount: 18900, months: 6 },
-  };
-  const inferredPlan = Object.entries(standardPlans).find(([, option]) =>
-    Math.abs(amount - option.amount) < 0.01
-  );
-  if (!inferredPlan) return null;
-  const [planType, option] = inferredPlan;
-  const existingPlan = String(match?.student?.fee_plan || "").toLowerCase();
-  if (existingPlan && validPlans.includes(existingPlan) && existingPlan !== planType) return null;
-  draft.plan_type = planType;
-  draft.months_covered = option.months;
-  return {
-    plan_type: planType,
-    months_covered: option.months,
-    source: `Exact academy renewal price Rs ${option.amount} and existing player plan`,
-  };
+// PRICES COME FROM THE DATABASE. quote_fee() answers "what does THIS
+// family pay for N months" (their own rule, else the list), resolve_fee()
+// with no member answers "what is the list". Both are handed to
+// amount_rules.ts as plain numbers; this file never carries a price again.
+// A failed lookup yields no price, and no price means the plan stands as
+// stated — accepting is the safe direction.
+async function academyListPrice(months: number): Promise<{ coaching: number; admissionFee: number } | null> {
+  try {
+    const row = await rest("rpc/resolve_fee", {
+      method: "POST",
+      body: JSON.stringify({
+        p_tenant: "genalpha", p_member: null, p_centre: null, p_sport: null, p_batch: null,
+        p_months: Math.max(1, Number(months) || 1), p_custom: null,
+      }),
+      // resolve_fee lives in public; rest() pins genalpha
+      headers: { "Accept-Profile": "public", "Content-Profile": "public" },
+    });
+    const fee = Array.isArray(row) ? row[0] : row;
+    if (!(Number(fee?.amount) > 0)) return null;
+    return { coaching: Number(fee.amount), admissionFee: Number(fee.admission_fee || 0) };
+  } catch (error) {
+    console.warn("AgentAlpha list price unavailable", months, errorMessage(error));
+    return null;
+  }
+}
+
+async function renewalPriceTable(studentId: string): Promise<PlanPrices> {
+  const table: PlanPrices = {};
+  await Promise.all(Object.entries(STANDARD_PLAN_MONTHS).map(async ([plan, months]) => {
+    const [family, list] = await Promise.all([
+      rpc("quote_fee", { p_student_id: studentId, p_months: months }).catch((error) => {
+        console.warn("AgentAlpha family price unavailable", studentId, months, errorMessage(error));
+        return null;
+      }),
+      academyListPrice(months),
+    ]);
+    const quote = Array.isArray(family) ? family[0] : family;
+    table[plan] = [Number(quote?.amount || 0), Number(list?.coaching || 0)].filter((price) => price > 0);
+  }));
+  return table;
 }
 
 async function matchRenewalPlayer(renewal: any) {
@@ -1104,14 +1128,6 @@ function missingFieldLabel(field: string, paymentDate = ""): string {
   return labels[field] || field;
 }
 
-function renewalPlanAmountConflict(draft: any): string {
-  const plan = String(draft?.plan_type || "").toLowerCase();
-  const amount = Number(draft?.payment?.amount || 0);
-  const expected: Record<string, number> = { monthly: 3500, quarterly: 9975, halfyearly: 18900 };
-  if (!expected[plan] || amount <= 0 || Math.abs(amount - expected[plan]) < 0.01) return "";
-  return `Payment amount Rs ${amount.toLocaleString("en-IN")} does not match the ${plan} academy price of Rs ${expected[plan].toLocaleString("en-IN")}.`;
-}
-
 function displayDate(value: unknown): string {
   const raw = String(value || "");
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
@@ -1149,6 +1165,7 @@ function summary(session: any, result: any, match: any = null) {
       `Paid through: ${displayDate(match?.paidThrough)}`,
       `*₹${p.amount ? Number(p.amount).toLocaleString("en-IN") : "Not found"}* • ${displayDate(p.payment_date)} • ${planLabel(d.plan_type)} (${d.months_covered || 0} month${Number(d.months_covered || 0) === 1 ? "" : "s"})`,
       `Ref: ${reference} • Proof: ${String(p.screenshot_status || "unknown").toLowerCase() === "successful" ? "✅" : p.screenshot_status || "Unknown"}`,
+      ...(result.amount_note ? [`ℹ️ ${result.amount_note}`] : []),
       ...(warnings.length ? ["⚠️ *Please check*", ...warnings.map((x: string) => `• ${x}`), ""] : []),
       warnings.length ? "Send the missing or corrected detail." : "Reply *CONFIRM* to save, or send a correction.",
     ].join("\n");
@@ -1173,6 +1190,7 @@ function summary(session: any, result: any, match: any = null) {
     `Joining: ${displayDate(d.join_date)} • ${d.time_slot || "Batch not found"} • ${planLabel(d.fee_plan)}`,
     `Skills: ${styles} • Start now: ${d.ready_to_start ? "✅" : "No"} • Signed consent: ${d.consent_accepted && d.terms_accepted ? "✅" : "Missing"}`,
     paymentLine,
+    ...(result.amount_note ? [`ℹ️ ${result.amount_note}`] : []),
     ...(warnings.length ? ["", "⚠️ *Need before saving*", ...reviewProblems.map((x: string, index: number) => `${index + 1}. ${x}`)] : []),
     paymentClaimed && missingLabels.some((label: string) => /payment screenshot|amount paid/i.test(label))
       ? "Use WhatsApp Reply on this review to send the payment screenshot; if it was cash, reply e.g. *Cash ₹4,000*."
@@ -1330,7 +1348,12 @@ async function processSession(sessionId: string, allowReprocess = false) {
       activePayment.proof_path = "";
     }
     const match = intakeType === "renewal" ? await matchRenewalPlayer(activeDraft) : null;
-    const planInference = intakeType === "renewal" ? applyDeterministicRenewalPlan(activeDraft, match) : null;
+    const renewalPrices = intakeType === "renewal" && match?.student?.id
+      ? await renewalPriceTable(String(match.student.id))
+      : {};
+    const planInference = intakeType === "renewal"
+      ? inferRenewalPlanFromAmount(activeDraft, String(match?.student?.fee_plan || ""), renewalPrices)
+      : null;
     if (planInference) {
       extraction.result.deterministic_plan_inference = planInference;
       extraction.result.field_evidence = [
@@ -1343,14 +1366,34 @@ async function processSession(sessionId: string, allowReprocess = false) {
         },
       ];
     }
-    const planAmountConflict = intakeType === "renewal" ? renewalPlanAmountConflict(activeDraft) : "";
+    // Whatever was paid is the fee. An off-plan amount is recorded the way the
+    // app records it — the custom plan at that amount — and the review says so.
+    // It is never a conflict: the four reviews that treated it as one all died.
+    const amountNote = intakeType === "renewal"
+      ? reconcileRenewalAmount(activeDraft, renewalPrices)
+      : intakeType === "admission" && Number(activeDraft?.payment?.amount || 0) > 0
+      ? reconcileAdmissionAmount(activeDraft, await academyListPrice(Number(activeDraft?.months_covered || 1)))
+      : { changed: false, note: "" };
+    if (amountNote.note) {
+      extraction.result.amount_note = amountNote.note;
+      if (amountNote.changed) {
+        extraction.result.field_evidence = [
+          ...(extraction.result.field_evidence || []),
+          {
+            field: intakeType === "renewal" ? "renewal.plan_type" : "draft.fee_plan",
+            confidence: 1,
+            source: "deterministic_amount_is_the_fee",
+            notes: amountNote.note,
+          },
+        ];
+      }
+    }
     const extractedConflicts = intakeType === "admission"
       ? removeResolvedAdmissionConflicts(extraction.result.conflicts || [], activeDraft, messages)
       : extraction.result.conflicts || [];
     extraction.result.conflicts = [...new Set([
       ...extractedConflicts,
       ...(match?.conflicts || []),
-      ...(planAmountConflict ? [planAmountConflict] : []),
     ])];
     extraction.result.missing_fields = requiredMissingFields(intakeType, activeDraft, match);
     const version = Number(session.extraction_version || 0) + 1;
